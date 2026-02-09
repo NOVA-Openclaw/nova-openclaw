@@ -17,6 +17,13 @@ export type ChannelHeartbeatVisibilityConfig = {
   useIndicator?: boolean;
 };
 
+export type DndConfig = {
+  /** Enable Do Not Disturb mode on startup (default: false). */
+  enabled?: boolean;
+  /** Optional auto-reply message when in DND mode. */
+  message?: string;
+};
+
 export type ChannelDefaultsConfig = {
   groupPolicy?: GroupPolicy;
   /** Default heartbeat visibility for all channels. */

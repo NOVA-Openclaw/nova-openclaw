@@ -84,8 +84,16 @@ export type ChannelManager = {
   setChannelEnabled: (channel: ChannelId, enabled: boolean, accountId?: string) => Promise<void>;
   getChannelEnabled: (channel: ChannelId, accountId?: string) => boolean | undefined;
   clearChannelEnabledOverride: (channel: ChannelId, accountId?: string) => void;
-  setChannelDnd: (channel: ChannelId, enabled: boolean, message?: string, accountId?: string) => void;
-  getChannelDnd: (channel: ChannelId, accountId?: string) => { enabled: boolean; message?: string } | undefined;
+  setChannelDnd: (
+    channel: ChannelId,
+    enabled: boolean,
+    message?: string,
+    accountId?: string,
+  ) => void;
+  getChannelDnd: (
+    channel: ChannelId,
+    accountId?: string,
+  ) => { enabled: boolean; message?: string } | undefined;
 };
 
 // Channel docking: lifecycle hooks (`plugin.gateway`) flow through this manager.
@@ -101,6 +109,27 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     }
     const next = createRuntimeStore();
     channelStores.set(channelId, next);
+
+    // Initialize mode overrides from config
+    const cfg = loadConfig();
+    const plugin = getChannelPlugin(channelId);
+    if (plugin) {
+      const accountIds = plugin.config.listAccountIds(cfg);
+      for (const accountId of accountIds) {
+        const account = plugin.config.resolveAccount(cfg, accountId);
+        // Check if account has DND config
+        if (account && typeof account === "object") {
+          const dndConfig = (account as { dnd?: { enabled?: boolean; message?: string } }).dnd;
+          if (dndConfig?.enabled) {
+            next.modeOverrides.set(accountId, {
+              mode: "dnd",
+              dndMessage: dndConfig.message,
+            });
+          }
+        }
+      }
+    }
+
     return next;
   };
 
@@ -141,11 +170,11 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
           return;
         }
         const account = plugin.config.resolveAccount(cfg, id);
-        
+
         // Check runtime mode override first, then fall back to config enabled state
         const modeState = store.modeOverrides.get(id);
         const runtimeMode = modeState?.mode;
-        
+
         // Determine effective mode
         let effectiveMode: import("../channels/channel-mode.js").ChannelMode;
         if (runtimeMode) {
@@ -157,18 +186,19 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
             : isAccountEnabled(account);
           effectiveMode = configEnabled ? "enabled" : "disabled";
         }
-        
+
         // Import capabilities checker
         const { getChannelModeCapabilities } = await import("../channels/channel-mode.js");
         const capabilities = getChannelModeCapabilities(effectiveMode);
-        
+
         if (!capabilities.shouldConnect) {
           setRuntime(channelId, id, {
             accountId: id,
             running: false,
-            lastError: runtimeMode === "disabled"
-              ? "disabled at runtime" 
-              : (plugin.config.disabledReason?.(account, cfg) ?? "disabled"),
+            lastError:
+              runtimeMode === "disabled"
+                ? "disabled at runtime"
+                : (plugin.config.disabledReason?.(account, cfg) ?? "disabled"),
           });
           return;
         }
@@ -360,16 +390,16 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     const store = getStore(channelId);
     const accountIds = options?.accountId ? [options.accountId] : plugin.config.listAccountIds(cfg);
     const { getChannelModeCapabilities } = await import("../channels/channel-mode.js");
-    
+
     for (const id of accountIds) {
       const modeState: ChannelModeState = {
         mode,
         dndMessage: options?.dndMessage,
       };
       store.modeOverrides.set(id, modeState);
-      
+
       const capabilities = getChannelModeCapabilities(mode);
-      
+
       if (capabilities.shouldConnect) {
         // Start the channel if mode requires connection
         await startChannel(channelId, id);
@@ -390,11 +420,12 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     }
     const cfg = loadConfig();
     const store = getStore(channelId);
-    const resolvedId = accountId ?? 
-      plugin.config.defaultAccountId?.(cfg) ?? 
-      plugin.config.listAccountIds(cfg)[0] ?? 
+    const resolvedId =
+      accountId ??
+      plugin.config.defaultAccountId?.(cfg) ??
+      plugin.config.listAccountIds(cfg)[0] ??
       DEFAULT_ACCOUNT_ID;
-    
+
     const modeState = store.modeOverrides.get(resolvedId);
     return modeState?.mode;
   };
@@ -402,18 +433,21 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
   const getChannelModeState = (
     channelId: ChannelId,
     accountId?: string,
-  ): { mode: import("../channels/channel-mode.js").ChannelMode; dndMessage?: string } | undefined => {
+  ):
+    | { mode: import("../channels/channel-mode.js").ChannelMode; dndMessage?: string }
+    | undefined => {
     const plugin = getChannelPlugin(channelId);
     if (!plugin) {
       return undefined;
     }
     const cfg = loadConfig();
     const store = getStore(channelId);
-    const resolvedId = accountId ?? 
-      plugin.config.defaultAccountId?.(cfg) ?? 
-      plugin.config.listAccountIds(cfg)[0] ?? 
+    const resolvedId =
+      accountId ??
+      plugin.config.defaultAccountId?.(cfg) ??
+      plugin.config.listAccountIds(cfg)[0] ??
       DEFAULT_ACCOUNT_ID;
-    
+
     return store.modeOverrides.get(resolvedId);
   };
 
@@ -425,7 +459,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     const cfg = loadConfig();
     const store = getStore(channelId);
     const accountIds = accountId ? [accountId] : plugin.config.listAccountIds(cfg);
-    
+
     for (const id of accountIds) {
       store.modeOverrides.delete(id);
     }
