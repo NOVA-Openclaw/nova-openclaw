@@ -144,6 +144,7 @@ export const TelegramAccountSchemaBase = z
       })
       .strict()
       .optional(),
+    mode: z.enum(["enabled", "dnd", "read-only", "write-only", "disabled"]).optional(),
   })
   .strict();
 
