@@ -117,14 +117,30 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       const accountIds = plugin.config.listAccountIds(cfg);
       for (const accountId of accountIds) {
         const account = plugin.config.resolveAccount(cfg, accountId);
-        // Check if account has DND config
+        // Check if account has mode or DND config
         if (account && typeof account === "object") {
-          const dndConfig = (account as { dnd?: { enabled?: boolean; message?: string } }).dnd;
-          if (dndConfig?.enabled) {
+          const accountWithMode = account as {
+            mode?: string;
+            dnd?: { enabled?: boolean; message?: string };
+          };
+
+          // If mode is set in config, use it as the initial mode
+          const configMode = accountWithMode.mode;
+          if (configMode && configMode !== "enabled") {
             next.modeOverrides.set(accountId, {
-              mode: "dnd",
-              dndMessage: dndConfig.message,
+              mode: configMode as import("../channels/channel-mode.js").ChannelMode,
+              dndMessage: configMode === "dnd" ? accountWithMode.dnd?.message : undefined,
             });
+          }
+          // Fall back to legacy DND config if no explicit mode is set
+          else {
+            const dndConfig = accountWithMode.dnd;
+            if (dndConfig?.enabled) {
+              next.modeOverrides.set(accountId, {
+                mode: "dnd",
+                dndMessage: dndConfig.message,
+              });
+            }
           }
         }
       }
