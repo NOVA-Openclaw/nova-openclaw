@@ -137,6 +137,13 @@ export const TelegramAccountSchemaBase = z
     reactionLevel: z.enum(["off", "ack", "minimal", "extensive"]).optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
     linkPreview: z.boolean().optional(),
+    dnd: z
+      .object({
+        enabled: z.boolean().optional(),
+        message: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
