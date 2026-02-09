@@ -26,6 +26,7 @@ export type MonitorTelegramOpts = {
   webhookSecret?: string;
   proxyFetch?: typeof fetch;
   webhookUrl?: string;
+  channelManager?: import("../gateway/server-channels.js").ChannelManager;
 };
 
 export function createTelegramRunnerOptions(cfg: OpenClawConfig): RunOptions<unknown> {
@@ -145,6 +146,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       lastUpdateId,
       onUpdateId: persistUpdateId,
     },
+    channelManager: opts.channelManager,
   });
 
   if (opts.useWebhook) {
@@ -159,6 +161,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       fetch: proxyFetch,
       abortSignal: opts.abortSignal,
       publicUrl: opts.webhookUrl,
+      channelManager: opts.channelManager,
     });
     return;
   }

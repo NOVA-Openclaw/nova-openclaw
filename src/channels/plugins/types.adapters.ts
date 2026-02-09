@@ -155,6 +155,7 @@ export type ChannelGatewayContext<ResolvedAccount = unknown> = {
   log?: ChannelLogSink;
   getStatus: () => ChannelAccountSnapshot;
   setStatus: (next: ChannelAccountSnapshot) => void;
+  channelManager?: import("../../gateway/server-channels.js").ChannelManager;
 };
 
 export type ChannelLogoutResult = {

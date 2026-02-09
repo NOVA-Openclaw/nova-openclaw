@@ -24,6 +24,7 @@ export const createTelegramMessageProcessor = (deps) => {
     textLimit,
     opts,
     resolveBotTopicsEnabled,
+    channelManager,
   } = deps;
 
   return async (primaryCtx, allMedia, storeAllowFrom, options) => {
@@ -60,6 +61,7 @@ export const createTelegramMessageProcessor = (deps) => {
       telegramCfg,
       opts,
       resolveBotTopicsEnabled,
+      channelManager,
     });
   };
 };

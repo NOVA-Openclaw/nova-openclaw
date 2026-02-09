@@ -251,6 +251,22 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
           log,
           getStatus: () => getRuntime(channelId, id),
           setStatus: (next) => setRuntime(channelId, id, next),
+          channelManager: {
+            getRuntimeSnapshot,
+            startChannels,
+            startChannel,
+            stopChannel,
+            markChannelLoggedOut,
+            setChannelMode,
+            getChannelMode,
+            getChannelModeState,
+            clearChannelModeOverride,
+            setChannelEnabled,
+            getChannelEnabled,
+            clearChannelEnabledOverride,
+            setChannelDnd,
+            getChannelDnd,
+          },
         });
         const tracked = Promise.resolve(task)
           .catch((err) => {

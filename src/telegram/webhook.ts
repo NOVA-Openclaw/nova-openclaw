@@ -29,6 +29,7 @@ export async function startTelegramWebhook(opts: {
   abortSignal?: AbortSignal;
   healthPath?: string;
   publicUrl?: string;
+  channelManager?: import("../gateway/server-channels.js").ChannelManager;
 }) {
   const path = opts.path ?? "/telegram-webhook";
   const healthPath = opts.healthPath ?? "/healthz";
@@ -42,6 +43,7 @@ export async function startTelegramWebhook(opts: {
     proxyFetch: opts.fetch,
     config: opts.config,
     accountId: opts.accountId,
+    channelManager: opts.channelManager,
   });
   const handler = webhookCallback(bot, "http", {
     secretToken: opts.secret,
