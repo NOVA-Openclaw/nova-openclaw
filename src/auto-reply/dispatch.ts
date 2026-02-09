@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
+import type { ChannelManager } from "../gateway/server-channels.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import type { FinalizedMsgContext, MsgContext } from "./templating.js";
 import type { GetReplyOptions } from "./types.js";
@@ -18,6 +19,7 @@ export async function dispatchInboundMessage(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcher: ReplyDispatcher;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
@@ -26,6 +28,7 @@ export async function dispatchInboundMessage(params: {
     ctx: finalized,
     cfg: params.cfg,
     dispatcher: params.dispatcher,
+    channelManager: params.channelManager,
     replyOptions: params.replyOptions,
     replyResolver: params.replyResolver,
   });
@@ -35,6 +38,7 @@ export async function dispatchInboundMessageWithBufferedDispatcher(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcherOptions: ReplyDispatcherWithTypingOptions;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
@@ -46,6 +50,7 @@ export async function dispatchInboundMessageWithBufferedDispatcher(params: {
     ctx: params.ctx,
     cfg: params.cfg,
     dispatcher,
+    channelManager: params.channelManager,
     replyResolver: params.replyResolver,
     replyOptions: {
       ...params.replyOptions,
@@ -61,6 +66,7 @@ export async function dispatchInboundMessageWithDispatcher(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcherOptions: ReplyDispatcherOptions;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
@@ -69,6 +75,7 @@ export async function dispatchInboundMessageWithDispatcher(params: {
     ctx: params.ctx,
     cfg: params.cfg,
     dispatcher,
+    channelManager: params.channelManager,
     replyResolver: params.replyResolver,
     replyOptions: params.replyOptions,
   });

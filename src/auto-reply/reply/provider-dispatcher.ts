@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import type { ChannelManager } from "../../gateway/server-channels.js";
 import type { DispatchInboundResult } from "../dispatch.js";
 import type { FinalizedMsgContext, MsgContext } from "../templating.js";
 import type { GetReplyOptions } from "../types.js";
@@ -15,6 +16,7 @@ export async function dispatchReplyWithBufferedBlockDispatcher(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcherOptions: ReplyDispatcherWithTypingOptions;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("../reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
@@ -22,6 +24,7 @@ export async function dispatchReplyWithBufferedBlockDispatcher(params: {
     ctx: params.ctx,
     cfg: params.cfg,
     dispatcherOptions: params.dispatcherOptions,
+    channelManager: params.channelManager,
     replyResolver: params.replyResolver,
     replyOptions: params.replyOptions,
   });
@@ -31,6 +34,7 @@ export async function dispatchReplyWithDispatcher(params: {
   ctx: MsgContext | FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcherOptions: ReplyDispatcherOptions;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof import("../reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
@@ -38,6 +42,7 @@ export async function dispatchReplyWithDispatcher(params: {
     ctx: params.ctx,
     cfg: params.cfg,
     dispatcherOptions: params.dispatcherOptions,
+    channelManager: params.channelManager,
     replyResolver: params.replyResolver,
     replyOptions: params.replyOptions,
   });

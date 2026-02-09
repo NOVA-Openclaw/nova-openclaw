@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import type { ChannelManager } from "../../gateway/server-channels.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
@@ -83,10 +84,11 @@ export async function dispatchReplyFromConfig(params: {
   ctx: FinalizedMsgContext;
   cfg: OpenClawConfig;
   dispatcher: ReplyDispatcher;
+  channelManager?: ChannelManager;
   replyOptions?: Omit<GetReplyOptions, "onToolResult" | "onBlockReply">;
   replyResolver?: typeof getReplyFromConfig;
 }): Promise<DispatchFromConfigResult> {
-  const { ctx, cfg, dispatcher } = params;
+  const { ctx, cfg, dispatcher, channelManager } = params;
   const diagnosticsEnabled = isDiagnosticsEnabled(cfg);
   const channel = String(ctx.Surface ?? ctx.Provider ?? "unknown").toLowerCase();
   const chatId = ctx.To ?? ctx.From;
@@ -139,6 +141,46 @@ export async function dispatchReplyFromConfig(params: {
       reason,
     });
   };
+
+  // Check channel mode (DND, disabled, read-only) before processing
+  if (channelManager) {
+    const { checkChannelMode, DEFAULT_DND_MESSAGE } = await import("../dnd-handler.js");
+    const channelId = (ctx.OriginatingChannel ?? ctx.Surface ?? ctx.Provider ?? "") as string;
+    const accountId = ctx.AccountId;
+
+    if (channelId) {
+      const modeCheck = await checkChannelMode({
+        channelId,
+        accountId,
+        channelManager,
+      });
+
+      // Handle DND mode - send auto-reply and block processing
+      if (modeCheck.mode === "dnd") {
+        const dndMessage = modeCheck.dndMessage || DEFAULT_DND_MESSAGE;
+        const queuedFinal = dispatcher.sendFinalReply({ text: dndMessage });
+        await dispatcher.waitForIdle();
+        const counts = dispatcher.getQueuedCounts();
+        recordProcessed("skipped", { reason: "dnd" });
+        markIdle("message_blocked_dnd");
+        return { queuedFinal, counts };
+      }
+
+      // Handle disabled mode - silently drop message
+      if (modeCheck.mode === "disabled") {
+        recordProcessed("skipped", { reason: "channel-disabled" });
+        markIdle("message_blocked_disabled");
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+
+      // Handle read-only mode - drop message without processing
+      if (modeCheck.mode === "read-only") {
+        recordProcessed("skipped", { reason: "read-only" });
+        markIdle("message_blocked_read_only");
+        return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+    }
+  }
 
   if (shouldSkipDuplicateInbound(ctx)) {
     recordProcessed("skipped", { reason: "duplicate" });
