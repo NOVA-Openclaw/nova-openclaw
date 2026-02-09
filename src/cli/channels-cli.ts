@@ -2,8 +2,10 @@ import type { Command } from "commander";
 import {
   channelsAddCommand,
   channelsCapabilitiesCommand,
+  channelsDndCommand,
   channelsListCommand,
   channelsLogsCommand,
+  channelsModeCommand,
   channelsRemoveCommand,
   channelsResolveCommand,
   channelsStatusCommand,
@@ -243,5 +245,57 @@ export function registerChannelsCli(program: Command) {
           defaultRuntime,
         );
       }, "Channel logout failed");
+    });
+
+  channels
+    .command("mode")
+    .description("Set channel mode (enabled/dnd/read-only/write-only/disabled)")
+    .argument("<mode>", "Mode (enabled|dnd|read-only|write-only|disabled)")
+    .option("--channel <name>", `Channel (${channelNames})`)
+    .option("--account <id>", "Account id (default when omitted)")
+    .option("--message <text>", "DND message (only used with dnd mode)")
+    .option("--timeout <ms>", "Timeout in ms", "10000")
+    .option("--json", "Output JSON", false)
+    .action(async (mode, opts) => {
+      await runChannelsCommand(async () => {
+        await channelsModeCommand(
+          {
+            channel: opts.channel as string | undefined,
+            account: opts.account as string | undefined,
+            mode: mode as "enabled" | "dnd" | "read-only" | "write-only" | "disabled",
+            message: opts.message as string | undefined,
+            timeout: opts.timeout as string | undefined,
+            json: Boolean(opts.json),
+          },
+          defaultRuntime,
+        );
+      });
+    });
+
+  channels
+    .command("dnd")
+    .description("Enable or disable Do Not Disturb mode")
+    .option("--channel <name>", `Channel (${channelNames})`)
+    .option("--account <id>", "Account id (default when omitted)")
+    .option("--enable", "Enable DND", false)
+    .option("--disable", "Disable DND", false)
+    .option("--message <text>", "DND auto-reply message")
+    .option("--timeout <ms>", "Timeout in ms", "10000")
+    .option("--json", "Output JSON", false)
+    .action(async (opts) => {
+      await runChannelsCommand(async () => {
+        await channelsDndCommand(
+          {
+            channel: opts.channel as string | undefined,
+            account: opts.account as string | undefined,
+            enable: Boolean(opts.enable),
+            disable: Boolean(opts.disable),
+            message: opts.message as string | undefined,
+            timeout: opts.timeout as string | undefined,
+            json: Boolean(opts.json),
+          },
+          defaultRuntime,
+        );
+      });
     });
 }
