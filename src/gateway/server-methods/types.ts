@@ -78,6 +78,46 @@ export type GatewayRequestContext = {
     cleared: boolean,
     accountId?: string,
   ) => void;
+  setChannelEnabled: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    enabled: boolean,
+    accountId?: string,
+  ) => Promise<void>;
+  getChannelEnabled: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => boolean | undefined;
+  clearChannelEnabledOverride: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => void;
+  setChannelDnd: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    enabled: boolean,
+    message?: string,
+    accountId?: string,
+  ) => void;
+  getChannelDnd: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => { enabled: boolean; message?: string } | undefined;
+  setChannelMode: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    mode: import("../../channels/channel-mode.js").ChannelMode,
+    options?: { dndMessage?: string; accountId?: string },
+  ) => Promise<void>;
+  getChannelMode: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => import("../../channels/channel-mode.js").ChannelMode | undefined;
+  getChannelModeState: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => { mode: import("../../channels/channel-mode.js").ChannelMode; dndMessage?: string } | undefined;
+  clearChannelModeOverride: (
+    channel: import("../../channels/plugins/types.js").ChannelId,
+    accountId?: string,
+  ) => void;
   wizardRunner: (
     opts: import("../../commands/onboard-types.js").OnboardOptions,
     runtime: import("../../runtime.js").RuntimeEnv,

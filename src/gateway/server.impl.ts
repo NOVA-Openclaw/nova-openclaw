@@ -340,8 +340,22 @@ export async function startGatewayServer(
     channelLogs,
     channelRuntimeEnvs,
   });
-  const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
-    channelManager;
+  const {
+    getRuntimeSnapshot,
+    startChannels,
+    startChannel,
+    stopChannel,
+    markChannelLoggedOut,
+    setChannelEnabled,
+    getChannelEnabled,
+    clearChannelEnabledOverride,
+    setChannelDnd,
+    getChannelDnd,
+    setChannelMode,
+    getChannelMode,
+    getChannelModeState,
+    clearChannelModeOverride,
+  } = channelManager;
 
   const machineDisplayName = await getMachineDisplayName();
   const discovery = await startGatewayDiscovery({
@@ -475,6 +489,15 @@ export async function startGatewayServer(
       startChannel,
       stopChannel,
       markChannelLoggedOut,
+      setChannelEnabled,
+      getChannelEnabled,
+      clearChannelEnabledOverride,
+      setChannelDnd,
+      getChannelDnd,
+      setChannelMode,
+      getChannelMode,
+      getChannelModeState,
+      clearChannelModeOverride,
       wizardRunner,
       broadcastVoiceWakeChanged,
     },
