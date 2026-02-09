@@ -10,7 +10,7 @@ import {
   normalizeChannelId,
 } from "../../channels/plugins/index.js";
 import { buildChannelAccountSnapshot } from "../../channels/plugins/status.js";
-import { loadConfig, readConfigFileSnapshot } from "../../config/config.js";
+import { loadConfig, readConfigFileSnapshot, writeConfigFile } from "../../config/config.js";
 import { getChannelActivity } from "../../infra/channel-activity.js";
 import { DEFAULT_ACCOUNT_ID } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -310,14 +310,15 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
     const persist = (params as { persist?: boolean }).persist === true;
-    
+
     try {
       await context.setChannelEnabled(channelId, true, accountId);
-      
+
       if (persist && plugin.config.setAccountEnabled) {
         const cfg = loadConfig();
         const updatedCfg = plugin.config.setAccountEnabled({
@@ -327,8 +328,12 @@ export const channelsHandlers: GatewayRequestHandlers = {
         });
         await writeConfigFile(updatedCfg);
       }
-      
-      respond(true, { channel: channelId, enabled: true, accountId, persisted: persist }, undefined);
+
+      respond(
+        true,
+        { channel: channelId, enabled: true, accountId, persisted: persist },
+        undefined,
+      );
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }
@@ -354,14 +359,15 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
     const persist = (params as { persist?: boolean }).persist === true;
-    
+
     try {
       await context.setChannelEnabled(channelId, false, accountId);
-      
+
       if (persist && plugin.config.setAccountEnabled) {
         const cfg = loadConfig();
         const updatedCfg = plugin.config.setAccountEnabled({
@@ -371,8 +377,12 @@ export const channelsHandlers: GatewayRequestHandlers = {
         });
         await writeConfigFile(updatedCfg);
       }
-      
-      respond(true, { channel: channelId, enabled: false, accountId, persisted: persist }, undefined);
+
+      respond(
+        true,
+        { channel: channelId, enabled: false, accountId, persisted: persist },
+        undefined,
+      );
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }
@@ -398,11 +408,12 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
     const persist = (params as { persist?: boolean }).persist === true;
-    
+
     try {
       // Get current state
       const runtimeSnapshot = context.getRuntimeSnapshot();
@@ -410,10 +421,10 @@ export const channelsHandlers: GatewayRequestHandlers = {
       const resolvedAccountId = accountId || plugin.config.defaultAccountId?.(cfg) || "";
       const accountSnapshot = runtimeSnapshot.channelAccounts[channelId]?.[resolvedAccountId];
       const currentlyRunning = accountSnapshot?.running ?? false;
-      
+
       const newEnabled = !currentlyRunning;
       await context.setChannelEnabled(channelId, newEnabled, accountId);
-      
+
       if (persist && plugin.config.setAccountEnabled) {
         const updatedCfg = plugin.config.setAccountEnabled({
           cfg,
@@ -422,8 +433,12 @@ export const channelsHandlers: GatewayRequestHandlers = {
         });
         await writeConfigFile(updatedCfg);
       }
-      
-      respond(true, { channel: channelId, enabled: newEnabled, accountId, persisted: persist }, undefined);
+
+      respond(
+        true,
+        { channel: channelId, enabled: newEnabled, accountId, persisted: persist },
+        undefined,
+      );
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }
@@ -449,20 +464,21 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
     const enabled = (params as { enabled?: boolean }).enabled === true;
     const messageRaw = (params as { message?: unknown }).message;
     const message = typeof messageRaw === "string" ? messageRaw : undefined;
     const persist = (params as { persist?: boolean }).persist === true;
-    
+
     try {
       context.setChannelDnd(channelId, enabled, message, accountId);
-      
+
       // TODO: If persist is true, write DND state to config
       // This would require extending the config schema first
-      
+
       respond(
         true,
         { channel: channelId, dnd: { enabled, message }, accountId, persisted: persist },
@@ -484,10 +500,11 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
-    
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+
     try {
       const dndState = context.getChannelDnd(channelId, accountId);
       respond(
@@ -524,7 +541,7 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const rawMode = (params as { mode?: unknown }).mode;
     const { isValidChannelMode } = await import("../../channels/channel-mode.js");
     if (!isValidChannelMode(rawMode)) {
@@ -538,27 +555,28 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
     const messageRaw = (params as { dndMessage?: unknown }).dndMessage;
     const dndMessage = typeof messageRaw === "string" ? messageRaw : undefined;
     const persist = (params as { persist?: boolean }).persist === true;
-    
+
     try {
       await context.setChannelMode(channelId, rawMode, { accountId, dndMessage });
-      
+
       // TODO: If persist is true, write mode to config
       // This would require extending the config schema first
-      
+
       respond(
         true,
-        { 
-          channel: channelId, 
-          mode: rawMode, 
-          dndMessage, 
-          accountId, 
-          persisted: persist 
+        {
+          channel: channelId,
+          mode: rawMode,
+          dndMessage,
+          accountId,
+          persisted: persist,
         },
         undefined,
       );
@@ -578,18 +596,20 @@ export const channelsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    
+
     const accountIdRaw = (params as { accountId?: unknown }).accountId;
-    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
-    
+    const accountId =
+      typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+
     try {
       const modeState = context.getChannelModeState(channelId, accountId);
       const mode = modeState?.mode ?? "enabled"; // Default to enabled if no override
-      
-      const { describeChannelMode, getChannelModeCapabilities } = await import("../../channels/channel-mode.js");
+
+      const { describeChannelMode, getChannelModeCapabilities } =
+        await import("../../channels/channel-mode.js");
       const description = describeChannelMode(mode);
       const capabilities = getChannelModeCapabilities(mode);
-      
+
       respond(
         true,
         {
