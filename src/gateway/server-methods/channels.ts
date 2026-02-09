@@ -289,4 +289,321 @@ export const channelsHandlers: GatewayRequestHandlers = {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }
   },
+
+  "channels.enable": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    const plugin = getChannelPlugin(channelId);
+    if (!plugin) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `unknown channel: ${channelId}`),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const persist = (params as { persist?: boolean }).persist === true;
+    
+    try {
+      await context.setChannelEnabled(channelId, true, accountId);
+      
+      if (persist && plugin.config.setAccountEnabled) {
+        const cfg = loadConfig();
+        const updatedCfg = plugin.config.setAccountEnabled({
+          cfg,
+          accountId: accountId || plugin.config.defaultAccountId?.(cfg) || "",
+          enabled: true,
+        });
+        await writeConfigFile(updatedCfg);
+      }
+      
+      respond(true, { channel: channelId, enabled: true, accountId, persisted: persist }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.disable": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    const plugin = getChannelPlugin(channelId);
+    if (!plugin) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `unknown channel: ${channelId}`),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const persist = (params as { persist?: boolean }).persist === true;
+    
+    try {
+      await context.setChannelEnabled(channelId, false, accountId);
+      
+      if (persist && plugin.config.setAccountEnabled) {
+        const cfg = loadConfig();
+        const updatedCfg = plugin.config.setAccountEnabled({
+          cfg,
+          accountId: accountId || plugin.config.defaultAccountId?.(cfg) || "",
+          enabled: false,
+        });
+        await writeConfigFile(updatedCfg);
+      }
+      
+      respond(true, { channel: channelId, enabled: false, accountId, persisted: persist }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.toggle": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    const plugin = getChannelPlugin(channelId);
+    if (!plugin) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `unknown channel: ${channelId}`),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const persist = (params as { persist?: boolean }).persist === true;
+    
+    try {
+      // Get current state
+      const runtimeSnapshot = context.getRuntimeSnapshot();
+      const cfg = loadConfig();
+      const resolvedAccountId = accountId || plugin.config.defaultAccountId?.(cfg) || "";
+      const accountSnapshot = runtimeSnapshot.channelAccounts[channelId]?.[resolvedAccountId];
+      const currentlyRunning = accountSnapshot?.running ?? false;
+      
+      const newEnabled = !currentlyRunning;
+      await context.setChannelEnabled(channelId, newEnabled, accountId);
+      
+      if (persist && plugin.config.setAccountEnabled) {
+        const updatedCfg = plugin.config.setAccountEnabled({
+          cfg,
+          accountId: resolvedAccountId,
+          enabled: newEnabled,
+        });
+        await writeConfigFile(updatedCfg);
+      }
+      
+      respond(true, { channel: channelId, enabled: newEnabled, accountId, persisted: persist }, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.dnd.set": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    const plugin = getChannelPlugin(channelId);
+    if (!plugin) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `unknown channel: ${channelId}`),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const enabled = (params as { enabled?: boolean }).enabled === true;
+    const messageRaw = (params as { message?: unknown }).message;
+    const message = typeof messageRaw === "string" ? messageRaw : undefined;
+    const persist = (params as { persist?: boolean }).persist === true;
+    
+    try {
+      context.setChannelDnd(channelId, enabled, message, accountId);
+      
+      // TODO: If persist is true, write DND state to config
+      // This would require extending the config schema first
+      
+      respond(
+        true,
+        { channel: channelId, dnd: { enabled, message }, accountId, persisted: persist },
+        undefined,
+      );
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.dnd.get": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    
+    try {
+      const dndState = context.getChannelDnd(channelId, accountId);
+      respond(
+        true,
+        {
+          channel: channelId,
+          accountId,
+          dnd: dndState ?? { enabled: false },
+        },
+        undefined,
+      );
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.mode.set": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    const plugin = getChannelPlugin(channelId);
+    if (!plugin) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `unknown channel: ${channelId}`),
+      );
+      return;
+    }
+    
+    const rawMode = (params as { mode?: unknown }).mode;
+    const { isValidChannelMode } = await import("../../channels/channel-mode.js");
+    if (!isValidChannelMode(rawMode)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid mode: must be one of: enabled, dnd, read-only, write-only, disabled`,
+        ),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    const messageRaw = (params as { dndMessage?: unknown }).dndMessage;
+    const dndMessage = typeof messageRaw === "string" ? messageRaw : undefined;
+    const persist = (params as { persist?: boolean }).persist === true;
+    
+    try {
+      await context.setChannelMode(channelId, rawMode, { accountId, dndMessage });
+      
+      // TODO: If persist is true, write mode to config
+      // This would require extending the config schema first
+      
+      respond(
+        true,
+        { 
+          channel: channelId, 
+          mode: rawMode, 
+          dndMessage, 
+          accountId, 
+          persisted: persist 
+        },
+        undefined,
+      );
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
+
+  "channels.mode.get": async ({ params, respond, context }) => {
+    const rawChannel = (params as { channel?: unknown }).channel;
+    const channelId = typeof rawChannel === "string" ? normalizeChannelId(rawChannel) : null;
+    if (!channelId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "invalid channel parameter"),
+      );
+      return;
+    }
+    
+    const accountIdRaw = (params as { accountId?: unknown }).accountId;
+    const accountId = typeof accountIdRaw === "string" ? accountIdRaw.trim() || undefined : undefined;
+    
+    try {
+      const modeState = context.getChannelModeState(channelId, accountId);
+      const mode = modeState?.mode ?? "enabled"; // Default to enabled if no override
+      
+      const { describeChannelMode, getChannelModeCapabilities } = await import("../../channels/channel-mode.js");
+      const description = describeChannelMode(mode);
+      const capabilities = getChannelModeCapabilities(mode);
+      
+      respond(
+        true,
+        {
+          channel: channelId,
+          accountId,
+          mode,
+          description,
+          capabilities,
+          dndMessage: modeState?.dndMessage,
+        },
+        undefined,
+      );
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+    }
+  },
 };
