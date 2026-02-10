@@ -193,10 +193,12 @@ export async function dispatchReplyFromConfig(params: {
     return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
   }
 
-  // Inject system note for read-only mode
+  // Inject system note for read-only mode BEFORE processing
+  // This ensures the agent sees the note before generating a reply
   if (isReadOnlyChannel) {
     const systemNote = "[System: This channel is in read-only mode. Your reply will not be sent.]";
-    ctx.Body = ctx.Body ? `${ctx.Body}\n\n${systemNote}` : systemNote;
+    ctx.Body = ctx.Body ? `${systemNote}\n\n${ctx.Body}` : systemNote;
+    logVerbose(`dispatch-from-config: injected read-only system note`);
   }
 
   const inboundAudio = isInboundAudioContext(ctx);
@@ -387,10 +389,20 @@ export async function dispatchReplyFromConfig(params: {
     let accumulatedBlockText = "";
     let blockCount = 0;
 
+    // Wrap replyOptions to suppress typing indicators in read-only mode
+    const effectiveReplyOptions = isReadOnlyChannel
+      ? {
+          ...params.replyOptions,
+          onReplyStart: async () => {
+            logVerbose(`dispatch-from-config: suppressing typing indicator (read-only mode)`);
+          },
+        }
+      : params.replyOptions;
+
     const replyResult = await (params.replyResolver ?? getReplyFromConfig)(
       ctx,
       {
-        ...params.replyOptions,
+        ...effectiveReplyOptions,
         onToolResult:
           ctx.ChatType !== "group" && ctx.CommandSource !== "native"
             ? (payload: ReplyPayload) => {
