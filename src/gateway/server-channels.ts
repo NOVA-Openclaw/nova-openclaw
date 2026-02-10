@@ -128,16 +128,17 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
           };
 
           // If mode is set in config, use it as the initial mode
-          const configMode = accountWithMode.mode;
+          const configMode = accountWithMode.mode ?? (account as any).config?.mode;
           if (configMode && configMode !== "enabled") {
+            const dndConfig = accountWithMode.dnd ?? (account as any).config?.dnd;
             next.modeOverrides.set(accountId, {
               mode: configMode as import("../channels/channel-mode.js").ChannelMode,
-              dndMessage: configMode === "dnd" ? accountWithMode.dnd?.message : undefined,
+              dndMessage: configMode === "dnd" ? dndConfig?.message : undefined,
             });
           }
           // Fall back to legacy DND config if no explicit mode is set
           else {
-            const dndConfig = accountWithMode.dnd;
+            const dndConfig = accountWithMode.dnd ?? (account as any).config?.dnd;
             if (dndConfig?.enabled) {
               next.modeOverrides.set(accountId, {
                 mode: "dnd",
