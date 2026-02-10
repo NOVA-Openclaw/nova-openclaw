@@ -102,6 +102,9 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
 
   const channelStores = new Map<ChannelId, ChannelRuntimeStore>();
 
+  // Create a reference that will be populated later for self-reference
+  let manager: ChannelManager;
+
   const getStore = (channelId: ChannelId): ChannelRuntimeStore => {
     const existing = channelStores.get(channelId);
     if (existing) {
@@ -251,6 +254,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
           log,
           getStatus: () => getRuntime(channelId, id),
           setStatus: (next) => setRuntime(channelId, id, next),
+          channelManager: manager,
         });
         const tracked = Promise.resolve(task)
           .catch((err) => {
@@ -305,6 +309,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
             log: channelLogs[channelId],
             getStatus: () => getRuntime(channelId, id),
             setStatus: (next) => setRuntime(channelId, id, next),
+            channelManager: manager,
           });
         }
         try {
@@ -531,7 +536,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     };
   };
 
-  return {
+  manager = {
     getRuntimeSnapshot,
     startChannels,
     startChannel,
@@ -549,4 +554,6 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     setChannelDnd,
     getChannelDnd,
   };
+
+  return manager;
 }
