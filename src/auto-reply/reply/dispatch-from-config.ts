@@ -142,7 +142,8 @@ export async function dispatchReplyFromConfig(params: {
     });
   };
 
-  // Check channel mode (DND, disabled, read-only) before processing
+  // Check channel mode before processing
+  let isReadOnlyChannel = false;
   if (channelManager) {
     const { checkChannelMode, DEFAULT_DND_MESSAGE } = await import("../dnd-handler.js");
     const channelId = (ctx.OriginatingChannel ?? ctx.Surface ?? ctx.Provider ?? "") as string;
@@ -173,11 +174,16 @@ export async function dispatchReplyFromConfig(params: {
         return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
       }
 
-      // Handle read-only mode - drop message without processing
-      if (modeCheck.mode === "read-only") {
-        recordProcessed("skipped", { reason: "read-only" });
-        markIdle("message_blocked_read_only");
+      // Handle write-only mode - block inbound processing
+      if (modeCheck.mode === "write-only") {
+        recordProcessed("skipped", { reason: "write-only" });
+        markIdle("message_blocked_write_only");
         return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+      }
+
+      // Handle read-only mode - process message but suppress replies
+      if (modeCheck.mode === "read-only") {
+        isReadOnlyChannel = true;
       }
     }
   }
@@ -185,6 +191,12 @@ export async function dispatchReplyFromConfig(params: {
   if (shouldSkipDuplicateInbound(ctx)) {
     recordProcessed("skipped", { reason: "duplicate" });
     return { queuedFinal: false, counts: dispatcher.getQueuedCounts() };
+  }
+
+  // Inject system note for read-only mode
+  if (isReadOnlyChannel) {
+    const systemNote = "[System: This channel is in read-only mode. Your reply will not be sent.]";
+    ctx.Body = ctx.Body ? `${ctx.Body}\n\n${systemNote}` : systemNote;
   }
 
   const inboundAudio = isInboundAudioContext(ctx);
@@ -264,6 +276,13 @@ export async function dispatchReplyFromConfig(params: {
     abortSignal?: AbortSignal,
     mirror?: boolean,
   ): Promise<void> => {
+    // Suppress replies in read-only mode
+    if (isReadOnlyChannel) {
+      logVerbose(
+        `dispatch-from-config: suppressing reply (read-only mode): ${JSON.stringify(payload).slice(0, 200)}`,
+      );
+      return;
+    }
     // TypeScript doesn't narrow these from the shouldRouteToOriginating check,
     // but they're guaranteed non-null when this function is called.
     if (!originatingChannel || !originatingTo) {
@@ -286,6 +305,40 @@ export async function dispatchReplyFromConfig(params: {
     if (!result.ok) {
       logVerbose(`dispatch-from-config: route-reply failed: ${result.error ?? "unknown error"}`);
     }
+  };
+
+  // Wrap dispatcher to suppress replies in read-only mode
+  const originalDispatcher = dispatcher;
+  const wrappedDispatcher: ReplyDispatcher = {
+    sendToolResult: (payload) => {
+      if (isReadOnlyChannel) {
+        logVerbose(
+          `dispatch-from-config: suppressing tool result (read-only mode): ${JSON.stringify(payload).slice(0, 200)}`,
+        );
+        return false;
+      }
+      return originalDispatcher.sendToolResult(payload);
+    },
+    sendBlockReply: (payload) => {
+      if (isReadOnlyChannel) {
+        logVerbose(
+          `dispatch-from-config: suppressing block reply (read-only mode): ${JSON.stringify(payload).slice(0, 200)}`,
+        );
+        return false;
+      }
+      return originalDispatcher.sendBlockReply(payload);
+    },
+    sendFinalReply: (payload) => {
+      if (isReadOnlyChannel) {
+        logVerbose(
+          `dispatch-from-config: suppressing final reply (read-only mode): ${JSON.stringify(payload).slice(0, 200)}`,
+        );
+        return false;
+      }
+      return originalDispatcher.sendFinalReply(payload);
+    },
+    waitForIdle: () => originalDispatcher.waitForIdle(),
+    getQueuedCounts: () => originalDispatcher.getQueuedCounts(),
   };
 
   markProcessing();
@@ -318,10 +371,10 @@ export async function dispatchReplyFromConfig(params: {
           );
         }
       } else {
-        queuedFinal = dispatcher.sendFinalReply(payload);
+        queuedFinal = wrappedDispatcher.sendFinalReply(payload);
       }
-      await dispatcher.waitForIdle();
-      const counts = dispatcher.getQueuedCounts();
+      await wrappedDispatcher.waitForIdle();
+      const counts = wrappedDispatcher.getQueuedCounts();
       counts.final += routedFinalCount;
       recordProcessed("completed", { reason: "fast_abort" });
       markIdle("message_completed");
@@ -353,7 +406,7 @@ export async function dispatchReplyFromConfig(params: {
                   if (shouldRouteToOriginating) {
                     await sendPayloadAsync(ttsPayload, undefined, false);
                   } else {
-                    dispatcher.sendToolResult(ttsPayload);
+                    wrappedDispatcher.sendToolResult(ttsPayload);
                   }
                 };
                 return run();
@@ -380,7 +433,7 @@ export async function dispatchReplyFromConfig(params: {
             if (shouldRouteToOriginating) {
               await sendPayloadAsync(ttsPayload, context?.abortSignal, false);
             } else {
-              dispatcher.sendBlockReply(ttsPayload);
+              wrappedDispatcher.sendBlockReply(ttsPayload);
             }
           };
           return run();
@@ -423,7 +476,7 @@ export async function dispatchReplyFromConfig(params: {
           routedFinalCount += 1;
         }
       } else {
-        queuedFinal = dispatcher.sendFinalReply(ttsReply) || queuedFinal;
+        queuedFinal = wrappedDispatcher.sendFinalReply(ttsReply) || queuedFinal;
       }
     }
 
@@ -473,7 +526,7 @@ export async function dispatchReplyFromConfig(params: {
               );
             }
           } else {
-            const didQueue = dispatcher.sendFinalReply(ttsOnlyPayload);
+            const didQueue = wrappedDispatcher.sendFinalReply(ttsOnlyPayload);
             queuedFinal = didQueue || queuedFinal;
           }
         }
@@ -484,9 +537,9 @@ export async function dispatchReplyFromConfig(params: {
       }
     }
 
-    await dispatcher.waitForIdle();
+    await wrappedDispatcher.waitForIdle();
 
-    const counts = dispatcher.getQueuedCounts();
+    const counts = wrappedDispatcher.getQueuedCounts();
     counts.final += routedFinalCount;
     recordProcessed("completed");
     markIdle("message_completed");
