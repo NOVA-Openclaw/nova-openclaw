@@ -63,7 +63,6 @@ export type TelegramBotOptions = {
     lastUpdateId?: number | null;
     onUpdateId?: (updateId: number) => void | Promise<void>;
   };
-  channelManager?: import("../gateway/server-channels.js").ChannelManager;
 };
 
 export function getTelegramSequentialKey(ctx: {
@@ -367,7 +366,6 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     textLimit,
     opts,
     resolveBotTopicsEnabled,
-    channelManager: opts.channelManager,
   });
 
   registerTelegramNativeCommands({

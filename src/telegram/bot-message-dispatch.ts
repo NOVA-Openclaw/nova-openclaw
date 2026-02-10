@@ -49,7 +49,6 @@ export const dispatchTelegramMessage = async ({
   telegramCfg,
   opts,
   resolveBotTopicsEnabled,
-  channelManager,
 }: any) => {
   const {
     ctxPayload,
@@ -228,7 +227,6 @@ export const dispatchTelegramMessage = async ({
   const { queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
     cfg,
-    channelManager,
     dispatcherOptions: {
       responsePrefix: prefixContext.responsePrefix,
       responsePrefixContextProvider: prefixContext.responsePrefixContextProvider,
