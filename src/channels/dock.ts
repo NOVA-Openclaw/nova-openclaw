@@ -379,6 +379,7 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
       chatTypes: ["direct", "group"],
       reactions: true,
       media: true,
+      blockStreaming: true,
     },
     outbound: { textChunkLimit: 4000 },
     streaming: {

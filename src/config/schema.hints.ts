@@ -258,6 +258,8 @@ const FIELD_LABELS: Record<string, string> = {
   "agents.defaults.models": "Models",
   "agents.defaults.model.primary": "Primary Model",
   "agents.defaults.model.fallbacks": "Model Fallbacks",
+  "agents.defaults.model.retry_count": "Model Retry Count",
+  "agents.defaults.model.retry_delay_ms": "Model Retry Delay (ms)",
   "agents.defaults.imageModel.primary": "Image Model",
   "agents.defaults.imageModel.fallbacks": "Image Model Fallbacks",
   "agents.defaults.humanDelay.mode": "Human Delay Mode",
@@ -622,6 +624,10 @@ const FIELD_HELP: Record<string, string> = {
   "agents.defaults.model.primary": "Primary model (provider/model).",
   "agents.defaults.model.fallbacks":
     "Ordered fallback models (provider/model). Used when the primary model fails.",
+  "agents.defaults.model.retry_count":
+    "Number of retries for transient errors (rate limits, timeouts) before falling back (default: 3).",
+  "agents.defaults.model.retry_delay_ms":
+    "Base retry delay in milliseconds with exponential backoff (default: 1000, doubles each retry).",
   "agents.defaults.imageModel.primary":
     "Optional image model (provider/model) used when the primary model lacks image input.",
   "agents.defaults.imageModel.fallbacks": "Ordered fallback image models (provider/model).",

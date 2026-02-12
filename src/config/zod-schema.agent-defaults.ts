@@ -19,6 +19,8 @@ export const AgentDefaultsSchema = z
       .object({
         primary: z.string().optional(),
         fallbacks: z.array(z.string()).optional(),
+        retry_count: z.number().int().nonnegative().optional(),
+        retry_delay_ms: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),

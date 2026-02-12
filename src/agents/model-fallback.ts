@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { FailoverReason } from "./pi-embedded-helpers.js";
+import { logWarn } from "../logger.js";
 import {
   ensureAuthProfileStore,
   isProfileInCooldown,
@@ -12,6 +13,7 @@ import {
   isFailoverError,
   isTimeoutError,
 } from "./failover-error.js";
+import { runWithRetry, type RetryConfig, type RetryAttempt } from "./model-retry.js";
 import {
   buildConfiguredAllowlistKeys,
   buildModelAliasIndex,
@@ -32,6 +34,7 @@ type FallbackAttempt = {
   reason?: FailoverReason;
   status?: number;
   code?: string;
+  retries?: RetryAttempt[];
 };
 
 /**
@@ -213,6 +216,8 @@ export async function runWithModelFallback<T>(params: {
   agentDir?: string;
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
+  /** Optional retry configuration (default: 3 retries with 1000ms base delay) */
+  retryConfig?: RetryConfig;
   run: (provider: string, model: string) => Promise<T>;
   onError?: (attempt: {
     provider: string;
@@ -220,6 +225,13 @@ export async function runWithModelFallback<T>(params: {
     error: unknown;
     attempt: number;
     total: number;
+  }) => void | Promise<void>;
+  onRetry?: (retry: {
+    provider: string;
+    model: string;
+    attempt: number;
+    error: string;
+    delayMs: number;
   }) => void | Promise<void>;
 }): Promise<{
   result: T;
@@ -236,6 +248,13 @@ export async function runWithModelFallback<T>(params: {
   const authStore = params.cfg
     ? ensureAuthProfileStore(params.agentDir, { allowKeychainPrompt: false })
     : null;
+
+  // Resolve retry config from params or config
+  const retryConfig: RetryConfig = params.retryConfig ?? {
+    retryCount: params.cfg?.agents?.defaults?.model?.retry_count ?? 3,
+    retryDelayMs: params.cfg?.agents?.defaults?.model?.retry_delay_ms ?? 1000,
+  };
+
   const attempts: FallbackAttempt[] = [];
   let lastError: unknown;
 
@@ -261,9 +280,26 @@ export async function runWithModelFallback<T>(params: {
       }
     }
     try {
-      const result = await params.run(candidate.provider, candidate.model);
+      // Run with retry logic for this model
+      const retryResult = await runWithRetry({
+        fn: () => params.run(candidate.provider, candidate.model),
+        config: retryConfig,
+        provider: candidate.provider,
+        model: candidate.model,
+        onRetry: async (retryAttempt) => {
+          // Notify caller of retry
+          await params.onRetry?.({
+            provider: candidate.provider,
+            model: candidate.model,
+            attempt: retryAttempt.attempt,
+            error: retryAttempt.error,
+            delayMs: retryAttempt.delayMs ?? 0,
+          });
+        },
+      });
+
       return {
-        result,
+        result: retryResult.result,
         provider: candidate.provider,
         model: candidate.model,
         attempts,
@@ -283,6 +319,18 @@ export async function runWithModelFallback<T>(params: {
 
       lastError = normalized;
       const described = describeFailoverError(normalized);
+
+      // Get retry attempts from runWithRetry if available
+      const retryAttempts: RetryAttempt[] = [];
+
+      // Log fallback attempt
+      const modelLabel = `${candidate.provider}/${candidate.model}`;
+      const fallbackMsg =
+        i + 1 < candidates.length
+          ? `Falling back to next model after ${modelLabel} failed: ${described.message}`
+          : `All models exhausted. Last failure (${modelLabel}): ${described.message}`;
+      logWarn(fallbackMsg);
+
       attempts.push({
         provider: candidate.provider,
         model: candidate.model,
@@ -290,6 +338,7 @@ export async function runWithModelFallback<T>(params: {
         reason: described.reason,
         status: described.status,
         code: described.code,
+        retries: retryAttempts.length > 0 ? retryAttempts : undefined,
       });
       await params.onError?.({
         provider: candidate.provider,
@@ -311,7 +360,7 @@ export async function runWithModelFallback<T>(params: {
             (attempt) =>
               `${attempt.provider}/${attempt.model}: ${attempt.error}${
                 attempt.reason ? ` (${attempt.reason})` : ""
-              }`,
+              }${attempt.retries && attempt.retries.length > 0 ? ` (${attempt.retries.length} retries)` : ""}`,
           )
           .join(" | ")
       : "unknown";
