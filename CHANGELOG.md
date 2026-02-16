@@ -4,6 +4,10 @@ Docs: https://docs.openclaw.ai
 
 ## 2026.2.16 (Unreleased)
 
+### NOVA Fork
+
+- Version: append `-nova` suffix to package version (e.g., `2026.2.16-nova`) to distinguish NOVA fork releases from upstream OpenClaw. (#10)
+
 ### Changes
 
 - Discord: unlock rich interactive agent prompts with Components v2 (buttons, selects, modals, and attachment-backed file blocks) so for native interaction through Discord. Thanks @thewilloftheshadow.
