@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  VERSION,
   readVersionFromBuildInfoForModuleUrl,
   readVersionFromPackageJsonForModuleUrl,
   resolveVersionFromModuleUrl,
@@ -21,6 +22,32 @@ async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
 function moduleUrlFrom(root: string, relativePath: string): string {
   return pathToFileURL(path.join(root, relativePath)).href;
 }
+
+describe("NOVA version suffix", () => {
+  it("VERSION ends with -nova", () => {
+    expect(VERSION.endsWith("-nova")).toBe(true);
+  });
+
+  it("VERSION matches package.json version", async () => {
+    const pkg = JSON.parse(
+      await fs.readFile(path.resolve(import.meta.dirname, "..", "package.json"), "utf-8"),
+    ) as { version: string };
+    expect(VERSION).toBe(pkg.version);
+  });
+
+  it("resolveVersionFromModuleUrl returns -nova suffixed version", async () => {
+    await withTempDir(async (root) => {
+      await fs.mkdir(path.join(root, "dist"), { recursive: true });
+      await fs.writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "openclaw", version: "2026.2.16-nova" }),
+        "utf-8",
+      );
+      const moduleUrl = moduleUrlFrom(root, "dist/index.js");
+      expect(resolveVersionFromModuleUrl(moduleUrl)).toBe("2026.2.16-nova");
+    });
+  });
+});
 
 describe("version resolution", () => {
   it("resolves package version from nested dist/plugin-sdk module URL", async () => {
