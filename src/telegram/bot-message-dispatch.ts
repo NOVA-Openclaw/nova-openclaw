@@ -31,6 +31,9 @@ import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
+/** Minimum chars before sending first streaming message (improves push notification UX) */
+const DRAFT_MIN_INITIAL_CHARS = 30;
+
 async function resolveStickerVisionSupport(cfg: OpenClawConfig, agentId: string) {
   try {
     const catalog = await loadModelCatalog({ config: cfg });
@@ -101,6 +104,7 @@ export const dispatchTelegramMessage = async ({
         maxChars: draftMaxChars,
         thread: threadSpec,
         replyToMessageId: draftReplyToMessageId,
+        minInitialChars: DRAFT_MIN_INITIAL_CHARS,
         log: logVerbose,
         warn: logVerbose,
       })
@@ -314,7 +318,7 @@ export const dispatchTelegramMessage = async ({
               finalText.length <= draftMaxChars &&
               !payload.isError;
             if (canFinalizeViaPreviewEdit) {
-              draftStream?.stop();
+              await draftStream?.stop();
               draftStoppedForPreviewEdit = true;
               if (
                 currentPreviewText &&
@@ -353,7 +357,36 @@ export const dispatchTelegramMessage = async ({
               );
             }
             if (!draftStoppedForPreviewEdit) {
-              draftStream?.stop();
+              await draftStream?.stop();
+            }
+            // Check if stop() sent a message (debounce released on isFinal)
+            // If so, edit that message instead of sending a new one
+            const messageIdAfterStop = draftStream?.messageId();
+            if (
+              !finalizedViaPreviewMessage &&
+              typeof messageIdAfterStop === "number" &&
+              typeof finalText === "string" &&
+              finalText.length > 0 &&
+              finalText.length <= draftMaxChars &&
+              !hasMedia &&
+              !payload.isError
+            ) {
+              try {
+                await editMessageTelegram(chatId, messageIdAfterStop, finalText, {
+                  api: bot.api,
+                  cfg,
+                  accountId: route.accountId,
+                  linkPreview: telegramCfg.linkPreview,
+                  buttons: previewButtons,
+                });
+                finalizedViaPreviewMessage = true;
+                deliveryState.delivered = true;
+                return;
+              } catch (err) {
+                logVerbose(
+                  `telegram: post-stop preview edit failed; falling back to standard send (${String(err)})`,
+                );
+              }
             }
           }
           const result = await deliverReplies({
@@ -421,10 +454,11 @@ export const dispatchTelegramMessage = async ({
       },
     }));
   } finally {
+    // Must stop() first to flush debounced content before clear() wipes state
+    await draftStream?.stop();
     if (!finalizedViaPreviewMessage) {
       await draftStream?.clear();
     }
-    draftStream?.stop();
   }
   let sentFallback = false;
   if (!deliveryState.delivered && deliveryState.skippedNonSilent > 0) {

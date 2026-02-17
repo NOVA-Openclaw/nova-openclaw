@@ -12,12 +12,12 @@ const readSessionUpdatedAt = vi.fn(() => undefined);
 const resolveStorePath = vi.fn(() => "/tmp/openclaw-discord-process-test-sessions.json");
 
 vi.mock("../send.js", () => ({
-  reactMessageDiscord: (...args: unknown[]) => reactMessageDiscord(...args),
-  removeReactionDiscord: (...args: unknown[]) => removeReactionDiscord(...args),
+  reactMessageDiscord,
+  removeReactionDiscord,
 }));
 
 vi.mock("../../auto-reply/dispatch.js", () => ({
-  dispatchInboundMessage: (...args: unknown[]) => dispatchInboundMessage(...args),
+  dispatchInboundMessage,
 }));
 
 vi.mock("../../auto-reply/reply/reply-dispatcher.js", () => ({
@@ -36,12 +36,12 @@ vi.mock("../../auto-reply/reply/reply-dispatcher.js", () => ({
 }));
 
 vi.mock("../../channels/session.js", () => ({
-  recordInboundSession: (...args: unknown[]) => recordInboundSession(...args),
+  recordInboundSession,
 }));
 
 vi.mock("../../config/sessions.js", () => ({
-  readSessionUpdatedAt: (...args: unknown[]) => readSessionUpdatedAt(...args),
-  resolveStorePath: (...args: unknown[]) => resolveStorePath(...args),
+  readSessionUpdatedAt,
+  resolveStorePath,
 }));
 
 const { processDiscordMessage } = await import("./message-handler.process.js");
@@ -132,7 +132,9 @@ describe("processDiscordMessage ack reactions", () => {
     // oxlint-disable-next-line typescript/no-explicit-any
     await processDiscordMessage(ctx as any);
 
-    const emojis = reactMessageDiscord.mock.calls.map((call) => call[2]);
+    const emojis = (
+      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
+    ).map((call) => call[2]);
     expect(emojis).toContain("👀");
     expect(emojis).toContain("✅");
     expect(emojis).not.toContain("🧠");
@@ -161,7 +163,9 @@ describe("processDiscordMessage ack reactions", () => {
     }
 
     await runPromise;
-    const emojis = reactMessageDiscord.mock.calls.map((call) => call[2]);
+    const emojis = (
+      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
+    ).map((call) => call[2]);
     expect(emojis).toContain("⏳");
     expect(emojis).toContain("⚠️");
     expect(emojis).toContain("✅");
