@@ -27,6 +27,7 @@ import { splitTelegramCaption } from "./caption.js";
 import { resolveTelegramFetch } from "./fetch.js";
 import { renderTelegramHtmlText } from "./format.js";
 import { isRecoverableTelegramNetworkError } from "./network-errors.js";
+import { recordSentPoll } from "./poll-vote-cache.js";
 import { makeProxyFetch } from "./proxy.js";
 import { recordSentMessage } from "./sent-message-cache.js";
 import { parseTelegramTarget, stripTelegramInternalPrefixes } from "./targets.js";
@@ -193,6 +194,17 @@ function isTelegramThreadNotFoundError(err: unknown): boolean {
 
 function isTelegramMessageNotModifiedError(err: unknown): boolean {
   return MESSAGE_NOT_MODIFIED_RE.test(formatErrorMessage(err));
+}
+
+/**
+ * Telegram private chats have positive numeric IDs.
+ * Groups and supergroups have negative IDs (typically -100… for supergroups).
+ * Private chats never support forum topics, so `message_thread_id` must
+ * not be included in API calls targeting them (#17242).
+ */
+function isTelegramPrivateChat(chatId: string): boolean {
+  const n = Number(chatId);
+  return Number.isFinite(n) && n > 0;
 }
 
 function hasMessageThreadIdParam(params?: Record<string, unknown>): boolean {
@@ -427,9 +439,10 @@ export async function sendMessageTelegram(
   const mediaUrl = opts.mediaUrl?.trim();
   const replyMarkup = buildInlineKeyboard(opts.buttons);
 
+  const isPrivate = isTelegramPrivateChat(chatId);
   const threadParams = buildTelegramThreadReplyParams({
-    targetMessageThreadId: target.messageThreadId,
-    messageThreadId: opts.messageThreadId,
+    targetMessageThreadId: isPrivate ? undefined : target.messageThreadId,
+    messageThreadId: isPrivate ? undefined : opts.messageThreadId,
     replyToMessageId: opts.replyToMessageId,
     quoteText: opts.quoteText,
   });
@@ -918,9 +931,10 @@ export async function sendStickerTelegram(
   const target = parseTelegramTarget(to);
   const chatId = normalizeChatId(target.chatId);
 
+  const isPrivate = isTelegramPrivateChat(chatId);
   const threadParams = buildTelegramThreadReplyParams({
-    targetMessageThreadId: target.messageThreadId,
-    messageThreadId: opts.messageThreadId,
+    targetMessageThreadId: isPrivate ? undefined : target.messageThreadId,
+    messageThreadId: isPrivate ? undefined : opts.messageThreadId,
     replyToMessageId: opts.replyToMessageId,
   });
   const hasThreadParams = Object.keys(threadParams).length > 0;
@@ -974,7 +988,7 @@ type TelegramPollOpts = {
   messageThreadId?: number;
   /** Send message silently (no notification). Defaults to false. */
   silent?: boolean;
-  /** Whether votes are anonymous. Defaults to true (Telegram default). */
+  /** Whether votes are anonymous. Defaults to false (public poll). */
   isAnonymous?: boolean;
 };
 
@@ -996,9 +1010,10 @@ export async function sendPollTelegram(
   // Normalize the poll input (validates question, options, maxSelections)
   const normalizedPoll = normalizePollInput(poll, { maxOptions: 10 });
 
+  const isPrivate = isTelegramPrivateChat(chatId);
   const threadParams = buildTelegramThreadReplyParams({
-    targetMessageThreadId: target.messageThreadId,
-    messageThreadId: opts.messageThreadId,
+    targetMessageThreadId: isPrivate ? undefined : target.messageThreadId,
+    messageThreadId: isPrivate ? undefined : opts.messageThreadId,
     replyToMessageId: opts.replyToMessageId,
   });
 
@@ -1032,7 +1047,7 @@ export async function sendPollTelegram(
   // sendPoll(chat_id, question, options, other?, signal?)
   const pollParams = {
     allows_multiple_answers: normalizedPoll.maxSelections > 1,
-    is_anonymous: opts.isAnonymous ?? true,
+    is_anonymous: opts.isAnonymous ?? false,
     ...(durationSeconds !== undefined ? { open_period: durationSeconds } : {}),
     ...(Object.keys(threadParams).length > 0 ? threadParams : {}),
     ...(opts.silent === true ? { disable_notification: true } : {}),
@@ -1054,6 +1069,15 @@ export async function sendPollTelegram(
   const pollId = result?.poll?.id;
   if (result?.message_id) {
     recordSentMessage(chatId, result.message_id);
+  }
+  if (pollId) {
+    recordSentPoll({
+      pollId,
+      chatId: resolvedChatId,
+      question: normalizedPoll.question,
+      options: normalizedPoll.options,
+      accountId: account.accountId,
+    });
   }
 
   recordChannelActivity({
