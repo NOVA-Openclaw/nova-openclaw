@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
   PluginHookBeforeModelResolveResult,
   PluginHookBeforePromptBuildResult,
-  TypedPluginHookRegistration,
+  PluginHookRegistration,
 } from "./types.js";
 import { createHookRunner } from "./hooks.js";
 import { createEmptyPluginRegistry, type PluginRegistry } from "./registry.js";
@@ -23,7 +23,7 @@ function addTypedHook(
     handler,
     priority,
     source: "test",
-  } as TypedPluginHookRegistration);
+  } as PluginHookRegistration);
 }
 
 describe("phase hooks merger", () => {
