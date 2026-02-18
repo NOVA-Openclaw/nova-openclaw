@@ -11,6 +11,11 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
+import {
+  createInternalHookEvent,
+  triggerInternalHook,
+  type AgentPreRunHookContext,
+} from "../../hooks/internal-hooks.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import {
   resolveAgentDeliveryPlan,
@@ -525,6 +530,27 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     const resolvedThreadId = explicitThreadId ?? deliveryPlan.resolvedThreadId;
 
+    // Fire agent:pre-run hook to allow hooks to override model/thinking
+    const resolvedAgentIdForHook =
+      agentId ?? resolveAgentIdFromSessionKey(resolvedSessionKey) ?? "main";
+    let thinkingFromHook = request.thinking;
+    let modelFromHook = request.model;
+
+    const hookContext: AgentPreRunHookContext = {
+      agentId: resolvedAgentIdForHook,
+      sessionKey: resolvedSessionKey,
+      model: modelFromHook,
+      thinking: thinkingFromHook,
+    };
+
+    const hookEvent = createInternalHookEvent("agent", "pre-run", resolvedSessionKey, hookContext);
+    await triggerInternalHook(hookEvent);
+
+    // Read back hook-mutated values
+    const mutatedContext = hookEvent.context as AgentPreRunHookContext;
+    thinkingFromHook = mutatedContext.thinking;
+    modelFromHook = mutatedContext.model;
+
     void agentCommand(
       {
         message,
@@ -532,7 +558,8 @@ export const agentHandlers: GatewayRequestHandlers = {
         to: resolvedTo,
         sessionId: resolvedSessionId,
         sessionKey: resolvedSessionKey,
-        thinking: request.thinking,
+        thinking: thinkingFromHook,
+        model: modelFromHook,
         deliver,
         deliveryTargetMode,
         channel: resolvedChannel,
