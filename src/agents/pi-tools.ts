@@ -23,6 +23,7 @@ import {
   type ProcessToolDefaults,
 } from "./bash-tools.js";
 import { listChannelAgentTools } from "./channel-tools.js";
+import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
@@ -300,6 +301,7 @@ export function createOpenClawCodingTools(options?: {
   if (sandboxRoot && !sandboxFsBridge) {
     throw new Error("Sandbox filesystem bridge is unavailable.");
   }
+  const imageSanitization = resolveImageSanitizationLimits(options?.config);
 
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
@@ -308,12 +310,14 @@ export function createOpenClawCodingTools(options?: {
           root: sandboxRoot,
           bridge: sandboxFsBridge!,
           modelContextWindowTokens: options?.modelContextWindowTokens,
+          imageSanitization,
         });
         return [workspaceOnly ? wrapToolWorkspaceRootGuard(sandboxed, sandboxRoot) : sandboxed];
       }
       const freshReadTool = createReadTool(workspaceRoot);
       const wrapped = createOpenClawReadTool(freshReadTool, {
         modelContextWindowTokens: options?.modelContextWindowTokens,
+        imageSanitization,
       });
       return [workspaceOnly ? wrapToolWorkspaceRootGuard(wrapped, workspaceRoot) : wrapped];
     }

@@ -570,6 +570,7 @@ export async function compactEmbeddedPiSessionDirect(
           modelApi: model.api,
           modelId,
           provider,
+          config: params.config,
           sessionManager,
           sessionId: params.sessionId,
           policy: transcriptPolicy,
