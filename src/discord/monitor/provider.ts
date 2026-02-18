@@ -7,7 +7,6 @@ import {
 } from "@buape/carbon";
 import { Routes } from "discord-api-types/v10";
 import { inspect } from "node:util";
-import { ProxyAgent, fetch as undiciFetch } from "undici";
 import type { HistoryEntry } from "../../auto-reply/reply/history.js";
 import type { OpenClawConfig, ReplyToMode } from "../../config/config.js";
 import { resolveTextChunkLimit } from "../../auto-reply/chunk.js";
@@ -29,7 +28,6 @@ import {
 import { loadConfig } from "../../config/config.js";
 import { danger, logVerbose, shouldLogVerbose, warn } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { wrapFetchWithAbortSignal } from "../../infra/fetch.js";
 import { createDiscordRetryRunner } from "../../infra/retry-policy.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { createNonExitingRuntime, type RuntimeEnv } from "../../runtime.js";
@@ -67,6 +65,7 @@ import {
   createDiscordNativeCommand,
 } from "./native-command.js";
 import { resolveDiscordPresenceUpdate } from "./presence.js";
+import { resolveDiscordRestFetch } from "./rest-fetch.js";
 
 export type MonitorDiscordOpts = {
   token?: string;
@@ -116,26 +115,6 @@ function dedupeSkillCommandsForDiscord(
     deduped.push(command);
   }
   return deduped;
-}
-
-function resolveDiscordRestFetch(proxyUrl: string | undefined, runtime: RuntimeEnv): typeof fetch {
-  const proxy = proxyUrl?.trim();
-  if (!proxy) {
-    return fetch;
-  }
-  try {
-    const agent = new ProxyAgent(proxy);
-    const fetcher = ((input: RequestInfo | URL, init?: RequestInit) =>
-      undiciFetch(input as string | URL, {
-        ...(init as Record<string, unknown>),
-        dispatcher: agent,
-      }) as unknown as Promise<Response>) as typeof fetch;
-    runtime.log?.("discord: rest proxy enabled");
-    return wrapFetchWithAbortSignal(fetcher);
-  } catch (err) {
-    runtime.error?.(danger(`discord: invalid rest proxy: ${String(err)}`));
-    return fetch;
-  }
 }
 
 async function deployDiscordCommands(params: {
