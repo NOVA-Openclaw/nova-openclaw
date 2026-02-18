@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ReplyDispatcher } from "./reply/reply-dispatcher.js";
-<<<<<<< HEAD
-=======
 import { clearInternalHooks, registerInternalHook } from "../hooks/internal-hooks.js";
->>>>>>> 871a67811 (feat(hooks): add message:received and message:sent hook events)
 import { dispatchInboundMessage, withReplyDispatcher } from "./dispatch.js";
 import { buildTestCtx } from "./reply/test-ctx.js";
 
