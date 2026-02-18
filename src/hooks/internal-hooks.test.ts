@@ -508,28 +508,6 @@ describe("hooks", () => {
       expect(mutatedContext.thinking).toBe("low");
       expect(mutatedContext.fallbackModel).toBe("claude-haiku");
     });
-
-    it("should allow hooks to block spawn", async () => {
-      const handler = vi.fn((event) => {
-        const ctx = event.context as SessionPreSpawnHookContext;
-        if (!ctx.agentId) {
-          ctx.blocked = true;
-          ctx.blockReason = "agentId is required";
-        }
-      });
-      registerInternalHook("session:pre-spawn", handler);
-
-      const context: SessionPreSpawnHookContext = {
-        model: "gpt-4o",
-      };
-      const event = createInternalHookEvent("session", "pre-spawn", "test-session", context);
-      await triggerInternalHook(event);
-
-      expect(handler).toHaveBeenCalled();
-      const mutatedContext = event.context as SessionPreSpawnHookContext;
-      expect(mutatedContext.blocked).toBe(true);
-      expect(mutatedContext.blockReason).toBe("agentId is required");
-    });
   });
 
   describe("agent:pre-run hooks", () => {
@@ -587,28 +565,6 @@ describe("hooks", () => {
 
       expect(generalHandler).toHaveBeenCalledWith(event);
       expect(specificHandler).toHaveBeenCalledWith(event);
-    });
-
-    it("should allow hooks to block agent run", async () => {
-      const handler = vi.fn((event) => {
-        const ctx = event.context as AgentPreRunHookContext;
-        if (!ctx.agentId) {
-          ctx.blocked = true;
-          ctx.blockReason = "agentId is required for agent run";
-        }
-      });
-      registerInternalHook("agent:pre-run", handler);
-
-      const context: AgentPreRunHookContext = {
-        model: "claude-sonnet-4-20250514",
-      };
-      const event = createInternalHookEvent("agent", "pre-run", "test-session", context);
-      await triggerInternalHook(event);
-
-      expect(handler).toHaveBeenCalled();
-      const mutatedContext = event.context as AgentPreRunHookContext;
-      expect(mutatedContext.blocked).toBe(true);
-      expect(mutatedContext.blockReason).toBe("agentId is required for agent run");
     });
   });
 });

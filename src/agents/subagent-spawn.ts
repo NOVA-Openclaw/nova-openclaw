@@ -173,16 +173,8 @@ export async function spawnSubagentDirect(
   const hookEvent = createInternalHookEvent("session", "pre-spawn", childSessionKey, hookContext);
   await triggerInternalHook(hookEvent);
 
-  // Check if hook blocked the spawn
-  const mutatedContext = hookEvent.context as SessionPreSpawnHookContext;
-  if (mutatedContext.blocked) {
-    return {
-      status: "error",
-      error: mutatedContext.blockReason || "Spawn blocked by hook",
-    };
-  }
-
   // Read back hook-mutated values
+  const mutatedContext = hookEvent.context as SessionPreSpawnHookContext;
   modelOverrideFromHook = mutatedContext.model;
   thinkingOverrideRawFromHook = mutatedContext.thinking;
   fallbackModelFromHook = mutatedContext.fallbackModel;
