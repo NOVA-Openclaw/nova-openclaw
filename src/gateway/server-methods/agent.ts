@@ -546,8 +546,28 @@ export const agentHandlers: GatewayRequestHandlers = {
     const hookEvent = createInternalHookEvent("agent", "pre-run", resolvedSessionKey, hookContext);
     await triggerInternalHook(hookEvent);
 
-    // Read back hook-mutated values
+    // Check if hook blocked the run
     const mutatedContext = hookEvent.context as AgentPreRunHookContext;
+    if (mutatedContext.blocked) {
+      const error = errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        mutatedContext.blockReason || "Agent run blocked by hook",
+      );
+      context.dedupe.set(`agent:${idem}`, {
+        ts: Date.now(),
+        ok: false,
+        payload: {
+          runId,
+          status: "error" as const,
+          summary: error.message,
+        },
+        error,
+      });
+      respond(false, undefined, error);
+      return;
+    }
+
+    // Read back hook-mutated values
     thinkingFromHook = mutatedContext.thinking;
     modelFromHook = mutatedContext.model;
 

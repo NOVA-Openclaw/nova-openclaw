@@ -588,5 +588,27 @@ describe("hooks", () => {
       expect(generalHandler).toHaveBeenCalledWith(event);
       expect(specificHandler).toHaveBeenCalledWith(event);
     });
+
+    it("should allow hooks to block agent run", async () => {
+      const handler = vi.fn((event) => {
+        const ctx = event.context as AgentPreRunHookContext;
+        if (!ctx.agentId) {
+          ctx.blocked = true;
+          ctx.blockReason = "agentId is required for agent run";
+        }
+      });
+      registerInternalHook("agent:pre-run", handler);
+
+      const context: AgentPreRunHookContext = {
+        model: "claude-sonnet-4-20250514",
+      };
+      const event = createInternalHookEvent("agent", "pre-run", "test-session", context);
+      await triggerInternalHook(event);
+
+      expect(handler).toHaveBeenCalled();
+      const mutatedContext = event.context as AgentPreRunHookContext;
+      expect(mutatedContext.blocked).toBe(true);
+      expect(mutatedContext.blockReason).toBe("agentId is required for agent run");
+    });
   });
 });
