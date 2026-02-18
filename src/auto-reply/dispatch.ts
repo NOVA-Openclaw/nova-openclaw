@@ -2,6 +2,10 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.js";
 import type { FinalizedMsgContext, MsgContext } from "./templating.js";
 import type { GetReplyOptions } from "./types.js";
+<<<<<<< HEAD
+=======
+import { triggerMessageReceived } from "../hooks/message-hooks.js";
+>>>>>>> 871a67811 (feat(hooks): add message:received and message:sent hook events)
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import { finalizeInboundContext } from "./reply/inbound-context.js";
 import {
@@ -40,6 +44,10 @@ export async function dispatchInboundMessage(params: {
   replyResolver?: typeof import("./reply.js").getReplyFromConfig;
 }): Promise<DispatchInboundResult> {
   const finalized = finalizeInboundContext(params.ctx);
+
+  // Trigger message:received hook before processing
+  await triggerMessageReceived(finalized.SessionKey ?? "", finalized);
+
   return await withReplyDispatcher({
     dispatcher: params.dispatcher,
     run: () =>

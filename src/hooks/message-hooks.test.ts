@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
 import {
-  registerInternalHook,
   clearInternalHooks,
+  registerInternalHook,
   type InternalHookEvent,
 } from "./internal-hooks.js";
 import {
@@ -32,43 +32,61 @@ describe("message-hooks", () => {
         SenderId: "+1234567890",
         SenderName: "Test User",
         Provider: "signal",
-        MessageSid: "msg123",
-        ChatType: "direct",
-        From: "signal:+1234567890",
-        Timestamp: 1234567890,
+        MessageSid: "msg-123",
+        ChatType: "dm" as const,
+        From: "+1234567890",
+        SessionKey: "agent:main:signal",
+        Timestamp: 1700000000,
         CommandAuthorized: true,
-        SessionKey: "agent:main:main",
-      } as FinalizedMsgContext;
+      };
 
-      await triggerMessageReceived("agent:main:main", ctx);
+      await triggerMessageReceived("agent:main:signal", ctx as unknown as FinalizedMsgContext);
 
       expect(handler).toHaveBeenCalledTimes(1);
       const event = handler.mock.calls[0][0] as InternalHookEvent;
       expect(event.type).toBe("message");
       expect(event.action).toBe("received");
-      expect(event.sessionKey).toBe("agent:main:main");
+      expect(event.sessionKey).toBe("agent:main:signal");
 
-      const context = event.context as MessageReceivedContext;
-      expect(context.message).toBe("Hello world");
-      expect(context.senderId).toBe("+1234567890");
-      expect(context.channel).toBe("signal");
+      const eventContext = event.context as MessageReceivedContext;
+      expect(eventContext.message).toBe("Hello world");
+      expect(eventContext.rawBody).toBe("Hello world");
+      expect(eventContext.senderId).toBe("+1234567890");
+      expect(eventContext.senderName).toBe("Test User");
+      expect(eventContext.channel).toBe("signal");
+      expect(eventContext.messageId).toBe("msg-123");
+      expect(eventContext.isGroup).toBe(false);
+      expect(eventContext.commandAuthorized).toBe(true);
     });
 
-    it("triggers both general and specific handlers", async () => {
-      const generalHandler = vi.fn();
-      const specificHandler = vi.fn();
-      registerInternalHook("message", generalHandler);
-      registerInternalHook("message:received", specificHandler);
+    it("sets isGroup=true and groupId for group messages", async () => {
+      const handler = vi.fn();
+      registerInternalHook("message:received", handler);
 
       const ctx = {
-        Body: "Test",
-        SessionKey: "test-session",
-      } as FinalizedMsgContext;
+        Body: "Group message",
+        ChatType: "group" as const,
+        From: "group-abc-123",
+        SessionKey: "agent:main:signal:group",
+      };
 
-      await triggerMessageReceived("test-session", ctx);
+      await triggerMessageReceived(
+        "agent:main:signal:group",
+        ctx as unknown as FinalizedMsgContext,
+      );
 
-      expect(generalHandler).toHaveBeenCalledTimes(1);
-      expect(specificHandler).toHaveBeenCalledTimes(1);
+      const event = handler.mock.calls[0][0] as InternalHookEvent;
+      const eventContext = event.context as MessageReceivedContext;
+      expect(eventContext.isGroup).toBe(true);
+      expect(eventContext.groupId).toBe("group-abc-123");
+    });
+
+    it("does not fire if no handlers registered", async () => {
+      // Should not throw when no handlers are registered
+      const ctx = { Body: "test", SessionKey: "test" };
+      await expect(
+        triggerMessageReceived("test", ctx as unknown as FinalizedMsgContext),
+      ).resolves.toBeUndefined();
     });
   });
 
