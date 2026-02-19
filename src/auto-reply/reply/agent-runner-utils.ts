@@ -4,8 +4,10 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { TemplateContext } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
 import type { FollowupRun } from "./queue.js";
+import { resolveAgentModelFallbacksOverride } from "../../agents/agent-scope.js";
 import { getChannelDock } from "../../channels/dock.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
+import { resolveAgentIdFromSessionKey } from "../../config/sessions.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 
@@ -135,6 +137,47 @@ export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPa
 export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
   Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
 
+export function resolveModelFallbackOptions(run: FollowupRun["run"]) {
+  return {
+    cfg: run.config,
+    provider: run.provider,
+    model: run.model,
+    agentDir: run.agentDir,
+    fallbacksOverride: resolveAgentModelFallbacksOverride(
+      run.config,
+      resolveAgentIdFromSessionKey(run.sessionKey),
+    ),
+  };
+}
+
+export function buildEmbeddedRunBaseParams(params: {
+  run: FollowupRun["run"];
+  provider: string;
+  model: string;
+  runId: string;
+  authProfile: ReturnType<typeof resolveProviderScopedAuthProfile>;
+}) {
+  return {
+    sessionFile: params.run.sessionFile,
+    workspaceDir: params.run.workspaceDir,
+    agentDir: params.run.agentDir,
+    config: params.run.config,
+    skillsSnapshot: params.run.skillsSnapshot,
+    ownerNumbers: params.run.ownerNumbers,
+    enforceFinalTag: resolveEnforceFinalTag(params.run, params.provider),
+    provider: params.provider,
+    model: params.model,
+    ...params.authProfile,
+    thinkLevel: params.run.thinkLevel,
+    verboseLevel: params.run.verboseLevel,
+    reasoningLevel: params.run.reasoningLevel,
+    execOverrides: params.run.execOverrides,
+    bashElevated: params.run.bashElevated,
+    timeoutMs: params.run.timeoutMs,
+    runId: params.runId,
+  };
+}
+
 export function buildEmbeddedContextFromTemplate(params: {
   run: FollowupRun["run"];
   sessionCtx: TemplateContext;
@@ -173,6 +216,23 @@ export function resolveRunAuthProfile(run: FollowupRun["run"], provider: string)
     authProfileId: run.authProfileId,
     authProfileIdSource: run.authProfileIdSource,
   });
+}
+
+export function buildEmbeddedRunContexts(params: {
+  run: FollowupRun["run"];
+  sessionCtx: TemplateContext;
+  hasRepliedRef: { value: boolean } | undefined;
+  provider: string;
+}) {
+  return {
+    authProfile: resolveRunAuthProfile(params.run, params.provider),
+    embeddedContext: buildEmbeddedContextFromTemplate({
+      run: params.run,
+      sessionCtx: params.sessionCtx,
+      hasRepliedRef: params.hasRepliedRef,
+    }),
+    senderContext: buildTemplateSenderContext(params.sessionCtx),
+  };
 }
 
 export function resolveProviderScopedAuthProfile(params: {
