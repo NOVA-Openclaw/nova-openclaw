@@ -3,7 +3,7 @@ import fsPromises from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { formatZonedTimestamp } from "../../infra/format-time/format-datetime.js";
 import { resetLogger, setLoggerOverride } from "../../logging.js";
@@ -224,14 +224,18 @@ describe("sanitizeChatSendMessageInput", () => {
 });
 
 describe("gateway chat transcript writes (guardrail)", () => {
-  it("does not append transcript messages via raw fs.appendFileSync(transcriptPath, ...)", () => {
+  it("routes transcript writes through helper and SessionManager parentId append", () => {
     const chatTs = fileURLToPath(new URL("./chat.ts", import.meta.url));
-    const src = fs.readFileSync(chatTs, "utf-8");
+    const chatSrc = fs.readFileSync(chatTs, "utf-8");
+    const helperTs = fileURLToPath(new URL("./chat-transcript-inject.ts", import.meta.url));
+    const helperSrc = fs.readFileSync(helperTs, "utf-8");
 
-    expect(src.includes("fs.appendFileSync(transcriptPath")).toBe(false);
+    expect(chatSrc.includes("fs.appendFileSync(transcriptPath")).toBe(false);
+    expect(chatSrc).toContain("appendInjectedAssistantMessageToTranscript(");
 
-    expect(src).toContain("SessionManager.open(transcriptPath)");
-    expect(src).toContain("appendMessage(");
+    expect(helperSrc.includes("fs.appendFileSync(params.transcriptPath")).toBe(false);
+    expect(helperSrc).toContain("SessionManager.open(params.transcriptPath)");
+    expect(helperSrc).toContain("appendMessage(messageBody)");
   });
 });
 
@@ -250,6 +254,7 @@ describe("exec approval handlers", () => {
 
   function toExecApprovalRequestContext(context: {
     broadcast: (event: string, payload: unknown) => void;
+    hasExecApprovalClients?: () => boolean;
   }): ExecApprovalRequestArgs["context"] {
     return context as unknown as ExecApprovalRequestArgs["context"];
   }
@@ -273,7 +278,10 @@ describe("exec approval handlers", () => {
     return params.handlers["exec.approval.request"]({
       params: requestParams,
       respond: params.respond as unknown as ExecApprovalRequestArgs["respond"],
-      context: toExecApprovalRequestContext(params.context),
+      context: toExecApprovalRequestContext({
+        hasExecApprovalClients: () => true,
+        ...params.context,
+      }),
       client: null,
       req: { id: "req-1", type: "req", method: "exec.approval.request" },
       isWebchatConnect: execApprovalNoop,
@@ -305,6 +313,7 @@ describe("exec approval handlers", () => {
       broadcast: (event: string, payload: unknown) => {
         broadcasts.push({ event, payload });
       },
+      hasExecApprovalClients: () => true,
     };
     return { handlers, broadcasts, respond, context };
   }
@@ -459,18 +468,63 @@ describe("exec approval handlers", () => {
     );
     expect(resolveRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
   });
+
+  it("expires immediately when no approver clients and no forwarding targets", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new ExecApprovalManager();
+      const forwarder = {
+        handleRequested: vi.fn(async () => false),
+        handleResolved: vi.fn(async () => {}),
+        stop: vi.fn(),
+      };
+      const handlers = createExecApprovalHandlers(manager, { forwarder });
+      const respond = vi.fn();
+      const context = {
+        broadcast: (_event: string, _payload: unknown) => {},
+        hasExecApprovalClients: () => false,
+      };
+      const expireSpy = vi.spyOn(manager, "expire");
+
+      const requestPromise = requestExecApproval({
+        handlers,
+        respond,
+        context,
+        params: { timeoutMs: 60_000 },
+      });
+      for (let idx = 0; idx < 20; idx += 1) {
+        await Promise.resolve();
+      }
+      expect(forwarder.handleRequested).toHaveBeenCalledTimes(1);
+      expect(expireSpy).toHaveBeenCalledTimes(1);
+      await vi.runOnlyPendingTimersAsync();
+      await requestPromise;
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({ decision: null }),
+        undefined,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("gateway healthHandlers.status scope handling", () => {
-  beforeEach(async () => {
-    const status = await import("../../commands/status.js");
-    vi.mocked(status.getStatusSummary).mockClear();
+  let statusModule: typeof import("../../commands/status.js");
+  let healthHandlers: typeof import("./health.js").healthHandlers;
+
+  beforeAll(async () => {
+    statusModule = await import("../../commands/status.js");
+    ({ healthHandlers } = await import("./health.js"));
+  });
+
+  beforeEach(() => {
+    vi.mocked(statusModule.getStatusSummary).mockClear();
   });
 
   async function runHealthStatus(scopes: string[]) {
     const respond = vi.fn();
-    const status = await import("../../commands/status.js");
-    const { healthHandlers } = await import("./health.js");
 
     await healthHandlers.status({
       req: {} as never,
@@ -481,22 +535,21 @@ describe("gateway healthHandlers.status scope handling", () => {
       isWebchatConnect: () => false,
     });
 
-    return { respond, status };
+    return respond;
   }
 
-  it("requests redacted status for non-admin clients", async () => {
-    const { respond, status } = await runHealthStatus(["operator.read"]);
+  it.each([
+    { scopes: ["operator.read"], includeSensitive: false },
+    { scopes: ["operator.admin"], includeSensitive: true },
+  ])(
+    "requests includeSensitive=$includeSensitive for scopes $scopes",
+    async ({ scopes, includeSensitive }) => {
+      const respond = await runHealthStatus(scopes);
 
-    expect(vi.mocked(status.getStatusSummary)).toHaveBeenCalledWith({ includeSensitive: false });
-    expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
-  });
-
-  it("requests full status for admin clients", async () => {
-    const { respond, status } = await runHealthStatus(["operator.admin"]);
-
-    expect(vi.mocked(status.getStatusSummary)).toHaveBeenCalledWith({ includeSensitive: true });
-    expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
-  });
+      expect(vi.mocked(statusModule.getStatusSummary)).toHaveBeenCalledWith({ includeSensitive });
+      expect(respond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    },
+  );
 });
 
 describe("logs.tail", () => {

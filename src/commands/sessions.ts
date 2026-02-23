@@ -1,4 +1,4 @@
-import type { RuntimeEnv } from "../runtime.js";
+import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { lookupContextTokens } from "../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { resolveConfiguredModelRef } from "../agents/model-selection.js";
@@ -13,6 +13,7 @@ import { classifySessionKey, resolveSessionModelRef } from "../gateway/session-u
 import { info } from "../globals.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
 import { parseAgentSessionKey } from "../routing/session-key.js";
+import type { RuntimeEnv } from "../runtime.js";
 import { isRich, theme } from "../terminal/theme.js";
 
 type SessionRow = {
@@ -181,7 +182,8 @@ export async function sessionsCommand(
     lookupContextTokens(resolved.model) ??
     DEFAULT_CONTEXT_TOKENS;
   const configModel = resolved.model ?? DEFAULT_MODEL;
-  const storePath = resolveStorePath(opts.store ?? cfg.session?.store);
+  const defaultAgentId = resolveDefaultAgentId(cfg);
+  const storePath = resolveStorePath(opts.store ?? cfg.session?.store, { agentId: defaultAgentId });
   const store = loadSessionStore(storePath);
 
   let activeMinutes: number | undefined;

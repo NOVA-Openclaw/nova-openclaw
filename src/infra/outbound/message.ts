@@ -1,8 +1,8 @@
-import type { OpenClawConfig } from "../../config/config.js";
-import type { PollInput } from "../../polls.js";
 import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
-import { callGateway, randomIdempotencyKey } from "../../gateway/call.js";
+import { callGatewayLeastPrivilege, randomIdempotencyKey } from "../../gateway/call.js";
+import type { PollInput } from "../../polls.js";
 import { normalizePollInput } from "../../polls.js";
 import {
   GATEWAY_CLIENT_MODES,
@@ -151,7 +151,7 @@ async function callMessageGateway<T>(params: {
   params: Record<string, unknown>;
 }): Promise<T> {
   const gateway = resolveGatewayOptions(params.gateway);
-  return await callGateway<T>({
+  return await callGatewayLeastPrivilege<T>({
     url: gateway.url,
     token: gateway.token,
     method: params.method,

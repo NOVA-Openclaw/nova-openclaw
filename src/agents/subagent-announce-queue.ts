@@ -8,8 +8,11 @@ import {
 import {
   applyQueueRuntimeSettings,
   applyQueueDropPolicy,
+  beginQueueDrain,
   buildCollectPrompt,
   clearQueueSummaryState,
+  drainCollectQueueStep,
+  drainNextQueueItem,
   hasCrossChannelItems,
   previewQueueSummaryPrompt,
   waitForQueueDebounce,
@@ -95,44 +98,42 @@ function getAnnounceQueue(
   return created;
 }
 
+function hasAnnounceCrossChannelItems(items: AnnounceQueueItem[]): boolean {
+  return hasCrossChannelItems(items, (item) => {
+    if (!item.origin) {
+      return {};
+    }
+    if (!item.originKey) {
+      return { cross: true };
+    }
+    return { key: item.originKey };
+  });
+}
+
 function scheduleAnnounceDrain(key: string) {
-  const queue = ANNOUNCE_QUEUES.get(key);
-  if (!queue || queue.draining) {
+  const queue = beginQueueDrain(ANNOUNCE_QUEUES, key);
+  if (!queue) {
     return;
   }
-  queue.draining = true;
   void (async () => {
     try {
-      let forceIndividualCollect = false;
-      while (queue.items.length > 0 || queue.droppedCount > 0) {
+      const collectState = { forceIndividualCollect: false };
+      for (;;) {
+        if (queue.items.length === 0 && queue.droppedCount === 0) {
+          break;
+        }
         await waitForQueueDebounce(queue);
         if (queue.mode === "collect") {
-          if (forceIndividualCollect) {
-            const next = queue.items[0];
-            if (!next) {
-              break;
-            }
-            await queue.send(next);
-            queue.items.shift();
-            continue;
-          }
-          const isCrossChannel = hasCrossChannelItems(queue.items, (item) => {
-            if (!item.origin) {
-              return {};
-            }
-            if (!item.originKey) {
-              return { cross: true };
-            }
-            return { key: item.originKey };
+          const collectDrainResult = await drainCollectQueueStep({
+            collectState,
+            isCrossChannel: hasAnnounceCrossChannelItems(queue.items),
+            items: queue.items,
+            run: async (item) => await queue.send(item),
           });
-          if (isCrossChannel) {
-            forceIndividualCollect = true;
-            const next = queue.items[0];
-            if (!next) {
-              break;
-            }
-            await queue.send(next);
-            queue.items.shift();
+          if (collectDrainResult === "empty") {
+            break;
+          }
+          if (collectDrainResult === "drained") {
             continue;
           }
           const items = queue.items.slice();
@@ -157,22 +158,21 @@ function scheduleAnnounceDrain(key: string) {
 
         const summaryPrompt = previewQueueSummaryPrompt({ state: queue, noun: "announce" });
         if (summaryPrompt) {
-          const next = queue.items[0];
-          if (!next) {
+          if (
+            !(await drainNextQueueItem(
+              queue.items,
+              async (item) => await queue.send({ ...item, prompt: summaryPrompt }),
+            ))
+          ) {
             break;
           }
-          await queue.send({ ...next, prompt: summaryPrompt });
-          queue.items.shift();
           clearQueueSummaryState(queue);
           continue;
         }
 
-        const next = queue.items[0];
-        if (!next) {
+        if (!(await drainNextQueueItem(queue.items, async (item) => await queue.send(item)))) {
           break;
         }
-        await queue.send(next);
-        queue.items.shift();
       }
     } catch (err) {
       // Keep items in queue and retry after debounce; avoid hot-loop retries.

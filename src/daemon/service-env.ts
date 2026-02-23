@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { VERSION } from "../version.js";
 import {
@@ -46,6 +47,17 @@ function addCommonUserBinDirs(dirs: string[], home: string): void {
   dirs.push(`${home}/.bun/bin`);
 }
 
+function addCommonEnvConfiguredBinDirs(
+  dirs: string[],
+  env: Record<string, string | undefined> | undefined,
+): void {
+  addNonEmptyDir(dirs, env?.PNPM_HOME);
+  addNonEmptyDir(dirs, appendSubdir(env?.NPM_CONFIG_PREFIX, "bin"));
+  addNonEmptyDir(dirs, appendSubdir(env?.BUN_INSTALL, "bin"));
+  addNonEmptyDir(dirs, appendSubdir(env?.VOLTA_HOME, "bin"));
+  addNonEmptyDir(dirs, appendSubdir(env?.ASDF_DATA_DIR, "shims"));
+}
+
 function resolveSystemPathDirs(platform: NodeJS.Platform): string[] {
   if (platform === "darwin") {
     return ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
@@ -77,11 +89,7 @@ export function resolveDarwinUserBinDirs(
   // Env-configured bin roots (override defaults when present).
   // Note: FNM_DIR on macOS defaults to ~/Library/Application Support/fnm
   // Note: PNPM_HOME on macOS defaults to ~/Library/pnpm
-  addNonEmptyDir(dirs, env?.PNPM_HOME);
-  addNonEmptyDir(dirs, appendSubdir(env?.NPM_CONFIG_PREFIX, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.BUN_INSTALL, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.VOLTA_HOME, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.ASDF_DATA_DIR, "shims"));
+  addCommonEnvConfiguredBinDirs(dirs, env);
   // nvm: no stable default path, relies on env or user's shell config
   // User must set NVM_DIR and source nvm.sh for it to work
   addNonEmptyDir(dirs, env?.NVM_DIR);
@@ -119,11 +127,7 @@ export function resolveLinuxUserBinDirs(
   const dirs: string[] = [];
 
   // Env-configured bin roots (override defaults when present).
-  addNonEmptyDir(dirs, env?.PNPM_HOME);
-  addNonEmptyDir(dirs, appendSubdir(env?.NPM_CONFIG_PREFIX, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.BUN_INSTALL, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.VOLTA_HOME, "bin"));
-  addNonEmptyDir(dirs, appendSubdir(env?.ASDF_DATA_DIR, "shims"));
+  addCommonEnvConfiguredBinDirs(dirs, env);
   addNonEmptyDir(dirs, appendSubdir(env?.NVM_DIR, "current/bin"));
   addNonEmptyDir(dirs, appendSubdir(env?.FNM_DIR, "current/bin"));
 
@@ -212,8 +216,11 @@ export function buildServiceEnvironment(params: {
   const systemdUnit = `${resolveGatewaySystemdServiceName(profile)}.service`;
   const stateDir = env.OPENCLAW_STATE_DIR;
   const configPath = env.OPENCLAW_CONFIG_PATH;
+  // Keep a usable temp directory for supervised services even when the host env omits TMPDIR.
+  const tmpDir = env.TMPDIR?.trim() || os.tmpdir();
   return {
     HOME: env.HOME,
+    TMPDIR: tmpDir,
     PATH: buildMinimalServicePath({ env }),
     OPENCLAW_PROFILE: profile,
     OPENCLAW_STATE_DIR: stateDir,
@@ -234,8 +241,10 @@ export function buildNodeServiceEnvironment(params: {
   const { env } = params;
   const stateDir = env.OPENCLAW_STATE_DIR;
   const configPath = env.OPENCLAW_CONFIG_PATH;
+  const tmpDir = env.TMPDIR?.trim() || os.tmpdir();
   return {
     HOME: env.HOME,
+    TMPDIR: tmpDir,
     PATH: buildMinimalServicePath({ env }),
     OPENCLAW_STATE_DIR: stateDir,
     OPENCLAW_CONFIG_PATH: configPath,

@@ -1,9 +1,10 @@
 import fsSync from "node:fs";
-import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveApiKeyForProvider } from "../agents/model-auth.js";
 import { formatCliCommand } from "../cli/command-format.js";
+import type { OpenClawConfig } from "../config/config.js";
+import { resolveMemoryBackendConfig } from "../memory/backend-config.js";
 import { note } from "../terminal/note.js";
 import { resolveUserPath } from "../utils.js";
 
@@ -19,6 +20,13 @@ export async function noteMemorySearchHealth(cfg: OpenClawConfig): Promise<void>
 
   if (!resolved) {
     note("Memory search is explicitly disabled (enabled: false).", "Memory search");
+    return;
+  }
+
+  // QMD backend handles embeddings internally (e.g. embeddinggemma) — no
+  // separate embedding provider is needed. Skip the provider check entirely.
+  const backendConfig = resolveMemoryBackendConfig({ cfg, agentId });
+  if (backendConfig.backend === "qmd") {
     return;
   }
 
@@ -68,7 +76,7 @@ export async function noteMemorySearchHealth(cfg: OpenClawConfig): Promise<void>
   if (hasLocalEmbeddings(resolved.local)) {
     return;
   }
-  for (const provider of ["openai", "gemini", "voyage"] as const) {
+  for (const provider of ["openai", "gemini", "voyage", "mistral"] as const) {
     if (hasRemoteApiKey || (await hasApiKeyForProvider(provider, cfg, agentDir))) {
       return;
     }
@@ -80,7 +88,7 @@ export async function noteMemorySearchHealth(cfg: OpenClawConfig): Promise<void>
       "Semantic recall will not work without an embedding provider.",
       "",
       "Fix (pick one):",
-      "- Set OPENAI_API_KEY or GEMINI_API_KEY in your environment",
+      "- Set OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
       `- Add credentials: ${formatCliCommand("openclaw auth add --provider openai")}`,
       `- For local embeddings: configure agents.defaults.memorySearch.provider and local model path`,
       `- To disable: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.enabled false")}`,
@@ -111,7 +119,7 @@ function hasLocalEmbeddings(local: { modelPath?: string }): boolean {
 }
 
 async function hasApiKeyForProvider(
-  provider: "openai" | "gemini" | "voyage",
+  provider: "openai" | "gemini" | "voyage" | "mistral",
   cfg: OpenClawConfig,
   agentDir: string,
 ): Promise<boolean> {
