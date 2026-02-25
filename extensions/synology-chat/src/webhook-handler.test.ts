@@ -1,5 +1,5 @@
-import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { EventEmitter } from "node:events";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ResolvedSynologyChatAccount } from "./types.js";
 import { createWebhookHandler } from "./webhook-handler.js";
@@ -154,6 +154,26 @@ describe("createWebhookHandler", () => {
       },
       bodyContains: "not authorized",
     });
+  });
+
+  it("returns 403 when allowlist policy is set with empty allowedUserIds", async () => {
+    const deliver = vi.fn();
+    const handler = createWebhookHandler({
+      account: makeAccount({
+        dmPolicy: "allowlist",
+        allowedUserIds: [],
+      }),
+      deliver,
+      log,
+    });
+
+    const req = makeReq("POST", validBody);
+    const res = makeRes();
+    await handler(req, res);
+
+    expect(res._status).toBe(403);
+    expect(res._body).toContain("Allowlist is empty");
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it("returns 403 when DMs are disabled", async () => {

@@ -1,4 +1,8 @@
 import type { Bot } from "grammy";
+import type { MsgContext } from "../auto-reply/templating.js";
+import type { OpenClawConfig } from "../config/config.js";
+import type { DmPolicy, TelegramGroupConfig, TelegramTopicConfig } from "../config/types.js";
+import type { StickerMetadata, TelegramContext } from "./bot/types.js";
 import { resolveAckReaction } from "../agents/identity.js";
 import {
   findModelInCatalog,
@@ -16,7 +20,6 @@ import {
 } from "../auto-reply/reply/history.js";
 import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
 import { buildMentionRegexes, matchesMentionWithExplicit } from "../auto-reply/reply/mentions.js";
-import type { MsgContext } from "../auto-reply/templating.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../channels/ack-reactions.js";
 import { resolveControlCommandGate } from "../channels/command-gating.js";
 import { formatLocationText, toLocationContext } from "../channels/location.js";
@@ -27,23 +30,14 @@ import {
   createStatusReactionController,
   type StatusReactionController,
 } from "../channels/status-reactions.js";
-import type { OpenClawConfig } from "../config/config.js";
 import { loadConfig } from "../config/config.js";
 import { readSessionUpdatedAt, resolveStorePath } from "../config/sessions.js";
-import type { DmPolicy, TelegramGroupConfig, TelegramTopicConfig } from "../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
 import { recordChannelActivity } from "../infra/channel-activity.js";
-import { buildPairingReply } from "../pairing/pairing-messages.js";
-import { upsertChannelPairingRequest } from "../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../routing/resolve-route.js";
 import { resolveThreadSessionKeys } from "../routing/session-key.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
-import {
-  firstDefined,
-  isSenderAllowed,
-  normalizeAllowFromWithStore,
-  resolveSenderAllowMatch,
-} from "./bot-access.js";
+import { firstDefined, isSenderAllowed, normalizeAllowFromWithStore } from "./bot-access.js";
 import {
   buildGroupLabel,
   buildSenderLabel,
@@ -60,7 +54,7 @@ import {
   hasBotMention,
   resolveTelegramThreadSpec,
 } from "./bot/helpers.js";
-import type { StickerMetadata, TelegramContext } from "./bot/types.js";
+import { enforceTelegramDmAccess } from "./dm-access.js";
 import { evaluateTelegramGroupBaseAccess } from "./group-access.js";
 import { resolveTelegramGroupPromptSettings } from "./group-config-helpers.js";
 import {
@@ -159,11 +153,6 @@ export const buildTelegramMessageContext = async ({
   resolveTelegramGroupConfig,
 }: BuildTelegramMessageContextParams) => {
   const msg = primaryCtx.message;
-  recordChannelActivity({
-    channel: "telegram",
-    accountId: account.accountId,
-    direction: "inbound",
-  });
   const chatId = msg.chat.id;
   const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup";
   const messageThreadId = (msg as { message_thread_id?: number }).message_thread_id;
@@ -268,86 +257,26 @@ export const buildTelegramMessageContext = async ({
     }
   };
 
-  // DM access control (secure defaults): "pairing" (default) / "allowlist" / "open" / "disabled"
-  if (!isGroup) {
-    if (dmPolicy === "disabled") {
-      return null;
-    }
-
-    if (dmPolicy !== "open") {
-      const senderUsername = msg.from?.username ?? "";
-      const senderUserId = msg.from?.id != null ? String(msg.from.id) : null;
-      const candidate = senderUserId ?? String(chatId);
-      const allowMatch = resolveSenderAllowMatch({
-        allow: effectiveDmAllow,
-        senderId: candidate,
-        senderUsername,
-      });
-      const allowMatchMeta = `matchKey=${allowMatch.matchKey ?? "none"} matchSource=${
-        allowMatch.matchSource ?? "none"
-      }`;
-      const allowed =
-        effectiveDmAllow.hasWildcard || (effectiveDmAllow.hasEntries && allowMatch.allowed);
-      if (!allowed) {
-        if (dmPolicy === "pairing") {
-          try {
-            const from = msg.from as
-              | {
-                  first_name?: string;
-                  last_name?: string;
-                  username?: string;
-                  id?: number;
-                }
-              | undefined;
-            const telegramUserId = from?.id ? String(from.id) : candidate;
-            const { code, created } = await upsertChannelPairingRequest({
-              channel: "telegram",
-              id: telegramUserId,
-              accountId: account.accountId,
-              meta: {
-                username: from?.username,
-                firstName: from?.first_name,
-                lastName: from?.last_name,
-              },
-            });
-            if (created) {
-              logger.info(
-                {
-                  chatId: String(chatId),
-                  senderUserId: senderUserId ?? undefined,
-                  username: from?.username,
-                  firstName: from?.first_name,
-                  lastName: from?.last_name,
-                  matchKey: allowMatch.matchKey ?? "none",
-                  matchSource: allowMatch.matchSource ?? "none",
-                },
-                "telegram pairing request",
-              );
-              await withTelegramApiErrorLogging({
-                operation: "sendMessage",
-                fn: () =>
-                  bot.api.sendMessage(
-                    chatId,
-                    buildPairingReply({
-                      channel: "telegram",
-                      idLine: `Your Telegram user id: ${telegramUserId}`,
-                      code,
-                    }),
-                  ),
-              });
-            }
-          } catch (err) {
-            logVerbose(`telegram pairing reply failed for chat ${chatId}: ${String(err)}`);
-          }
-        } else {
-          logVerbose(
-            `Blocked unauthorized telegram sender ${candidate} (dmPolicy=${dmPolicy}, ${allowMatchMeta})`,
-          );
-        }
-        return null;
-      }
-    }
+  if (
+    !(await enforceTelegramDmAccess({
+      isGroup,
+      dmPolicy,
+      msg,
+      chatId,
+      effectiveDmAllow,
+      accountId: account.accountId,
+      bot,
+      logger,
+    }))
+  ) {
+    return null;
   }
+
+  recordChannelActivity({
+    channel: "telegram",
+    accountId: account.accountId,
+    direction: "inbound",
+  });
 
   const botUsername = primaryCtx.me?.username?.toLowerCase();
   const allowForCommands = isGroup ? effectiveGroupAllow : effectiveDmAllow;

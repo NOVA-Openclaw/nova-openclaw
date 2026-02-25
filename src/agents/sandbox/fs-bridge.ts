@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { SandboxContext, SandboxWorkspaceAccess } from "./types.js";
 import { isNotFoundPathError, isPathInside } from "../../infra/path-guards.js";
 import { execDockerRaw, type ExecDockerRawResult } from "./docker.js";
 import {
@@ -8,7 +9,6 @@ import {
   type SandboxResolvedFsPath,
   type SandboxFsMount,
 } from "./fs-paths.js";
-import type { SandboxContext, SandboxWorkspaceAccess } from "./types.js";
 
 type RunCommandOptions = {
   args?: string[];
@@ -305,7 +305,7 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       "done",
       'canonical=$(readlink -f -- "$cursor")',
       'printf "%s%s\\n" "$canonical" "$suffix"',
-    ].join("; ");
+    ].join("\n");
     const result = await this.runCommand(script, {
       args: [params.containerPath, params.allowFinalSymlink ? "1" : "0"],
     });

@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import os from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
@@ -9,16 +7,20 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
-import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
-import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
-import { getMachineDisplayName } from "../../../infra/machine-name.js";
-import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
-import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import type { OpenClawConfig } from "../../../config/config.js";
 import type {
   PluginHookAgentContext,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforePromptBuildResult,
 } from "../../../plugins/types.js";
+import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
+import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
+import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
+import { getMachineDisplayName } from "../../../infra/machine-name.js";
+import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
+import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
 import { resolveSignalReactionLevel } from "../../../signal/reaction-level.js";
 import { resolveTelegramInlineButtonsScope } from "../../../telegram/inline-buttons.js";
@@ -74,6 +76,7 @@ import {
 import { buildSystemPromptParams } from "../../system-prompt-params.js";
 import { buildSystemPromptReport } from "../../system-prompt-report.js";
 import { sanitizeToolCallIdsForCloudCodeAssist } from "../../tool-call-id.js";
+import { resolveEffectiveToolFsWorkspaceOnly } from "../../tool-fs-policy.js";
 import { resolveTranscriptPolicy } from "../../transcript-policy.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { isRunnerAbortError } from "../abort.js";
@@ -112,7 +115,6 @@ import {
   shouldFlagCompactionTimeout,
 } from "./compaction-timeout.js";
 import { detectAndLoadPromptImages } from "./images.js";
-import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PromptBuildHookRunner = {
   hasHooks: (hookName: "before_prompt_build" | "before_agent_start") => boolean;
@@ -226,6 +228,16 @@ export function resolvePromptModeForSession(sessionKey?: string): "minimal" | "f
     return "full";
   }
   return isSubagentSessionKey(sessionKey) ? "minimal" : "full";
+}
+
+export function resolveAttemptFsWorkspaceOnly(params: {
+  config?: OpenClawConfig;
+  sessionAgentId: string;
+}): boolean {
+  return resolveEffectiveToolFsWorkspaceOnly({
+    cfg: params.config,
+    agentId: params.sessionAgentId,
+  });
 }
 
 function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageBlocks: number } {
@@ -362,6 +374,10 @@ export async function runEmbeddedAttempt(
       sessionKey: params.sessionKey,
       config: params.config,
       agentId: params.agentId,
+    });
+    const effectiveFsWorkspaceOnly = resolveAttemptFsWorkspaceOnly({
+      config: params.config,
+      sessionAgentId,
     });
     // Check if the model supports native image input
     const modelHasVision = params.model.input?.includes("image") ?? false;
@@ -1087,6 +1103,7 @@ export async function runEmbeddedAttempt(
             historyMessages: activeSession.messages,
             maxBytes: MAX_IMAGE_BYTES,
             maxDimensionPx: resolveImageSanitizationLimits(params.config).maxDimensionPx,
+            workspaceOnly: effectiveFsWorkspaceOnly,
             // Enforce sandbox path restrictions when sandbox is enabled
             sandbox:
               sandbox?.enabled && sandbox?.fsBridge

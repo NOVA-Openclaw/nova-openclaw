@@ -10,6 +10,7 @@ import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/regist
 import { resolveAgentIdFromSessionKey } from "../../config/sessions.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
+import { resolveOriginMessageProvider, resolveOriginMessageTo } from "./origin-routing.js";
 
 const BUN_FETCH_SOCKET_ERROR_RE = /socket connection was closed unexpectedly/i;
 
@@ -196,9 +197,15 @@ export function buildEmbeddedContextFromTemplate(params: {
     sessionId: params.run.sessionId,
     sessionKey: params.run.sessionKey,
     agentId: params.run.agentId,
-    messageProvider: params.sessionCtx.Provider?.trim().toLowerCase() || undefined,
+    messageProvider: resolveOriginMessageProvider({
+      originatingChannel: params.sessionCtx.OriginatingChannel,
+      provider: params.sessionCtx.Provider,
+    }),
     agentAccountId: params.sessionCtx.AccountId,
-    messageTo: params.sessionCtx.OriginatingTo ?? params.sessionCtx.To,
+    messageTo: resolveOriginMessageTo({
+      originatingTo: params.sessionCtx.OriginatingTo,
+      to: params.sessionCtx.To,
+    }),
     messageThreadId: params.sessionCtx.MessageThreadId ?? undefined,
     // Provider threading context for tool auto-injection
     ...buildThreadingToolContext({

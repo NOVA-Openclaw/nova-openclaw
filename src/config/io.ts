@@ -1,9 +1,10 @@
+import JSON5 from "json5";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import JSON5 from "json5";
+import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
 import { ensureOwnerDisplaySecret } from "../agents/owner-display.js";
 import { loadDotEnv } from "../infra/dotenv.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
@@ -24,6 +25,7 @@ import {
   applyMessageDefaults,
   applyModelDefaults,
   applySessionDefaults,
+  applyTalkConfigNormalization,
   applyTalkApiKey,
 } from "./defaults.js";
 import { restoreEnvVarRefs } from "./env-preserve.js";
@@ -41,7 +43,6 @@ import { normalizeConfigPaths } from "./normalize-paths.js";
 import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } from "./paths.js";
 import { isBlockedObjectKey } from "./prototype-keys.js";
 import { applyConfigOverrides } from "./runtime-overrides.js";
-import type { OpenClawConfig, ConfigFileSnapshot, LegacyConfigIssue } from "./types.js";
 import {
   validateConfigObjectRawWithPlugins,
   validateConfigObjectWithPlugins,
@@ -720,11 +721,13 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         deps.logger.warn(`Config warnings:\\n${details}`);
       }
       warnIfConfigFromFuture(validated.config, deps.logger);
-      const cfg = applyModelDefaults(
-        applyCompactionDefaults(
-          applyContextPruningDefaults(
-            applyAgentDefaults(
-              applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+      const cfg = applyTalkConfigNormalization(
+        applyModelDefaults(
+          applyCompactionDefaults(
+            applyContextPruningDefaults(
+              applyAgentDefaults(
+                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+              ),
             ),
           ),
         ),
@@ -809,10 +812,12 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
     if (!exists) {
       const hash = hashConfigRaw(null);
       const config = applyTalkApiKey(
-        applyModelDefaults(
-          applyCompactionDefaults(
-            applyContextPruningDefaults(
-              applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+        applyTalkConfigNormalization(
+          applyModelDefaults(
+            applyCompactionDefaults(
+              applyContextPruningDefaults(
+                applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+              ),
             ),
           ),
         ),
@@ -933,9 +938,11 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       warnIfConfigFromFuture(validated.config, deps.logger);
       const snapshotConfig = normalizeConfigPaths(
         applyTalkApiKey(
-          applyModelDefaults(
-            applyAgentDefaults(
-              applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+          applyTalkConfigNormalization(
+            applyModelDefaults(
+              applyAgentDefaults(
+                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+              ),
             ),
           ),
         ),

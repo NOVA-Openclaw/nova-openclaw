@@ -2,18 +2,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../../config/config.js";
+import type { MsgContext } from "../templating.js";
 import { compactEmbeddedPiSession } from "../../agents/pi-embedded.js";
 import {
   addSubagentRunForTests,
   listSubagentRunsForRequester,
   resetSubagentRegistryForTests,
 } from "../../agents/subagent-registry.js";
-import type { OpenClawConfig } from "../../config/config.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import * as internalHooks from "../../hooks/internal-hooks.js";
 import { clearPluginCommands, registerPluginCommand } from "../../plugins/commands.js";
 import { typedCases } from "../../test-utils/typed-cases.js";
-import type { MsgContext } from "../templating.js";
 import { resetBashChatCommandForTests } from "./bash-command.js";
 import { handleCompactCommand } from "./commands-compact.js";
 import { buildCommandsPaginationKeyboard } from "./commands-info.js";
@@ -888,6 +888,37 @@ describe("handleCommands hooks", () => {
     await handleCommands(params);
 
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ type: "command", action: "new" }));
+    spy.mockRestore();
+  });
+
+  it("triggers hooks for native /new routed to target sessions", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { telegram: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("/new", cfg, {
+      Provider: "telegram",
+      Surface: "telegram",
+      CommandSource: "native",
+      CommandTargetSessionKey: "agent:main:telegram:direct:123",
+      SessionKey: "telegram:slash:123",
+      SenderId: "123",
+      From: "telegram:123",
+      To: "slash:123",
+      CommandAuthorized: true,
+    });
+    params.sessionKey = "agent:main:telegram:direct:123";
+    const spy = vi.spyOn(internalHooks, "triggerInternalHook").mockResolvedValue();
+
+    await handleCommands(params);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "command",
+        action: "new",
+        sessionKey: "agent:main:telegram:direct:123",
+      }),
+    );
     spy.mockRestore();
   });
 });

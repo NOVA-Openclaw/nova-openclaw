@@ -1,4 +1,8 @@
 import fs from "node:fs";
+import type { TypingMode } from "../../config/types.js";
+import type { OriginatingChannelType, TemplateContext } from "../templating.js";
+import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import type { TypingController } from "./typing.js";
 import { lookupContextTokens } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveModelAuthMode } from "../../agents/model-auth.js";
@@ -14,7 +18,6 @@ import {
   updateSessionStore,
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
-import type { TypingMode } from "../../config/types.js";
 import { emitAgentEvent } from "../../infra/agent-events.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { generateSecureUuid } from "../../infra/secure-random.js";
@@ -26,9 +29,7 @@ import {
   buildFallbackNotice,
   resolveFallbackTransition,
 } from "../fallback-state.js";
-import type { OriginatingChannelType, TemplateContext } from "../templating.js";
 import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
-import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.js";
 import {
   createShouldEmitToolOutput,
@@ -43,6 +44,7 @@ import { appendUsageLine, formatResponseUsageLine } from "./agent-runner-utils.j
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveBlockStreamingCoalescing } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
+import { resolveOriginMessageProvider, resolveOriginMessageTo } from "./origin-routing.js";
 import {
   auditPostCompactionReads,
   extractReadPaths,
@@ -54,7 +56,6 @@ import { enqueueFollowupRun, type FollowupRun, type QueueSettings } from "./queu
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
 import { incrementRunCompactionCount, persistRunSessionUsage } from "./session-run-accounting.js";
 import { createTypingSignaler } from "./typing-mode.js";
-import type { TypingController } from "./typing.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 const UNSCHEDULED_REMINDER_NOTE =
@@ -179,11 +180,10 @@ export async function runReplyAgent(params: {
   const pendingToolTasks = new Set<Promise<void>>();
   const blockReplyTimeoutMs = opts?.blockReplyTimeoutMs ?? BLOCK_REPLY_SEND_TIMEOUT_MS;
 
-  const replyToChannel =
-    sessionCtx.OriginatingChannel ??
-    ((sessionCtx.Surface ?? sessionCtx.Provider)?.toLowerCase() as
-      | OriginatingChannelType
-      | undefined);
+  const replyToChannel = resolveOriginMessageProvider({
+    originatingChannel: sessionCtx.OriginatingChannel,
+    provider: sessionCtx.Surface ?? sessionCtx.Provider,
+  }) as OriginatingChannelType | undefined;
   const replyToMode = resolveReplyToMode(
     followupRun.run.config,
     replyToChannel,
@@ -514,7 +514,11 @@ export async function runReplyAgent(params: {
       messagingToolSentTexts: runResult.messagingToolSentTexts,
       messagingToolSentMediaUrls: runResult.messagingToolSentMediaUrls,
       messagingToolSentTargets: runResult.messagingToolSentTargets,
-      originatingTo: sessionCtx.OriginatingTo ?? sessionCtx.To,
+      originatingChannel: sessionCtx.OriginatingChannel,
+      originatingTo: resolveOriginMessageTo({
+        originatingTo: sessionCtx.OriginatingTo,
+        to: sessionCtx.To,
+      }),
       accountId: sessionCtx.AccountId,
     });
     const { replyPayloads } = payloadResult;

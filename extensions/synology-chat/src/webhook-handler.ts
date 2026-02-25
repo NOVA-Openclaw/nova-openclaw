@@ -5,9 +5,9 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import * as querystring from "node:querystring";
-import { sendMessage } from "./client.js";
-import { validateToken, checkUserAllowed, sanitizeInput, RateLimiter } from "./security.js";
 import type { SynologyWebhookPayload, ResolvedSynologyChatAccount } from "./types.js";
+import { sendMessage } from "./client.js";
+import { validateToken, authorizeUserForDm, sanitizeInput, RateLimiter } from "./security.js";
 
 // One rate limiter per account, created lazily
 const rateLimiters = new Map<string, RateLimiter>();
@@ -137,18 +137,22 @@ export function createWebhookHandler(deps: WebhookHandlerDeps) {
       return;
     }
 
-    // User allowlist check
-    if (
-      account.dmPolicy === "allowlist" &&
-      !checkUserAllowed(payload.user_id, account.allowedUserIds)
-    ) {
+    // DM policy authorization
+    const auth = authorizeUserForDm(payload.user_id, account.dmPolicy, account.allowedUserIds);
+    if (!auth.allowed) {
+      if (auth.reason === "disabled") {
+        respond(res, 403, { error: "DMs are disabled" });
+        return;
+      }
+      if (auth.reason === "allowlist-empty") {
+        log?.warn("Synology Chat allowlist is empty while dmPolicy=allowlist; rejecting message");
+        respond(res, 403, {
+          error: "Allowlist is empty. Configure allowedUserIds or use dmPolicy=open.",
+        });
+        return;
+      }
       log?.warn(`Unauthorized user: ${payload.user_id}`);
       respond(res, 403, { error: "User not authorized" });
-      return;
-    }
-
-    if (account.dmPolicy === "disabled") {
-      respond(res, 403, { error: "DMs are disabled" });
       return;
     }
 

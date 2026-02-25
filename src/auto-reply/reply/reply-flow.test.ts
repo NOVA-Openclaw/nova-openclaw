@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { expectInboundContextContract } from "../../../test/helpers/inbound-contract.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { defaultRuntime } from "../../runtime.js";
 import type { MsgContext } from "../templating.js";
+import type { FollowupRun, QueueSettings } from "./queue.js";
+import { expectInboundContextContract } from "../../../test/helpers/inbound-contract.js";
+import { defaultRuntime } from "../../runtime.js";
 import { HEARTBEAT_TOKEN, SILENT_REPLY_TOKEN } from "../tokens.js";
 import { finalizeInboundContext } from "./inbound-context.js";
 import { normalizeInboundTextNewlines } from "./inbound-text.js";
 import { parseLineDirectives, hasLineDirectives } from "./line-directives.js";
-import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun, scheduleFollowupDrain } from "./queue.js";
 import { createReplyDispatcher } from "./reply-dispatcher.js";
 import { createReplyToModeFilter, resolveReplyToMode } from "./reply-threading.js";
@@ -1045,6 +1045,54 @@ describe("followup queue collect routing", () => {
     await done.promise;
     expect(calls[0]?.prompt).toContain("[Queue overflow] Dropped 1 message due to cap.");
     expect(calls[0]?.prompt).toContain("- first");
+  });
+
+  it("preserves routing metadata on overflow summary followups", async () => {
+    const key = `test-overflow-summary-routing-${Date.now()}`;
+    const calls: FollowupRun[] = [];
+    const done = createDeferred<void>();
+    const runFollowup = async (run: FollowupRun) => {
+      calls.push(run);
+      done.resolve();
+    };
+    const settings: QueueSettings = {
+      mode: "followup",
+      debounceMs: 0,
+      cap: 1,
+      dropPolicy: "summarize",
+    };
+
+    enqueueFollowupRun(
+      key,
+      createRun({
+        prompt: "first",
+        originatingChannel: "discord",
+        originatingTo: "channel:C1",
+        originatingAccountId: "work",
+        originatingThreadId: "1739142736.000100",
+      }),
+      settings,
+    );
+    enqueueFollowupRun(
+      key,
+      createRun({
+        prompt: "second",
+        originatingChannel: "discord",
+        originatingTo: "channel:C1",
+        originatingAccountId: "work",
+        originatingThreadId: "1739142736.000100",
+      }),
+      settings,
+    );
+
+    scheduleFollowupDrain(key, runFollowup);
+    await done.promise;
+
+    expect(calls[0]?.originatingChannel).toBe("discord");
+    expect(calls[0]?.originatingTo).toBe("channel:C1");
+    expect(calls[0]?.originatingAccountId).toBe("work");
+    expect(calls[0]?.originatingThreadId).toBe("1739142736.000100");
+    expect(calls[0]?.prompt).toContain("[Queue overflow] Dropped 1 message due to cap.");
   });
 });
 

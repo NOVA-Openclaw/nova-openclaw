@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
+import type { SecurityAuditOptions, SecurityAuditReport } from "./audit.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { collectPluginsCodeSafetyFindings } from "./audit-extra.js";
-import type { SecurityAuditOptions, SecurityAuditReport } from "./audit.js";
 import { runSecurityAudit } from "./audit.js";
 import * as skillScanner from "./skill-scanner.js";
 
@@ -178,12 +178,14 @@ describe("security audit", () => {
     };
 
     const res = await audit(cfg);
+    const summary = res.findings.find((f) => f.checkId === "summary.attack_surface");
 
     expect(res.findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ checkId: "summary.attack_surface", severity: "info" }),
       ]),
     );
+    expect(summary?.detail).toContain("trust model: personal assistant");
   });
 
   it("flags non-loopback bind without auth as critical", async () => {
@@ -434,6 +436,50 @@ describe("security audit", () => {
         ).toBe(testCase.expected);
       }),
     );
+  });
+
+  it("warns for risky safeBinTrustedDirs entries", async () => {
+    const cfg: OpenClawConfig = {
+      tools: {
+        exec: {
+          safeBinTrustedDirs: ["/usr/local/bin", "/tmp/openclaw-safe-bins"],
+        },
+      },
+      agents: {
+        list: [
+          {
+            id: "ops",
+            tools: {
+              exec: {
+                safeBinTrustedDirs: ["./relative-bin-dir"],
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    const res = await audit(cfg);
+    const finding = res.findings.find(
+      (f) => f.checkId === "tools.exec.safe_bin_trusted_dirs_risky",
+    );
+    expect(finding?.severity).toBe("warn");
+    expect(finding?.detail).toContain("/usr/local/bin");
+    expect(finding?.detail).toContain("/tmp/openclaw-safe-bins");
+    expect(finding?.detail).toContain("agents.list.ops.tools.exec");
+  });
+
+  it("does not warn for non-risky absolute safeBinTrustedDirs entries", async () => {
+    const cfg: OpenClawConfig = {
+      tools: {
+        exec: {
+          safeBinTrustedDirs: ["/usr/libexec"],
+        },
+      },
+    };
+
+    const res = await audit(cfg);
+    expectNoFinding(res, "tools.exec.safe_bin_trusted_dirs_risky");
   });
 
   it("evaluates loopback control UI and logging exposure findings", async () => {
@@ -848,6 +894,31 @@ describe("security audit", () => {
         expect.objectContaining({
           checkId: "sandbox.dangerous_apparmor_profile",
           severity: "critical",
+        }),
+      ]),
+    );
+  });
+
+  it("flags container namespace join network mode in sandbox config", async () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          sandbox: {
+            mode: "all",
+            docker: {
+              network: "container:peer",
+            },
+          },
+        },
+      },
+    };
+    const res = await audit(cfg);
+    expect(res.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "sandbox.dangerous_network_mode",
+          severity: "critical",
+          title: "Dangerous network mode in sandbox config",
         }),
       ]),
     );
@@ -2694,6 +2765,51 @@ description: test skill
     expect(
       res.findings.some((f) => f.checkId === "security.exposure.open_groups_with_runtime_or_fs"),
     ).toBe(false);
+  });
+
+  it("warns when config heuristics suggest a likely multi-user setup", async () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        discord: {
+          groupPolicy: "allowlist",
+          guilds: {
+            "1234567890": {
+              channels: {
+                "7777777777": { allow: true },
+              },
+            },
+          },
+        },
+      },
+      tools: { elevated: { enabled: false } },
+    };
+
+    const res = await audit(cfg);
+    const finding = res.findings.find(
+      (f) => f.checkId === "security.trust_model.multi_user_heuristic",
+    );
+
+    expect(finding?.severity).toBe("warn");
+    expect(finding?.detail).toContain(
+      'channels.discord.groupPolicy="allowlist" with configured group targets',
+    );
+    expect(finding?.detail).toContain("personal-assistant");
+    expect(finding?.remediation).toContain('agents.defaults.sandbox.mode="all"');
+  });
+
+  it("does not warn for multi-user heuristic when no shared-user signals are configured", async () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        discord: {
+          groupPolicy: "allowlist",
+        },
+      },
+      tools: { elevated: { enabled: false } },
+    };
+
+    const res = await audit(cfg);
+
+    expectNoFinding(res, "security.trust_model.multi_user_heuristic");
   });
 
   describe("maybeProbeGateway auth selection", () => {

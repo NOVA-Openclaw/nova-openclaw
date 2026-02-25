@@ -1,7 +1,7 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { wrapToolWorkspaceRootGuardWithOptions } from "./pi-tools.read.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
+import { wrapToolWorkspaceRootGuardWithOptions } from "./pi-tools.read.js";
 
 const mocks = vi.hoisted(() => ({
   assertSandboxPath: vi.fn(async () => ({ resolved: "/tmp/root", relative: "" })),
@@ -56,6 +56,36 @@ describe("wrapToolWorkspaceRootGuardWithOptions", () => {
 
     expect(mocks.assertSandboxPath).toHaveBeenCalledWith({
       filePath: path.resolve(root, "docs", "readme.md"),
+      cwd: root,
+      root,
+    });
+  });
+
+  it("maps @-prefixed container workspace paths to host workspace root", async () => {
+    const { tool } = createToolHarness();
+    const wrapped = wrapToolWorkspaceRootGuardWithOptions(tool, root, {
+      containerWorkdir: "/workspace",
+    });
+
+    await wrapped.execute("tc-at-container", { path: "@/workspace/docs/readme.md" });
+
+    expect(mocks.assertSandboxPath).toHaveBeenCalledWith({
+      filePath: path.resolve(root, "docs", "readme.md"),
+      cwd: root,
+      root,
+    });
+  });
+
+  it("normalizes @-prefixed absolute paths before guard checks", async () => {
+    const { tool } = createToolHarness();
+    const wrapped = wrapToolWorkspaceRootGuardWithOptions(tool, root, {
+      containerWorkdir: "/workspace",
+    });
+
+    await wrapped.execute("tc-at-absolute", { path: "@/etc/passwd" });
+
+    expect(mocks.assertSandboxPath).toHaveBeenCalledWith({
+      filePath: "/etc/passwd",
       cwd: root,
       root,
     });

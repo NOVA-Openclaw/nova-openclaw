@@ -7,6 +7,9 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
+import type { ModelAuthMode } from "./model-auth.js";
+import type { AnyAgentTool } from "./pi-tools.types.js";
+import type { SandboxContext } from "./sandbox.js";
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
@@ -22,7 +25,6 @@ import {
 } from "./bash-tools.js";
 import { listChannelAgentTools } from "./channel-tools.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
-import type { ModelAuthMode } from "./model-auth.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
@@ -46,10 +48,8 @@ import {
   wrapToolParamNormalization,
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
-import type { AnyAgentTool } from "./pi-tools.types.js";
-import type { SandboxContext } from "./sandbox.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
-import { createToolFsPolicy } from "./tool-fs-policy.js";
+import { createToolFsPolicy, resolveToolFsConfig } from "./tool-fs-policy.js";
 import {
   applyToolPolicyPipeline,
   buildDefaultToolPolicyPipelineSteps,
@@ -121,16 +121,6 @@ function resolveExecConfig(params: { cfg?: OpenClawConfig; agentId?: string }) {
     notifyOnExitEmptySuccess:
       agentExec?.notifyOnExitEmptySuccess ?? globalExec?.notifyOnExitEmptySuccess,
     applyPatch: agentExec?.applyPatch ?? globalExec?.applyPatch,
-  };
-}
-
-function resolveFsConfig(params: { cfg?: OpenClawConfig; agentId?: string }) {
-  const cfg = params.cfg;
-  const globalFs = cfg?.tools?.fs;
-  const agentFs =
-    cfg && params.agentId ? resolveAgentConfig(cfg, params.agentId)?.tools?.fs : undefined;
-  return {
-    workspaceOnly: agentFs?.workspaceOnly ?? globalFs?.workspaceOnly,
   };
 }
 
@@ -291,7 +281,7 @@ export function createOpenClawCodingTools(options?: {
     subagentPolicy,
   ]);
   const execConfig = resolveExecConfig({ cfg: options?.config, agentId });
-  const fsConfig = resolveFsConfig({ cfg: options?.config, agentId });
+  const fsConfig = resolveToolFsConfig({ cfg: options?.config, agentId });
   const fsPolicy = createToolFsPolicy({
     workspaceOnly: fsConfig.workspaceOnly,
   });

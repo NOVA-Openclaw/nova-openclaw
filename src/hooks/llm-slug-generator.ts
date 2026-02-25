@@ -5,16 +5,16 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { OpenClawConfig } from "../config/config.js";
 import {
   resolveDefaultAgentId,
   resolveAgentWorkspaceDir,
   resolveAgentDir,
-  resolveAgentModelPrimary,
+  resolveAgentEffectiveModelPrimary,
 } from "../agents/agent-scope.js";
 import { DEFAULT_PROVIDER, DEFAULT_MODEL } from "../agents/defaults.js";
 import { parseModelRef } from "../agents/model-selection.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
-import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 
 const log = createSubsystemLogger("llm-slug-generator");
@@ -45,7 +45,7 @@ ${params.sessionContent.slice(0, 2000)}
 Reply with ONLY the slug, nothing else. Examples: "vendor-pitch", "api-design", "bug-fix"`;
 
     // Resolve model from agent config instead of using hardcoded defaults
-    const modelRef = resolveAgentModelPrimary(params.cfg, agentId);
+    const modelRef = resolveAgentEffectiveModelPrimary(params.cfg, agentId);
     const parsed = modelRef ? parseModelRef(modelRef, DEFAULT_PROVIDER) : null;
     const provider = parsed?.provider ?? DEFAULT_PROVIDER;
     const model = parsed?.model ?? DEFAULT_MODEL;
