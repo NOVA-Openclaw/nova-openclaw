@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import type { SignalDaemonExitEvent } from "./daemon.js";
 import { peekSystemEvents } from "../infra/system-events.js";
 import { resolveAgentRoute } from "../routing/resolve-route.js";
 import { normalizeE164 } from "../utils.js";
-import type { SignalDaemonExitEvent } from "./daemon.js";
 import {
   createMockSignalDaemonHandle,
   config,
@@ -365,6 +365,65 @@ describe("monitorSignalProvider tool results", () => {
 
   it("enqueues system events for reaction notifications", async () => {
     setReactionNotificationConfig("all");
+    await receiveSingleEnvelope({
+      ...makeBaseEnvelope(),
+      reactionMessage: {
+        emoji: "✅",
+        targetAuthor: "+15550002222",
+        targetSentTimestamp: 2,
+      },
+    });
+
+    const events = getDirectSignalEventsFor("+15550001111");
+    expect(events.some((text) => text.includes("Signal reaction added"))).toBe(true);
+  });
+
+  it("blocks reaction notifications from unauthorized senders when dmPolicy is allowlist", async () => {
+    setReactionNotificationConfig("all", {
+      dmPolicy: "allowlist",
+      allowFrom: ["+15550007777"],
+    });
+    await receiveSingleEnvelope({
+      ...makeBaseEnvelope(),
+      reactionMessage: {
+        emoji: "✅",
+        targetAuthor: "+15550002222",
+        targetSentTimestamp: 2,
+      },
+    });
+
+    const events = getDirectSignalEventsFor("+15550001111");
+    expect(events.some((text) => text.includes("Signal reaction added"))).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(upsertPairingRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks reaction notifications from unauthorized senders when dmPolicy is pairing", async () => {
+    setReactionNotificationConfig("own", {
+      dmPolicy: "pairing",
+      allowFrom: [],
+      account: "+15550009999",
+    });
+    await receiveSingleEnvelope({
+      ...makeBaseEnvelope(),
+      reactionMessage: {
+        emoji: "✅",
+        targetAuthor: "+15550009999",
+        targetSentTimestamp: 2,
+      },
+    });
+
+    const events = getDirectSignalEventsFor("+15550001111");
+    expect(events.some((text) => text.includes("Signal reaction added"))).toBe(false);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(upsertPairingRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("allows reaction notifications for allowlisted senders when dmPolicy is allowlist", async () => {
+    setReactionNotificationConfig("all", {
+      dmPolicy: "allowlist",
+      allowFrom: ["+15550001111"],
+    });
     await receiveSingleEnvelope({
       ...makeBaseEnvelope(),
       reactionMessage: {
