@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
+import type { OpenClawConfig } from "../config/config.js";
 import "../cron/isolated-agent.mocks.js";
+import type { RuntimeEnv } from "../runtime.js";
+import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
 import * as cliRunnerModule from "../agents/cli-runner.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
-import type { OpenClawConfig } from "../config/config.js";
 import * as configModule from "../config/config.js";
 import * as sessionsModule from "../config/sessions.js";
 import { emitAgentEvent, onAgentEvent } from "../infra/agent-events.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
-import type { RuntimeEnv } from "../runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
 import { agentCommand } from "./agent.js";
 
@@ -406,6 +406,73 @@ describe("agentCommand", () => {
       >;
       expect(saved["agent:main:subagent:allow-any"]?.providerOverride).toBe("openai");
       expect(saved["agent:main:subagent:allow-any"]?.modelOverride).toBe("gpt-custom-foo");
+    });
+  });
+
+  it("persists cleared model and auth override fields when stored override falls back to default", async () => {
+    await withTempHome(async (home) => {
+      const store = path.join(home, "sessions.json");
+      writeSessionStoreSeed(store, {
+        "agent:main:subagent:clear-overrides": {
+          sessionId: "session-clear-overrides",
+          updatedAt: Date.now(),
+          providerOverride: "anthropic",
+          modelOverride: "claude-opus-4-5",
+          authProfileOverride: "profile-legacy",
+          authProfileOverrideSource: "user",
+          authProfileOverrideCompactionCount: 2,
+          fallbackNoticeSelectedModel: "anthropic/claude-opus-4-5",
+          fallbackNoticeActiveModel: "openai/gpt-4.1-mini",
+          fallbackNoticeReason: "fallback",
+        },
+      });
+
+      mockConfig(home, store, {
+        model: { primary: "openai/gpt-4.1-mini" },
+        models: {
+          "openai/gpt-4.1-mini": {},
+        },
+      });
+
+      vi.mocked(loadModelCatalog).mockResolvedValueOnce([
+        { id: "claude-opus-4-5", name: "Opus", provider: "anthropic" },
+        { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai" },
+      ]);
+
+      await agentCommand(
+        {
+          message: "hi",
+          sessionKey: "agent:main:subagent:clear-overrides",
+        },
+        runtime,
+      );
+
+      const callArgs = vi.mocked(runEmbeddedPiAgent).mock.calls.at(-1)?.[0];
+      expect(callArgs?.provider).toBe("openai");
+      expect(callArgs?.model).toBe("gpt-4.1-mini");
+
+      const saved = JSON.parse(fs.readFileSync(store, "utf-8")) as Record<
+        string,
+        {
+          providerOverride?: string;
+          modelOverride?: string;
+          authProfileOverride?: string;
+          authProfileOverrideSource?: string;
+          authProfileOverrideCompactionCount?: number;
+          fallbackNoticeSelectedModel?: string;
+          fallbackNoticeActiveModel?: string;
+          fallbackNoticeReason?: string;
+        }
+      >;
+      const entry = saved["agent:main:subagent:clear-overrides"];
+      expect(entry?.providerOverride).toBeUndefined();
+      expect(entry?.modelOverride).toBeUndefined();
+      expect(entry?.authProfileOverride).toBeUndefined();
+      expect(entry?.authProfileOverrideSource).toBeUndefined();
+      expect(entry?.authProfileOverrideCompactionCount).toBeUndefined();
+      expect(entry?.fallbackNoticeSelectedModel).toBeUndefined();
+      expect(entry?.fallbackNoticeActiveModel).toBeUndefined();
+      expect(entry?.fallbackNoticeReason).toBeUndefined();
     });
   });
 

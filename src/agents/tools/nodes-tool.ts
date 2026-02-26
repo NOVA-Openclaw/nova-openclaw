@@ -2,6 +2,7 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import crypto from "node:crypto";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { GatewayMessageChannel } from "../../utils/message-channel.js";
 import {
   type CameraFacing,
   cameraTempPath,
@@ -128,9 +129,17 @@ const NodesToolSchema = Type.Object({
 
 export function createNodesTool(options?: {
   agentSessionKey?: string;
+  agentChannel?: GatewayMessageChannel;
+  agentAccountId?: string;
+  currentChannelId?: string;
+  currentThreadTs?: string | number;
   config?: OpenClawConfig;
 }): AnyAgentTool {
   const sessionKey = options?.agentSessionKey?.trim() || undefined;
+  const turnSourceChannel = options?.agentChannel?.trim() || undefined;
+  const turnSourceTo = options?.currentChannelId?.trim() || undefined;
+  const turnSourceAccountId = options?.agentAccountId?.trim() || undefined;
+  const turnSourceThreadId = options?.currentThreadTs;
   const agentId = resolveSessionAgentId({
     sessionKey: options?.agentSessionKey,
     config: options?.config,
@@ -512,6 +521,10 @@ export function createNodesTool(options?: {
                 host: "node",
                 agentId,
                 sessionKey,
+                turnSourceChannel,
+                turnSourceTo,
+                turnSourceAccountId,
+                turnSourceThreadId,
                 timeoutMs: APPROVAL_TIMEOUT_MS,
               },
             );

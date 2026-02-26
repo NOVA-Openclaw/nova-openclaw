@@ -1,5 +1,7 @@
-import crypto from "node:crypto";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import crypto from "node:crypto";
+import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
+import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import {
   addAllowlistEntry,
   type ExecAsk,
@@ -14,7 +16,6 @@ import {
   resolveExecApprovals,
 } from "../infra/exec-approvals.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
-import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
 import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
@@ -29,7 +30,6 @@ import {
   normalizeNotifyOutput,
   runExecProcess,
 } from "./bash-tools.exec-runtime.js";
-import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 
 export type ProcessGatewayAllowlistParams = {
   command: string;
@@ -44,6 +44,10 @@ export type ProcessGatewayAllowlistParams = {
   safeBinProfiles: Readonly<Record<string, SafeBinProfile>>;
   agentId?: string;
   sessionKey?: string;
+  turnSourceChannel?: string;
+  turnSourceTo?: string;
+  turnSourceAccountId?: string;
+  turnSourceThreadId?: string | number;
   scopeKey?: string;
   warnings: string[];
   notifySessionKey?: string;
@@ -159,6 +163,10 @@ export async function processGatewayAllowlist(
         agentId: params.agentId,
         resolvedPath,
         sessionKey: params.sessionKey,
+        turnSourceChannel: params.turnSourceChannel,
+        turnSourceTo: params.turnSourceTo,
+        turnSourceAccountId: params.turnSourceAccountId,
+        turnSourceThreadId: params.turnSourceThreadId,
       });
       expiresAtMs = registration.expiresAtMs;
       preResolvedDecision = registration.finalDecision;

@@ -31,7 +31,12 @@ import {
   resolveMessageChannel,
 } from "../../utils/message-channel.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
-import { isSilentReplyPrefixText, isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
+import {
+  HEARTBEAT_TOKEN,
+  isSilentReplyPrefixText,
+  isSilentReplyText,
+  SILENT_REPLY_TOKEN,
+} from "../tokens.js";
 import {
   buildEmbeddedRunBaseParams,
   buildEmbeddedRunContexts,
@@ -139,6 +144,12 @@ export async function runAgentTurnWithFallback(params: {
           text = stripped.text;
         }
         if (isSilentReplyText(text, SILENT_REPLY_TOKEN)) {
+          return { skip: true };
+        }
+        if (
+          isSilentReplyPrefixText(text, SILENT_REPLY_TOKEN) ||
+          isSilentReplyPrefixText(text, HEARTBEAT_TOKEN)
+        ) {
           return { skip: true };
         }
         if (!text) {

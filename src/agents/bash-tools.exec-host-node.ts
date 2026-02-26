@@ -1,5 +1,6 @@
-import crypto from "node:crypto";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import crypto from "node:crypto";
+import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import {
   type ExecApprovalsFile,
   type ExecAsk,
@@ -23,7 +24,6 @@ import {
   createApprovalSlug,
   emitExecSystemEvent,
 } from "./bash-tools.exec-runtime.js";
-import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import { callGatewayTool } from "./tools/gateway.js";
 import { listNodes, resolveNodeIdFromList } from "./tools/nodes-utils.js";
 
@@ -35,6 +35,10 @@ export type ExecuteNodeHostCommandParams = {
   requestedNode?: string;
   boundNode?: string;
   sessionKey?: string;
+  turnSourceChannel?: string;
+  turnSourceTo?: string;
+  turnSourceAccountId?: string;
+  turnSourceThreadId?: string | number;
   agentId?: string;
   security: ExecSecurity;
   ask: ExecAsk;
@@ -202,6 +206,10 @@ export async function executeNodeHostCommand(
         ask: hostAsk,
         agentId: params.agentId,
         sessionKey: params.sessionKey,
+        turnSourceChannel: params.turnSourceChannel,
+        turnSourceTo: params.turnSourceTo,
+        turnSourceAccountId: params.turnSourceAccountId,
+        turnSourceThreadId: params.turnSourceThreadId,
       });
       expiresAtMs = registration.expiresAtMs;
       preResolvedDecision = registration.finalDecision;

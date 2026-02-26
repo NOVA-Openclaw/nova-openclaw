@@ -8,6 +8,8 @@ import type {
   PostbackEvent,
 } from "@line/bot-sdk";
 import type { OpenClawConfig } from "../config/config.js";
+import type { RuntimeEnv } from "../runtime.js";
+import type { LineGroupConfig, ResolvedLineAccount } from "./types.js";
 import {
   resolveAllowlistProviderRuntimeGroupPolicy,
   resolveDefaultGroupPolicy,
@@ -20,8 +22,12 @@ import {
   readChannelAllowFromStore,
   upsertChannelPairingRequest,
 } from "../pairing/pairing-store.js";
-import type { RuntimeEnv } from "../runtime.js";
-import { firstDefined, isSenderAllowed, normalizeAllowFromWithStore } from "./bot-access.js";
+import {
+  firstDefined,
+  isSenderAllowed,
+  normalizeAllowFrom,
+  normalizeDmAllowFromWithStore,
+} from "./bot-access.js";
 import {
   getLineSourceInfo,
   buildLineMessageContext,
@@ -30,7 +36,6 @@ import {
 } from "./bot-message-context.js";
 import { downloadLineMedia } from "./download.js";
 import { pushMessageLine, replyMessageLine } from "./send.js";
-import type { LineGroupConfig, ResolvedLineAccount } from "./types.js";
 
 interface MediaRef {
   path: string;
@@ -117,7 +122,7 @@ async function shouldProcessLineEvent(
   const dmPolicy = account.config.dmPolicy ?? "pairing";
 
   const storeAllowFrom = await readChannelAllowFromStore("line").catch(() => []);
-  const effectiveDmAllow = normalizeAllowFromWithStore({
+  const effectiveDmAllow = normalizeDmAllowFromWithStore({
     allowFrom: account.config.allowFrom,
     storeAllowFrom,
     dmPolicy,
@@ -132,11 +137,9 @@ async function shouldProcessLineEvent(
     account.config.groupAllowFrom,
     fallbackGroupAllowFrom,
   );
-  const effectiveGroupAllow = normalizeAllowFromWithStore({
-    allowFrom: groupAllowFrom,
-    storeAllowFrom,
-    dmPolicy,
-  });
+  // Group authorization stays explicit to group allowlists and must not
+  // inherit DM pairing-store identities.
+  const effectiveGroupAllow = normalizeAllowFrom(groupAllowFrom);
   const defaultGroupPolicy = resolveDefaultGroupPolicy(cfg);
   const { groupPolicy, providerMissingFallbackApplied } =
     resolveAllowlistProviderRuntimeGroupPolicy({
