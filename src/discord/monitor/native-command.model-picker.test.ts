@@ -1,13 +1,13 @@
 import { ChannelType } from "discord-api-types/v10";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as commandRegistryModule from "../../auto-reply/commands-registry.js";
 import type {
   ChatCommandDefinition,
   CommandArgsParsing,
 } from "../../auto-reply/commands-registry.types.js";
 import type { ModelsProviderData } from "../../auto-reply/reply/commands-models.js";
-import * as dispatcherModule from "../../auto-reply/reply/provider-dispatcher.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import * as commandRegistryModule from "../../auto-reply/commands-registry.js";
+import * as dispatcherModule from "../../auto-reply/reply/provider-dispatcher.js";
 import * as globalsModule from "../../globals.js";
 import * as timeoutModule from "../../utils/with-timeout.js";
 import * as modelPickerPreferencesModule from "./model-picker-preferences.js";
@@ -179,7 +179,8 @@ function createBoundThreadBindingManager(params: {
 }): ThreadBindingManager {
   return {
     accountId: params.accountId,
-    getSessionTtlMs: () => 24 * 60 * 60 * 1000,
+    getIdleTimeoutMs: () => 24 * 60 * 60 * 1000,
+    getMaxAgeMs: () => 0,
     getByThreadId: (threadId: string) =>
       threadId === params.threadId
         ? {
@@ -191,11 +192,15 @@ function createBoundThreadBindingManager(params: {
             agentId: params.agentId,
             boundBy: "system",
             boundAt: Date.now(),
+            lastActivityAt: Date.now(),
+            idleTimeoutMs: 24 * 60 * 60 * 1000,
+            maxAgeMs: 0,
           }
         : undefined,
     getBySessionKey: () => undefined,
     listBySessionKey: () => [],
     listBindings: () => [],
+    touchThread: () => null,
     bindTarget: async () => null,
     unbindThread: () => null,
     unbindBySessionKey: () => [],

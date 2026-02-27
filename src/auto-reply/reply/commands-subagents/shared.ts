@@ -1,4 +1,10 @@
 import type { SubagentRunRecord } from "../../../agents/subagent-registry.js";
+import type {
+  SessionEntry,
+  loadSessionStore as loadSessionStoreFn,
+  resolveStorePath as resolveStorePathFn,
+} from "../../../config/sessions.js";
+import type { CommandHandler, CommandHandlerResult } from "../commands-types.js";
 import {
   extractAssistantText,
   resolveInternalSessionKey,
@@ -6,11 +12,6 @@ import {
   sanitizeTextContent,
   stripToolMessages,
 } from "../../../agents/tools/sessions-helpers.js";
-import type {
-  SessionEntry,
-  loadSessionStore as loadSessionStoreFn,
-  resolveStorePath as resolveStorePathFn,
-} from "../../../config/sessions.js";
 import { parseDiscordTarget } from "../../../discord/targets.js";
 import { callGateway } from "../../../gateway/call.js";
 import { formatTimeAgo } from "../../../infra/format-time/format-relative.ts";
@@ -21,7 +22,6 @@ import {
   formatTokenUsageDisplay,
   truncateLine,
 } from "../../../shared/subagents-format.js";
-import type { CommandHandler, CommandHandlerResult } from "../commands-types.js";
 import {
   formatRunLabel,
   formatRunStatus,
@@ -372,7 +372,8 @@ export function buildSubagentsHelp() {
     "- /focus <subagent-label|session-key|session-id|session-label>",
     "- /unfocus",
     "- /agents",
-    "- /session ttl <duration|off>",
+    "- /session idle <duration|off>",
+    "- /session max-age <duration|off>",
     "- /kill <id|#|all>",
     "- /steer <id|#> <message>",
     "- /tell <id|#> <message>",

@@ -25,7 +25,8 @@ import {
 import {
   formatThreadBindingDisabledError,
   formatThreadBindingSpawnDisabledError,
-  resolveThreadBindingSessionTtlMsForChannel,
+  resolveThreadBindingIdleTimeoutMsForChannel,
+  resolveThreadBindingMaxAgeMsForChannel,
   resolveThreadBindingSpawnPolicy,
 } from "../../../channels/thread-bindings-policy.js";
 import { callGateway } from "../../../gateway/call.js";
@@ -196,7 +197,12 @@ async function bindSpawnedAcpSessionToThread(params: {
         introText: resolveThreadBindingIntroText({
           agentId: params.agentId,
           label,
-          sessionTtlMs: resolveThreadBindingSessionTtlMsForChannel({
+          idleTimeoutMs: resolveThreadBindingIdleTimeoutMsForChannel({
+            cfg: commandParams.cfg,
+            channel: spawnPolicy.channel,
+            accountId: spawnPolicy.accountId,
+          }),
+          maxAgeMs: resolveThreadBindingMaxAgeMsForChannel({
             cfg: commandParams.cfg,
             channel: spawnPolicy.channel,
             accountId: spawnPolicy.accountId,
