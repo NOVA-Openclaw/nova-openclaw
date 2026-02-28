@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import crypto from "node:crypto";
 import {
   browserAct,
   browserArmDialog,
@@ -82,6 +82,13 @@ function readOptionalTargetAndTimeout(params: Record<string, unknown>) {
       ? params.timeoutMs
       : undefined;
   return { targetId, timeoutMs };
+}
+
+function readTargetUrlParam(params: Record<string, unknown>) {
+  return (
+    readStringParam(params, "targetUrl") ??
+    readStringParam(params, "url", { required: true, label: "targetUrl" })
+  );
 }
 
 type BrowserProxyFile = {
@@ -405,9 +412,7 @@ export function createBrowserTool(opts?: {
             return formatTabsToolResult(tabs);
           }
         case "open": {
-          const targetUrl = readStringParam(params, "targetUrl", {
-            required: true,
-          });
+          const targetUrl = readTargetUrlParam(params);
           if (proxyRequest) {
             const result = await proxyRequest({
               method: "POST",
@@ -635,9 +640,7 @@ export function createBrowserTool(opts?: {
           });
         }
         case "navigate": {
-          const targetUrl = readStringParam(params, "targetUrl", {
-            required: true,
-          });
+          const targetUrl = readTargetUrlParam(params);
           const targetId = readStringParam(params, "targetId");
           if (proxyRequest) {
             const result = await proxyRequest({

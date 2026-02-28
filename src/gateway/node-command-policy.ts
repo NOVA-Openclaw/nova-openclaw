@@ -1,10 +1,10 @@
 import type { OpenClawConfig } from "../config/config.js";
+import type { NodeSession } from "./node-registry.js";
 import {
   NODE_BROWSER_PROXY_COMMAND,
   NODE_SYSTEM_NOTIFY_COMMAND,
   NODE_SYSTEM_RUN_COMMANDS,
 } from "../infra/node-commands.js";
-import type { NodeSession } from "./node-registry.js";
 
 const CANVAS_COMMANDS = [
   "canvas.present",
@@ -82,6 +82,7 @@ const PLATFORM_DEFAULTS: Record<string, string[]> = {
     ...CAMERA_COMMANDS,
     ...LOCATION_COMMANDS,
     ...ANDROID_NOTIFICATION_COMMANDS,
+    NODE_SYSTEM_NOTIFY_COMMAND,
     ...ANDROID_DEVICE_COMMANDS,
     ...CONTACTS_COMMANDS,
     ...CALENDAR_COMMANDS,
