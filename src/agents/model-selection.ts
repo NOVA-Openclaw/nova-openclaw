@@ -1,9 +1,9 @@
 import type { OpenClawConfig } from "../config/config.js";
+import type { ModelCatalogEntry } from "./model-catalog.js";
 import { resolveAgentModelPrimaryValue, toAgentModelListLike } from "../config/model-input.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveAgentConfig, resolveAgentEffectiveModelPrimary } from "./agent-scope.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
-import type { ModelCatalogEntry } from "./model-catalog.js";
 import { splitTrailingAuthProfile } from "./model-ref-profile.js";
 import { normalizeGoogleModelId } from "./models-config.providers.js";
 
@@ -206,22 +206,6 @@ export function inferUniqueProviderFromConfiguredModels(params: {
     return undefined;
   }
   return providers.values().next().value;
-}
-
-export function normalizeModelSelection(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const primary = (value as { primary?: unknown }).primary;
-  if (typeof primary === "string") {
-    const trimmed = primary.trim();
-    return trimmed || undefined;
-  }
-  return undefined;
 }
 
 export function resolveAllowlistModelKey(raw: string, defaultProvider: string): string | null {
@@ -611,4 +595,24 @@ export function resolveHooksGmailModel(params: {
   });
 
   return resolved?.ref ?? null;
+}
+
+/**
+ * Normalize a model selection value (string or `{primary?: string}`) to a
+ * plain trimmed string.  Returns `undefined` when the input is empty/missing.
+ * Shared by sessions-spawn and cron isolated-agent model resolution.
+ */
+export function normalizeModelSelection(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const primary = (value as { primary?: unknown }).primary;
+  if (typeof primary === "string" && primary.trim()) {
+    return primary.trim();
+  }
+  return undefined;
 }

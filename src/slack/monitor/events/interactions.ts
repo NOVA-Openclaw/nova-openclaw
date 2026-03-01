@@ -1,9 +1,9 @@
 import type { SlackActionMiddlewareArgs } from "@slack/bolt";
 import type { Block, KnownBlock } from "@slack/web-api";
+import type { SlackMonitorContext } from "../context.js";
 import { enqueueSystemEvent } from "../../../infra/system-events.js";
 import { parseSlackModalPrivateMetadata } from "../../modal-metadata.js";
 import { authorizeSlackSystemEventSender } from "../auth.js";
-import type { SlackMonitorContext } from "../context.js";
 import { escapeSlackMrkdwn } from "../mrkdwn.js";
 
 // Prefix for OpenClaw-generated action IDs to scope our handler
@@ -527,6 +527,12 @@ function registerModalLifecycleHandler(params: {
 }) {
   params.register(params.matcher, async ({ ack, body }: SlackModalEventHandlerArgs) => {
     await ack();
+    if (params.ctx.shouldDropMismatchedSlackEvent?.(body)) {
+      params.ctx.runtime.log?.(
+        `slack:interaction drop ${params.interactionType} payload (mismatched app/team)`,
+      );
+      return;
+    }
     await emitSlackModalLifecycleEvent({
       ctx: params.ctx,
       body: body as SlackModalBody,
@@ -561,6 +567,10 @@ export function registerSlackInteractionEvents(params: { ctx: SlackMonitorContex
 
       // Acknowledge the action immediately to prevent the warning icon
       await ack();
+      if (ctx.shouldDropMismatchedSlackEvent?.(body)) {
+        ctx.runtime.log?.("slack:interaction drop block action payload (mismatched app/team)");
+        return;
+      }
 
       // Extract action details using proper Bolt types
       const typedAction = readInteractionAction(action);

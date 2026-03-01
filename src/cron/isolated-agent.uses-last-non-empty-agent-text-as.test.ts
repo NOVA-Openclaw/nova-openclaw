@@ -2,9 +2,10 @@ import "./isolated-agent.mocks.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CliDeps } from "../cli/deps.js";
+import type { CronJob } from "./types.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
-import type { CliDeps } from "../cli/deps.js";
 import { runCronIsolatedAgentTurn } from "./isolated-agent.js";
 import {
   makeCfg,
@@ -13,7 +14,6 @@ import {
   writeSessionStore,
   writeSessionStoreEntries,
 } from "./isolated-agent.test-harness.js";
-import type { CronJob } from "./types.js";
 const withTempHome = withTempCronHome;
 
 function makeDeps(): CliDeps {
@@ -194,6 +194,50 @@ describe("runCronIsolatedAgentTurn", () => {
       expect(res.status).toBe("error");
       expect(res.error).toContain("command not found");
       expect(res.summary).toContain("Exec failed");
+    });
+  });
+
+  it("treats transient error payloads as non-fatal when a later success payload exists", async () => {
+    await withTempHome(async (home) => {
+      mockEmbeddedPayloads([
+        {
+          text: "⚠️ ✍️ Write: failed",
+          isError: true,
+        },
+        {
+          text: "Write completed successfully.",
+          isError: false,
+        },
+      ]);
+      const { res } = await runCronTurn(home, {
+        jobPayload: DEFAULT_AGENT_TURN_PAYLOAD,
+        mockTexts: null,
+      });
+
+      expect(res.status).toBe("ok");
+      expect(res.summary).toBe("Write completed successfully.");
+    });
+  });
+
+  it("keeps error status when run-level error accompanies post-error text", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
+        payloads: [
+          { text: "Model context overflow", isError: true },
+          { text: "Partial assistant text before error" },
+        ],
+        meta: {
+          durationMs: 5,
+          agentMeta: { sessionId: "s", provider: "p", model: "m" },
+          error: { kind: "context_overflow", message: "exceeded context window" },
+        },
+      });
+      const { res } = await runCronTurn(home, {
+        jobPayload: DEFAULT_AGENT_TURN_PAYLOAD,
+        mockTexts: null,
+      });
+
+      expect(res.status).toBe("error");
     });
   });
 
