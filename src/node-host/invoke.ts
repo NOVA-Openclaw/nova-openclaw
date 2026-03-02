@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import type {
+  ExecEventPayload,
+  RunResult,
+  SkillBinsProvider,
+  SystemRunParams,
+} from "./invoke-types.js";
 import { GatewayClient } from "../gateway/client.js";
 import {
   ensureExecApprovals,
@@ -20,13 +26,7 @@ import {
 } from "../infra/exec-host.js";
 import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import { runBrowserProxyCommand } from "./invoke-browser.js";
-import { buildSystemRunApprovalPlanV2, handleSystemRunInvoke } from "./invoke-system-run.js";
-import type {
-  ExecEventPayload,
-  RunResult,
-  SkillBinsProvider,
-  SystemRunParams,
-} from "./invoke-types.js";
+import { buildSystemRunApprovalPlan, handleSystemRunInvoke } from "./invoke-system-run.js";
 
 const OUTPUT_CAP = 200_000;
 const OUTPUT_EVENT_TAIL = 20_000;
@@ -429,7 +429,7 @@ export async function handleInvoke(
         agentId?: unknown;
         sessionKey?: unknown;
       }>(frame.paramsJSON);
-      const prepared = buildSystemRunApprovalPlanV2(params);
+      const prepared = buildSystemRunApprovalPlan(params);
       if (!prepared.ok) {
         await sendErrorResult(client, frame, "INVALID_REQUEST", prepared.message);
         return;

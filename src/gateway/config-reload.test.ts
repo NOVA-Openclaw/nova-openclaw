@@ -1,8 +1,8 @@
 import chokidar from "chokidar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import type { ConfigFileSnapshot } from "../config/config.js";
+import { listChannelPlugins } from "../channels/plugins/index.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
@@ -157,6 +157,12 @@ describe("buildGatewayReloadPlan", () => {
     const plan = buildGatewayReloadPlan(["secrets.providers.default.path"]);
     expect(plan.restartGateway).toBe(false);
     expect(plan.noopPaths).toContain("secrets.providers.default.path");
+  });
+
+  it("treats diagnostics.stuckSessionWarnMs as no-op for gateway restart planning", () => {
+    const plan = buildGatewayReloadPlan(["diagnostics.stuckSessionWarnMs"]);
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.noopPaths).toContain("diagnostics.stuckSessionWarnMs");
   });
 
   it("defaults unknown paths to restart", () => {

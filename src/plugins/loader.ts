@@ -1,9 +1,15 @@
+import { createJiti } from "jiti";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createJiti } from "jiti";
 import type { OpenClawConfig } from "../config/config.js";
 import type { GatewayRequestHandler } from "../gateway/server-methods/types.js";
+import type {
+  OpenClawPluginDefinition,
+  OpenClawPluginModule,
+  PluginDiagnostic,
+  PluginLogger,
+} from "./types.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
@@ -23,12 +29,6 @@ import { createPluginRegistry, type PluginRecord, type PluginRegistry } from "./
 import { setActivePluginRegistry } from "./runtime.js";
 import { createPluginRuntime } from "./runtime/index.js";
 import { validateJsonSchemaValue } from "./schema-validator.js";
-import type {
-  OpenClawPluginDefinition,
-  OpenClawPluginModule,
-  PluginDiagnostic,
-  PluginLogger,
-} from "./types.js";
 
 export type PluginLoadResult = PluginRegistry;
 
@@ -365,6 +365,11 @@ function warnAboutUntrackedLoadedPlugins(params: {
   }
 }
 
+function activatePluginRegistry(registry: PluginRegistry, cacheKey: string): void {
+  setActivePluginRegistry(registry, cacheKey);
+  initializeGlobalHookRunner(registry);
+}
+
 export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegistry {
   // Test env: default-disable plugins unless explicitly configured.
   // This keeps unit/gateway suites fast and avoids loading heavyweight plugin deps by accident.
@@ -380,7 +385,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   if (cacheEnabled) {
     const cached = registryCache.get(cacheKey);
     if (cached) {
-      setActivePluginRegistry(cached, cacheKey);
+      activatePluginRegistry(cached, cacheKey);
       return cached;
     }
   }
@@ -711,8 +716,7 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   if (cacheEnabled) {
     registryCache.set(cacheKey, registry);
   }
-  setActivePluginRegistry(registry, cacheKey);
-  initializeGlobalHookRunner(registry);
+  activatePluginRegistry(registry, cacheKey);
   return registry;
 }
 

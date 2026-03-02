@@ -5,6 +5,7 @@ import type { CoreConfig } from "../../types.js";
 import type { MatrixAuth } from "./types.js";
 import { resolveMatrixAuth } from "./config.js";
 import { createMatrixClient } from "./create-client.js";
+import { startMatrixClientWithGrace } from "./startup.js";
 import { DEFAULT_ACCOUNT_KEY } from "./storage.js";
 
 type SharedMatrixClientState = {
@@ -84,7 +85,13 @@ async function ensureSharedClientStarted(params: {
       }
     }
 
-    await client.start();
+    await startMatrixClientWithGrace({
+      client,
+      onError: (err: unknown) => {
+        params.state.started = false;
+        LogService.error("MatrixClientLite", "client.start() error:", err);
+      },
+    });
     params.state.started = true;
   })();
   sharedClientStartPromises.set(key, startPromise);

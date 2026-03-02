@@ -1,7 +1,7 @@
+import type { TemplateContext } from "../templating.js";
 import { normalizeChatType } from "../../channels/chat-type.js";
 import { resolveSenderLabel } from "../../channels/sender-label.js";
 import { formatZonedTimestamp } from "../../infra/format-time/format-datetime.js";
-import type { TemplateContext } from "../templating.js";
 
 function safeTrim(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -60,6 +60,7 @@ export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
   const payload = {
     schema: "openclaw.inbound_meta.v1",
     chat_id: safeTrim(ctx.OriginatingTo),
+    account_id: safeTrim(ctx.AccountId),
     channel: channelValue,
     provider: safeTrim(ctx.Provider),
     surface: safeTrim(ctx.Surface),
@@ -107,6 +108,7 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
     group_channel: safeTrim(ctx.GroupChannel),
     group_space: safeTrim(ctx.GroupSpace),
     thread_label: safeTrim(ctx.ThreadLabel),
+    topic_id: ctx.MessageThreadId != null ? String(ctx.MessageThreadId) : undefined,
     is_forum: ctx.IsForum === true ? true : undefined,
     is_group_chat: !isDirect ? true : undefined,
     was_mentioned: ctx.WasMentioned === true ? true : undefined,

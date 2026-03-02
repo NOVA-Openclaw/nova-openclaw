@@ -1,6 +1,9 @@
 import { type Api, type Context, complete, type Model } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
+import type { ToolFsPolicy } from "../tool-fs-policy.js";
+import type { AnyAgentTool } from "./common.js";
 import { resolveUserPath } from "../../utils.js";
 import { getDefaultLocalRoots, loadWebMedia } from "../../web/media.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "../auth-profiles.js";
@@ -12,13 +15,11 @@ import { resolveConfiguredModelRef } from "../model-selection.js";
 import { ensureOpenClawModelsJson } from "../models-config.js";
 import { discoverAuthStorage, discoverModels } from "../pi-model-discovery.js";
 import {
+  createSandboxBridgeReadFile,
   resolveSandboxedBridgeMediaPath,
   type SandboxedBridgeMediaPathConfig,
 } from "../sandbox-media-paths.js";
-import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
-import type { ToolFsPolicy } from "../tool-fs-policy.js";
 import { normalizeWorkspaceDir } from "../workspace-dir.js";
-import type { AnyAgentTool } from "./common.js";
 import {
   coerceImageAssistantText,
   coerceImageModelConfig,
@@ -496,8 +497,7 @@ export function createImageTool(options?: {
             ? await loadWebMedia(resolvedPath ?? resolvedImage, {
                 maxBytes,
                 sandboxValidated: true,
-                readFile: (filePath) =>
-                  sandboxConfig.bridge.readFile({ filePath, cwd: sandboxConfig.root }),
+                readFile: createSandboxBridgeReadFile({ sandbox: sandboxConfig }),
               })
             : await loadWebMedia(resolvedPath ?? resolvedImage, {
                 maxBytes,

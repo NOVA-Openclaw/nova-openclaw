@@ -2,10 +2,15 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 import * as crypto from "crypto";
 import * as http from "http";
 import {
+  applyBasicWebhookRequestGuards,
   type ClawdbotConfig,
+  createFixedWindowRateLimiter,
+  createWebhookAnomalyTracker,
   type RuntimeEnv,
   type HistoryEntry,
   installRequestBodyLimitGuard,
+  WEBHOOK_ANOMALY_COUNTER_DEFAULTS,
+  WEBHOOK_RATE_LIMIT_DEFAULTS,
 } from "openclaw/plugin-sdk";
 import type { ResolvedFeishuAccount } from "./types.js";
 import { resolveFeishuAccount, listEnabledFeishuAccounts } from "./accounts.js";
@@ -28,11 +33,10 @@ const httpServers = new Map<string, http.Server>();
 const botOpenIds = new Map<string, string>();
 const FEISHU_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 const FEISHU_WEBHOOK_BODY_TIMEOUT_MS = 30_000;
-const FEISHU_WEBHOOK_RATE_LIMIT_WINDOW_MS = 60_000;
-const FEISHU_WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 120;
-const FEISHU_WEBHOOK_RATE_LIMIT_MAX_TRACKED_KEYS = 4_096;
-const FEISHU_WEBHOOK_COUNTER_LOG_EVERY = 25;
 const FEISHU_REACTION_VERIFY_TIMEOUT_MS = 1_500;
+const FEISHU_STARTUP_BOT_INFO_TIMEOUT_MS = 10_000;
+const FEISHU_BOT_INFO_FETCH_ABORTED = Symbol("feishu-bot-info-fetch-aborted");
+const FEISHU_BOT_INFO_FETCH_TIMED_OUT = Symbol("feishu-bot-info-fetch-timed-out");
 
 export type FeishuReactionCreatedEvent = {
   message_id: string;
@@ -55,72 +59,28 @@ type ResolveReactionSyntheticEventParams = {
   uuid?: () => string;
 };
 
-const feishuWebhookRateLimits = new Map<string, { count: number; windowStartMs: number }>();
-const feishuWebhookStatusCounters = new Map<string, number>();
-let lastWebhookRateLimitCleanupMs = 0;
-
-function isJsonContentType(value: string | string[] | undefined): boolean {
-  const first = Array.isArray(value) ? value[0] : value;
-  if (!first) {
-    return false;
-  }
-  const mediaType = first.split(";", 1)[0]?.trim().toLowerCase();
-  return mediaType === "application/json" || Boolean(mediaType?.endsWith("+json"));
-}
-
-function trimWebhookRateLimitState(): void {
-  while (feishuWebhookRateLimits.size > FEISHU_WEBHOOK_RATE_LIMIT_MAX_TRACKED_KEYS) {
-    const oldestKey = feishuWebhookRateLimits.keys().next().value;
-    if (typeof oldestKey !== "string") {
-      break;
-    }
-    feishuWebhookRateLimits.delete(oldestKey);
-  }
-}
-
-function maybePruneWebhookRateLimitState(nowMs: number): void {
-  if (
-    feishuWebhookRateLimits.size === 0 ||
-    nowMs - lastWebhookRateLimitCleanupMs < FEISHU_WEBHOOK_RATE_LIMIT_WINDOW_MS
-  ) {
-    return;
-  }
-  lastWebhookRateLimitCleanupMs = nowMs;
-  for (const [key, state] of feishuWebhookRateLimits) {
-    if (nowMs - state.windowStartMs >= FEISHU_WEBHOOK_RATE_LIMIT_WINDOW_MS) {
-      feishuWebhookRateLimits.delete(key);
-    }
-  }
-}
+const feishuWebhookRateLimiter = createFixedWindowRateLimiter({
+  windowMs: WEBHOOK_RATE_LIMIT_DEFAULTS.windowMs,
+  maxRequests: WEBHOOK_RATE_LIMIT_DEFAULTS.maxRequests,
+  maxTrackedKeys: WEBHOOK_RATE_LIMIT_DEFAULTS.maxTrackedKeys,
+});
+const feishuWebhookAnomalyTracker = createWebhookAnomalyTracker({
+  maxTrackedKeys: WEBHOOK_ANOMALY_COUNTER_DEFAULTS.maxTrackedKeys,
+  ttlMs: WEBHOOK_ANOMALY_COUNTER_DEFAULTS.ttlMs,
+  logEvery: WEBHOOK_ANOMALY_COUNTER_DEFAULTS.logEvery,
+});
 
 export function clearFeishuWebhookRateLimitStateForTest(): void {
-  feishuWebhookRateLimits.clear();
-  lastWebhookRateLimitCleanupMs = 0;
+  feishuWebhookRateLimiter.clear();
+  feishuWebhookAnomalyTracker.clear();
 }
 
 export function getFeishuWebhookRateLimitStateSizeForTest(): number {
-  return feishuWebhookRateLimits.size;
+  return feishuWebhookRateLimiter.size();
 }
 
 export function isWebhookRateLimitedForTest(key: string, nowMs: number): boolean {
-  maybePruneWebhookRateLimitState(nowMs);
-
-  const state = feishuWebhookRateLimits.get(key);
-  if (!state || nowMs - state.windowStartMs >= FEISHU_WEBHOOK_RATE_LIMIT_WINDOW_MS) {
-    feishuWebhookRateLimits.set(key, { count: 1, windowStartMs: nowMs });
-    trimWebhookRateLimitState();
-    return false;
-  }
-
-  state.count += 1;
-  if (state.count > FEISHU_WEBHOOK_RATE_LIMIT_MAX_REQUESTS) {
-    return true;
-  }
-  return false;
-}
-
-function isWebhookRateLimited(key: string, nowMs: number): boolean {
-  return isWebhookRateLimitedForTest(key, nowMs);
+  return feishuWebhookRateLimiter.isRateLimited(key, nowMs);
 }
 
 function recordWebhookStatus(
@@ -129,16 +89,13 @@ function recordWebhookStatus(
   path: string,
   statusCode: number,
 ): void {
-  if (![400, 401, 408, 413, 415, 429].includes(statusCode)) {
-    return;
-  }
-  const key = `${accountId}:${path}:${statusCode}`;
-  const next = (feishuWebhookStatusCounters.get(key) ?? 0) + 1;
-  feishuWebhookStatusCounters.set(key, next);
-  if (next === 1 || next % FEISHU_WEBHOOK_COUNTER_LOG_EVERY === 0) {
-    const log = runtime?.log ?? console.log;
-    log(`feishu[${accountId}]: webhook anomaly path=${path} status=${statusCode} count=${next}`);
-  }
+  feishuWebhookAnomalyTracker.record({
+    key: `${accountId}:${path}:${statusCode}`,
+    statusCode,
+    log: runtime?.log ?? console.log,
+    message: (count) =>
+      `feishu[${accountId}]: webhook anomaly path=${path} status=${statusCode} count=${count}`,
+  });
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
@@ -234,19 +191,75 @@ export async function resolveReactionSyntheticEvent(
   };
 }
 
-async function fetchBotOpenId(account: ResolvedFeishuAccount): Promise<string | undefined> {
+type FetchBotOpenIdOptions = {
+  runtime?: RuntimeEnv;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+async function fetchBotOpenId(
+  account: ResolvedFeishuAccount,
+  options: FetchBotOpenIdOptions = {},
+): Promise<string | undefined> {
+  if (options.abortSignal?.aborted) {
+    return undefined;
+  }
+
+  const timeoutMs = options.timeoutMs ?? FEISHU_STARTUP_BOT_INFO_TIMEOUT_MS;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let abortHandler: (() => void) | undefined;
   try {
-    const result = await probeFeishu(account);
-    return result.ok ? result.botOpenId : undefined;
+    const contenders: Array<
+      Promise<
+        | string
+        | undefined
+        | typeof FEISHU_BOT_INFO_FETCH_ABORTED
+        | typeof FEISHU_BOT_INFO_FETCH_TIMED_OUT
+      >
+    > = [
+      probeFeishu(account)
+        .then((result) => (result.ok ? result.botOpenId : undefined))
+        .catch(() => undefined),
+      new Promise((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(FEISHU_BOT_INFO_FETCH_TIMED_OUT), timeoutMs);
+      }),
+    ];
+    if (options.abortSignal) {
+      contenders.push(
+        new Promise((resolve) => {
+          abortHandler = () => resolve(FEISHU_BOT_INFO_FETCH_ABORTED);
+          options.abortSignal?.addEventListener("abort", abortHandler, { once: true });
+        }),
+      );
+    }
+    const outcome = await Promise.race(contenders);
+    if (outcome === FEISHU_BOT_INFO_FETCH_ABORTED) {
+      return undefined;
+    }
+    if (outcome === FEISHU_BOT_INFO_FETCH_TIMED_OUT) {
+      const error = options.runtime?.error ?? console.error;
+      error(
+        `feishu[${account.accountId}]: bot info probe timed out after ${timeoutMs}ms; continuing startup`,
+      );
+      return undefined;
+    }
+    return outcome;
   } catch {
     return undefined;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (abortHandler) {
+      options.abortSignal?.removeEventListener("abort", abortHandler);
+    }
   }
 }
 
 /**
  * Register common event handlers on an EventDispatcher.
- * When fireAndForget is true (webhook mode), message handling is not awaited
- * to avoid blocking the HTTP response (Lark requires <3s response).
+ * When fireAndForget is true, message handling is not awaited to avoid blocking
+ * event processing (Lark webhooks require <3s response).
  */
 function registerEventHandlers(
   eventDispatcher: Lark.EventDispatcher,
@@ -380,6 +393,8 @@ type MonitorAccountParams = {
   account: ResolvedFeishuAccount;
   runtime?: RuntimeEnv;
   abortSignal?: AbortSignal;
+  botOpenId?: string;
+  botOpenIdPrefetched?: boolean;
 };
 
 /**
@@ -391,7 +406,9 @@ async function monitorSingleAccount(params: MonitorAccountParams): Promise<void>
   const log = runtime?.log ?? console.log;
 
   // Fetch bot open_id
-  const botOpenId = await fetchBotOpenId(account);
+  const botOpenId = params.botOpenIdPrefetched
+    ? params.botOpenId
+    : await fetchBotOpenId(account, { runtime, abortSignal });
   botOpenIds.set(accountId, botOpenId ?? "");
   log(`feishu[${accountId}]: bot open_id resolved: ${botOpenId ?? "unknown"}`);
 
@@ -407,7 +424,7 @@ async function monitorSingleAccount(params: MonitorAccountParams): Promise<void>
     accountId,
     runtime,
     chatHistories,
-    fireAndForget: connectionMode === "webhook",
+    fireAndForget: true,
   });
 
   if (connectionMode === "webhook") {
@@ -491,15 +508,16 @@ async function monitorWebhook({
     });
 
     const rateLimitKey = `${accountId}:${path}:${req.socket.remoteAddress ?? "unknown"}`;
-    if (isWebhookRateLimited(rateLimitKey, Date.now())) {
-      res.statusCode = 429;
-      res.end("Too Many Requests");
-      return;
-    }
-
-    if (req.method === "POST" && !isJsonContentType(req.headers["content-type"])) {
-      res.statusCode = 415;
-      res.end("Unsupported Media Type");
+    if (
+      !applyBasicWebhookRequestGuards({
+        req,
+        res,
+        rateLimiter: feishuWebhookRateLimiter,
+        rateLimitKey,
+        nowMs: Date.now(),
+        requireJsonContentType: true,
+      })
+    ) {
       return;
     }
 
@@ -591,17 +609,33 @@ export async function monitorFeishuProvider(opts: MonitorFeishuOpts = {}): Promi
     `feishu: starting ${accounts.length} account(s): ${accounts.map((a) => a.accountId).join(", ")}`,
   );
 
-  // Start all accounts in parallel
-  await Promise.all(
-    accounts.map((account) =>
+  const monitorPromises: Promise<void>[] = [];
+  for (const account of accounts) {
+    if (opts.abortSignal?.aborted) {
+      log("feishu: abort signal received during startup preflight; stopping startup");
+      break;
+    }
+    // Probe sequentially so large multi-account startups do not burst Feishu's bot-info endpoint.
+    const botOpenId = await fetchBotOpenId(account, {
+      runtime: opts.runtime,
+      abortSignal: opts.abortSignal,
+    });
+    if (opts.abortSignal?.aborted) {
+      log("feishu: abort signal received during startup preflight; stopping startup");
+      break;
+    }
+    monitorPromises.push(
       monitorSingleAccount({
         cfg,
         account,
         runtime: opts.runtime,
         abortSignal: opts.abortSignal,
+        botOpenId,
+        botOpenIdPrefetched: true,
       }),
-    ),
-  );
+    );
+  }
+  await Promise.all(monitorPromises);
 }
 
 /**

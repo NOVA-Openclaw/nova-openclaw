@@ -12,6 +12,7 @@ import { Routes } from "discord-api-types/v10";
 import { inspect } from "node:util";
 import type { HistoryEntry } from "../../auto-reply/reply/history.js";
 import type { OpenClawConfig, ReplyToMode } from "../../config/config.js";
+import type { DiscordMonitorStatusSink } from "./status.js";
 import { resolveTextChunkLimit } from "../../auto-reply/chunk.js";
 import { listNativeCommandSpecsForConfig } from "../../auto-reply/commands-registry.js";
 import { listSkillCommandsForAgents } from "../../auto-reply/skill-commands.js";
@@ -87,6 +88,7 @@ export type MonitorDiscordOpts = {
   mediaMaxMb?: number;
   historyLimit?: number;
   replyToMode?: ReplyToMode;
+  setStatus?: DiscordMonitorStatusSink;
 };
 
 function summarizeAllowList(list?: string[]) {
@@ -515,6 +517,12 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     if (voiceEnabled) {
       clientPlugins.push(new VoicePlugin());
     }
+    // Pass eventQueue config to Carbon so the listener timeout can be tuned.
+    // Default listenerTimeout is 120s (Carbon defaults to 30s which is too short for LLM calls).
+    const eventQueueOpts = {
+      listenerTimeout: 120_000,
+      ...discordCfg.eventQueue,
+    };
     const client = new Client(
       {
         baseUrl: "http://localhost",
@@ -523,6 +531,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         publicKey: "a",
         token,
         autoDeploy: false,
+        eventQueue: eventQueueOpts,
       },
       {
         commands,
@@ -590,8 +599,17 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       threadBindings,
       discordRestFetch,
     });
+    const trackInboundEvent = opts.setStatus
+      ? () => {
+          const at = Date.now();
+          opts.setStatus?.({ lastEventAt: at, lastInboundAt: at });
+        }
+      : undefined;
 
-    registerDiscordListener(client.listeners, new DiscordMessageListener(messageHandler, logger));
+    registerDiscordListener(
+      client.listeners,
+      new DiscordMessageListener(messageHandler, logger, trackInboundEvent),
+    );
     registerDiscordListener(
       client.listeners,
       new DiscordReactionListener({
@@ -608,6 +626,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         allowNameMatching: isDangerousNameMatchingEnabled(discordCfg),
         guildEntries,
         logger,
+        onEvent: trackInboundEvent,
       }),
     );
     registerDiscordListener(
@@ -626,6 +645,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         allowNameMatching: isDangerousNameMatchingEnabled(discordCfg),
         guildEntries,
         logger,
+        onEvent: trackInboundEvent,
       }),
     );
 
@@ -645,6 +665,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
       client,
       runtime,
       abortSignal: opts.abortSignal,
+      statusSink: opts.setStatus,
       isDisallowedIntentsError: isDiscordDisallowedIntentsError,
       voiceManager,
       voiceManagerRef,
