@@ -1,10 +1,4 @@
 import type { SubagentRunRecord } from "../../../agents/subagent-registry.js";
-import type {
-  SessionEntry,
-  loadSessionStore as loadSessionStoreFn,
-  resolveStorePath as resolveStorePathFn,
-} from "../../../config/sessions.js";
-import type { CommandHandler, CommandHandlerResult } from "../commands-types.js";
 import {
   extractAssistantText,
   resolveInternalSessionKey,
@@ -12,6 +6,11 @@ import {
   sanitizeTextContent,
   stripToolMessages,
 } from "../../../agents/tools/sessions-helpers.js";
+import type {
+  SessionEntry,
+  loadSessionStore as loadSessionStoreFn,
+  resolveStorePath as resolveStorePathFn,
+} from "../../../config/sessions.js";
 import { parseDiscordTarget } from "../../../discord/targets.js";
 import { callGateway } from "../../../gateway/call.js";
 import { formatTimeAgo } from "../../../infra/format-time/format-relative.ts";
@@ -22,6 +21,8 @@ import {
   formatTokenUsageDisplay,
   truncateLine,
 } from "../../../shared/subagents-format.js";
+import type { CommandHandler, CommandHandlerResult } from "../commands-types.js";
+import { isDiscordSurface, resolveDiscordAccountId } from "../discord-context.js";
 import {
   formatRunLabel,
   formatRunStatus,
@@ -30,6 +31,7 @@ import {
 } from "../subagents-utils.js";
 
 export { extractAssistantText, stripToolMessages };
+export { isDiscordSurface, resolveDiscordAccountId };
 
 export const COMMAND = "/subagents";
 export const COMMAND_KILL = "/kill";
@@ -266,24 +268,6 @@ export type FocusTargetResolution = {
   agentId: string;
   label?: string;
 };
-
-export function isDiscordSurface(params: SubagentsCommandParams): boolean {
-  const channel =
-    params.ctx.OriginatingChannel ??
-    params.command.channel ??
-    params.ctx.Surface ??
-    params.ctx.Provider;
-  return (
-    String(channel ?? "")
-      .trim()
-      .toLowerCase() === "discord"
-  );
-}
-
-export function resolveDiscordAccountId(params: SubagentsCommandParams): string {
-  const accountId = typeof params.ctx.AccountId === "string" ? params.ctx.AccountId.trim() : "";
-  return accountId || "default";
-}
 
 export function resolveDiscordChannelIdForFocus(
   params: SubagentsCommandParams,

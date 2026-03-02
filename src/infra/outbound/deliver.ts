@@ -1,40 +1,41 @@
-import type { ReplyPayload } from "../../auto-reply/types.js";
-import type {
-  ChannelOutboundAdapter,
-  ChannelOutboundContext,
-} from "../../channels/plugins/types.js";
-import type { OpenClawConfig } from "../../config/config.js";
-import type { sendMessageDiscord } from "../../discord/send.js";
-import type { sendMessageIMessage } from "../../imessage/send.js";
-import type { sendMessageSlack } from "../../slack/send.js";
-import type { sendMessageTelegram } from "../../telegram/send.js";
-import type { sendMessageWhatsApp } from "../../web/outbound.js";
-import type { OutboundIdentity } from "./identity.js";
-import type { NormalizedOutboundPayload } from "./payloads.js";
-import type { OutboundSessionContext } from "./session-context.js";
-import type { OutboundChannel } from "./targets.js";
 import {
   chunkByParagraph,
   chunkMarkdownTextWithMode,
   resolveChunkMode,
   resolveTextChunkLimit,
 } from "../../auto-reply/chunk.js";
+import type { ReplyPayload } from "../../auto-reply/types.js";
 import { resolveChannelMediaMaxBytes } from "../../channels/plugins/media-limits.js";
 import { loadChannelOutboundAdapter } from "../../channels/plugins/outbound/load.js";
+import type {
+  ChannelOutboundAdapter,
+  ChannelOutboundContext,
+} from "../../channels/plugins/types.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { resolveMarkdownTableMode } from "../../config/markdown-tables.js";
 import {
   appendAssistantMessageToSessionTranscript,
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
+import type { sendMessageDiscord } from "../../discord/send.js";
 import { createInternalHookEvent, triggerInternalHook } from "../../hooks/internal-hooks.js";
+import type { sendMessageIMessage } from "../../imessage/send.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { markdownToSignalTextChunks, type SignalTextStyleRange } from "../../signal/format.js";
 import { sendMessageSignal } from "../../signal/send.js";
+import type { sendMessageSlack } from "../../slack/send.js";
+import type { sendMessageTelegram } from "../../telegram/send.js";
+import type { sendMessageWhatsApp } from "../../web/outbound.js";
 import { throwIfAborted } from "./abort.js";
 import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
+import type { OutboundIdentity } from "./identity.js";
+import type { NormalizedOutboundPayload } from "./payloads.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
+import { isPlainTextSurface, sanitizeForPlainText } from "./sanitize-text.js";
+import type { OutboundSessionContext } from "./session-context.js";
+import type { OutboundChannel } from "./targets.js";
 
 export type { NormalizedOutboundPayload } from "./payloads.js";
 export { normalizeOutboundPayloads } from "./payloads.js";
@@ -427,12 +428,21 @@ async function deliverOutboundPayloadsCore(
       })),
     };
   };
-  const normalizeWhatsAppPayload = (payload: ReplyPayload): ReplyPayload | null => {
-    const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+  const hasMediaPayload = (payload: ReplyPayload): boolean =>
+    Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+  const hasChannelDataPayload = (payload: ReplyPayload): boolean =>
+    Boolean(payload.channelData && Object.keys(payload.channelData).length > 0);
+  const normalizePayloadForChannelDelivery = (
+    payload: ReplyPayload,
+    channelId: string,
+  ): ReplyPayload | null => {
+    const hasMedia = hasMediaPayload(payload);
+    const hasChannelData = hasChannelDataPayload(payload);
     const rawText = typeof payload.text === "string" ? payload.text : "";
-    const normalizedText = rawText.replace(/^(?:[ \t]*\r?\n)+/, "");
+    const normalizedText =
+      channelId === "whatsapp" ? rawText.replace(/^(?:[ \t]*\r?\n)+/, "") : rawText;
     if (!normalizedText.trim()) {
-      if (!hasMedia) {
+      if (!hasMedia && !hasChannelData) {
         return null;
       }
       return {
@@ -440,18 +450,32 @@ async function deliverOutboundPayloadsCore(
         text: "",
       };
     }
+    if (normalizedText === rawText) {
+      return payload;
+    }
     return {
       ...payload,
       text: normalizedText,
     };
   };
-  const normalizedPayloads = normalizeReplyPayloadsForDelivery(payloads).flatMap((payload) => {
-    if (channel !== "whatsapp") {
-      return [payload];
-    }
-    const normalized = normalizeWhatsAppPayload(payload);
-    return normalized ? [normalized] : [];
-  });
+  const normalizedPayloads = normalizeReplyPayloadsForDelivery(payloads)
+    .map((payload) => {
+      // Strip HTML tags for plain-text surfaces (WhatsApp, Signal, etc.)
+      // Models occasionally produce <br>, <b>, etc. that render as literal text.
+      // See https://github.com/openclaw/openclaw/issues/31884
+      if (!isPlainTextSurface(channel) || !payload.text) {
+        return payload;
+      }
+      // Telegram sendPayload uses textMode:"html". Preserve raw HTML in this path.
+      if (channel === "telegram" && payload.channelData) {
+        return payload;
+      }
+      return { ...payload, text: sanitizeForPlainText(payload.text) };
+    })
+    .flatMap((payload) => {
+      const normalized = normalizePayloadForChannelDelivery(payload, channel);
+      return normalized ? [normalized] : [];
+    });
   const hookRunner = getGlobalHookRunner();
   const sessionKeyForInternalHooks = params.mirror?.sessionKey ?? params.session?.key;
   if (

@@ -11,6 +11,7 @@ import {
 import { readLastGatewayErrorLine } from "../../daemon/diagnostics.js";
 import { findExtraGatewayServices } from "../../daemon/inspect.js";
 import { auditGatewayServiceConfig } from "../../daemon/service-audit.js";
+import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
 import { resolveGatewayBindHost } from "../../gateway/net.js";
 import {
@@ -54,19 +55,7 @@ export type DaemonStatus = {
       environment?: Record<string, string>;
       sourcePath?: string;
     } | null;
-    runtime?: {
-      status?: string;
-      state?: string;
-      subState?: string;
-      pid?: number;
-      lastExitStatus?: number;
-      lastExitReason?: string;
-      lastRunResult?: string;
-      lastRunTime?: string;
-      detail?: string;
-      cachedLabel?: boolean;
-      missingUnit?: boolean;
-    };
+    runtime?: GatewayServiceRuntime;
     configAudit?: ServiceConfigAudit;
   };
   config?: {

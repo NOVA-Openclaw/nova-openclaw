@@ -1,14 +1,7 @@
 import crypto from "node:crypto";
-import type { GatewayClient } from "../gateway/client.js";
-import type { ExecHostRequest, ExecHostResponse, ExecHostRunResult } from "../infra/exec-host.js";
-import type {
-  ExecEventPayload,
-  RunResult,
-  SkillBinsProvider,
-  SystemRunParams,
-} from "./invoke-types.js";
 import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { loadConfig } from "../config/config.js";
+import type { GatewayClient } from "../gateway/client.js";
 import {
   addAllowlistEntry,
   recordAllowlistUse,
@@ -19,6 +12,7 @@ import {
   type ExecCommandSegment,
   type ExecSecurity,
 } from "../infra/exec-approvals.js";
+import type { ExecHostRequest, ExecHostResponse, ExecHostRunResult } from "../infra/exec-host.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import { sanitizeSystemRunEnvOverrides } from "../infra/host-env-security.js";
 import { resolveSystemRunCommand } from "../infra/system-run-command.js";
@@ -30,6 +24,13 @@ import {
   resolveSystemRunExecArgv,
 } from "./invoke-system-run-allowlist.js";
 import { hardenApprovedExecutionPaths } from "./invoke-system-run-plan.js";
+import type {
+  ExecEventPayload,
+  ExecFinishedEventParams,
+  RunResult,
+  SkillBinsProvider,
+  SystemRunParams,
+} from "./invoke-types.js";
 
 type SystemRunInvokeResult = {
   ok: boolean;
@@ -129,19 +130,7 @@ export type HandleSystemRunInvokeOptions = {
   sendNodeEvent: (client: GatewayClient, event: string, payload: unknown) => Promise<void>;
   buildExecEventPayload: (payload: ExecEventPayload) => ExecEventPayload;
   sendInvokeResult: (result: SystemRunInvokeResult) => Promise<void>;
-  sendExecFinishedEvent: (params: {
-    sessionKey: string;
-    runId: string;
-    cmdText: string;
-    result: {
-      stdout?: string;
-      stderr?: string;
-      error?: string | null;
-      exitCode?: number | null;
-      timedOut?: boolean;
-      success?: boolean;
-    };
-  }) => Promise<void>;
+  sendExecFinishedEvent: (params: ExecFinishedEventParams) => Promise<void>;
   preferMacAppExecHost: boolean;
 };
 
@@ -300,6 +289,7 @@ async function evaluateSystemRunPolicyPhase(
   const hardenedPaths = hardenApprovedExecutionPaths({
     approvedByAsk: policy.approvedByAsk,
     argv: parsed.argv,
+    shellCommand: parsed.shellCommand,
     cwd: parsed.cwd,
   });
   if (!hardenedPaths.ok) {
