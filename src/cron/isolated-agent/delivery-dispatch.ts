@@ -1,19 +1,19 @@
+import type { ReplyPayload } from "../../auto-reply/types.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import type { CronJob, CronRunTelemetry } from "../types.js";
+import type { DeliveryTargetResolution } from "./delivery-target.js";
+import type { RunCronAgentTurnResult } from "./run.js";
 import { runSubagentAnnounceFlow } from "../../agents/subagent-announce.js";
 import { countActiveDescendantRuns } from "../../agents/subagent-registry.js";
 import { SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.js";
-import type { ReplyPayload } from "../../auto-reply/types.js";
 import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
-import type { OpenClawConfig } from "../../config/config.js";
 import { resolveAgentMainSessionKey } from "../../config/sessions.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { resolveAgentOutboundIdentity } from "../../infra/outbound/identity.js";
 import { resolveOutboundSessionRoute } from "../../infra/outbound/outbound-session.js";
 import { buildOutboundSessionContext } from "../../infra/outbound/session-context.js";
 import { logWarn } from "../../logger.js";
-import type { CronJob, CronRunTelemetry } from "../types.js";
-import type { DeliveryTargetResolution } from "./delivery-target.js";
 import { pickSummaryFromOutput } from "./helpers.js";
-import type { RunCronAgentTurnResult } from "./run.js";
 import {
   expectsSubagentFollowup,
   isLikelyInterimCronMessage,
@@ -326,31 +326,39 @@ export async function dispatchCronDelivery(
       if (didAnnounce) {
         delivered = true;
       } else {
+        // Announce delivery failed but the agent execution itself succeeded.
+        // Return ok so the job isn't penalized for a transient delivery issue
+        // (e.g. "pairing required" when no active client session exists).
+        // Delivery failure is tracked separately via delivered/deliveryAttempted.
         const message = "cron announce delivery failed";
+        logWarn(`[cron:${params.job.id}] ${message}`);
         if (!params.deliveryBestEffort) {
           return params.withRunSession({
-            status: "error",
+            status: "ok",
             summary,
             outputText,
             error: message,
+            delivered: false,
             deliveryAttempted,
             ...params.telemetry,
           });
         }
-        logWarn(`[cron:${params.job.id}] ${message}`);
       }
     } catch (err) {
+      // Same as above: announce delivery errors should not mark a successful
+      // agent execution as failed.
+      logWarn(`[cron:${params.job.id}] ${String(err)}`);
       if (!params.deliveryBestEffort) {
         return params.withRunSession({
-          status: "error",
+          status: "ok",
           summary,
           outputText,
           error: String(err),
+          delivered: false,
           deliveryAttempted,
           ...params.telemetry,
         });
       }
-      logWarn(`[cron:${params.job.id}] ${String(err)}`);
     }
     return null;
   };
