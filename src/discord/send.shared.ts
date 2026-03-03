@@ -1,4 +1,3 @@
-import type { RESTAPIPoll } from "discord-api-types/rest/v10";
 import {
   Embed,
   RequestClient,
@@ -8,10 +7,11 @@ import {
   type TopLevelComponents,
 } from "@buape/carbon";
 import { PollLayoutType } from "discord-api-types/payloads/v10";
+import type { RESTAPIPoll } from "discord-api-types/rest/v10";
 import { Routes, type APIChannel, type APIEmbed } from "discord-api-types/v10";
 import type { ChunkMode } from "../auto-reply/chunk.js";
-import type { RetryRunner } from "../infra/retry-policy.js";
 import { loadConfig } from "../config/config.js";
+import type { RetryRunner } from "../infra/retry-policy.js";
 import { buildOutboundMediaLoadOptions } from "../media/load-options.js";
 import { normalizePollDurationHours, normalizePollInput, type PollInput } from "../polls.js";
 import { loadWebMedia } from "../web/media.js";
@@ -59,6 +59,7 @@ function normalizeReactionEmoji(raw: string) {
 
 function parseRecipient(raw: string): DiscordRecipient {
   const target = parseDiscordTarget(raw, {
+    defaultKind: "channel",
     ambiguousMessage: `Ambiguous Discord recipient "${raw.trim()}". Use "user:${raw.trim()}" for DMs or "channel:${raw.trim()}" for channel messages.`,
   });
   if (!target) {
@@ -86,6 +87,7 @@ export async function parseAndResolveRecipient(
   // First try to resolve using directory lookup (handles usernames)
   const trimmed = raw.trim();
   const parseOptions = {
+    defaultKind: "channel" as const,
     ambiguousMessage: `Ambiguous Discord recipient "${trimmed}". Use "user:${trimmed}" for DMs or "channel:${trimmed}" for channel messages.`,
   };
 

@@ -1,11 +1,11 @@
+import { listChannelDocks } from "../channels/dock.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
+import { COMMAND_ARG_FORMATTERS } from "./commands-args.js";
 import type {
   ChatCommandDefinition,
   CommandCategory,
   CommandScope,
 } from "./commands-registry.types.js";
-import { listChannelDocks } from "../channels/dock.js";
-import { getActivePluginRegistry } from "../plugins/runtime.js";
-import { COMMAND_ARG_FORMATTERS } from "./commands-args.js";
 import { listThinkingLevels } from "./thinking.js";
 
 type DefineChatCommandInput = {
@@ -322,6 +322,7 @@ function buildChatCommands(): ChatCommandDefinition[] {
           name: "action",
           description: "Action to run",
           type: "string",
+          preferAutocomplete: true,
           choices: [
             "spawn",
             "cancel",

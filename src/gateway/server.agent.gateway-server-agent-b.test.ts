@@ -3,9 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
-import type { ChannelPlugin } from "../channels/plugins/types.js";
 import { whatsappPlugin } from "../../extensions/whatsapp/src/channel.js";
-import { BARE_SESSION_RESET_PROMPT } from "../auto-reply/reply/session-reset-prompt.js";
+import type { ChannelPlugin } from "../channels/plugins/types.js";
 import { emitAgentEvent, registerAgentRunContext } from "../infra/agent-events.js";
 import { setRegistry } from "./server.agent.gateway-server-agent.mocks.js";
 import { createRegistry } from "./server.e2e-registry-helpers.js";
@@ -287,9 +286,9 @@ describe("gateway server agent", () => {
 
     await vi.waitFor(() => expect(calls.length).toBeGreaterThan(callsBefore));
     const call = (calls.at(-1)?.[0] ?? {}) as Record<string, unknown>;
-    expect(call.message).toBe(BARE_SESSION_RESET_PROMPT);
     expect(call.message).toBeTypeOf("string");
     expect(call.message).toContain("Execute your Session Startup sequence now");
+    expect(call.message).toContain("Current time:");
     expect(typeof call.sessionId).toBe("string");
     expect(call.sessionId).not.toBe("sess-main-before-reset");
   });
