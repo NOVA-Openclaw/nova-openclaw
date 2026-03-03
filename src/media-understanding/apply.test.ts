@@ -2,9 +2,9 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveApiKeyForProvider } from "../agents/model-auth.js";
 import type { MsgContext } from "../auto-reply/templating.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { resolveApiKeyForProvider } from "../agents/model-auth.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { fetchRemoteMedia } from "../media/fetch.js";
 import { runExec } from "../process/exec.js";
@@ -307,6 +307,7 @@ describe("applyMediaUnderstanding", () => {
     const ctx = await createAudioCtx({
       body: "<media:audio> /capture status",
     });
+    ctx.CommandAuthorized = false;
     const result = await applyMediaUnderstanding({
       ctx,
       cfg: createGroqAudioConfig(),
@@ -320,6 +321,7 @@ describe("applyMediaUnderstanding", () => {
       body: "[Audio]\nUser text:\n/capture status\nTranscript:\ntranscribed text",
       commandBody: "/capture status",
     });
+    expect(ctx.CommandAuthorized).toBe(false);
   });
 
   it("handles URL-only attachments for audio transcription", async () => {

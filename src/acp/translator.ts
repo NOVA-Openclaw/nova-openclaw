@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   Agent,
   AgentSideConnection,
@@ -19,7 +20,6 @@ import type {
   StopReason,
 } from "@agentclientprotocol/sdk";
 import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
-import { randomUUID } from "node:crypto";
 import type { GatewayClient } from "../gateway/client.js";
 import type { EventFrame } from "../gateway/protocol/index.js";
 import type { SessionsListResult } from "../gateway/session-utils.js";
@@ -423,7 +423,9 @@ export class AcpGatewayAgent implements Agent {
     }
 
     if (state === "final") {
-      this.finishPrompt(pending.sessionId, pending, "end_turn");
+      const rawStopReason = payload.stopReason as string | undefined;
+      const stopReason: StopReason = rawStopReason === "max_tokens" ? "max_tokens" : "end_turn";
+      this.finishPrompt(pending.sessionId, pending, stopReason);
       return;
     }
     if (state === "aborted") {
