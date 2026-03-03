@@ -1,9 +1,9 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../../config/config.js";
 import { signalOutbound } from "../../channels/plugins/outbound/signal.js";
 import { telegramOutbound } from "../../channels/plugins/outbound/telegram.js";
 import { whatsappOutbound } from "../../channels/plugins/outbound/whatsapp.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { STATE_DIR } from "../../config/paths.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { markdownToSignalTextChunks } from "../../signal/format.js";
@@ -913,6 +913,173 @@ describe("deliverOutboundPayloads", () => {
       }),
       expect.objectContaining({ channelId: "whatsapp" }),
     );
+  });
+
+  describe("text-only channel plugins (sendMedia absent)", () => {
+    it("TC-1: text-only plugin can send text", async () => {
+      const sendText = vi
+        .fn()
+        .mockResolvedValue({ channel: "matrix", messageId: "tx-1", roomId: "r1" });
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "matrix",
+            source: "test",
+            plugin: createOutboundTestPlugin({
+              id: "matrix",
+              outbound: {
+                deliveryMode: "direct",
+                sendText,
+                // sendMedia intentionally absent
+              },
+            }),
+          },
+        ]),
+      );
+
+      const results = await deliverOutboundPayloads({
+        cfg: {},
+        channel: "matrix",
+        to: "!room:1",
+        payloads: [{ text: "hello text-only" }],
+      });
+
+      expect(sendText).toHaveBeenCalledTimes(1);
+      expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ text: "hello text-only" }));
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ channel: "matrix", messageId: "tx-1" });
+    });
+
+    it("TC-2: falls back to sendText for media payload with caption", async () => {
+      const sendText = vi
+        .fn()
+        .mockResolvedValue({ channel: "matrix", messageId: "tx-2", roomId: "r1" });
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "matrix",
+            source: "test",
+            plugin: createOutboundTestPlugin({
+              id: "matrix",
+              outbound: {
+                deliveryMode: "direct",
+                sendText,
+                // sendMedia intentionally absent
+              },
+            }),
+          },
+        ]),
+      );
+
+      await deliverOutboundPayloads({
+        cfg: {},
+        channel: "matrix",
+        to: "!room:1",
+        payloads: [{ text: "the caption", mediaUrl: "https://example.com/photo.png" }],
+      });
+
+      expect(sendText).toHaveBeenCalledTimes(1);
+      expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ text: "the caption" }));
+    });
+
+    it("TC-3: empty caption media returns ok without calling sendText", async () => {
+      const sendText = vi
+        .fn()
+        .mockResolvedValue({ channel: "matrix", messageId: "tx-3", roomId: "r1" });
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "matrix",
+            source: "test",
+            plugin: createOutboundTestPlugin({
+              id: "matrix",
+              outbound: {
+                deliveryMode: "direct",
+                sendText,
+                // sendMedia intentionally absent
+              },
+            }),
+          },
+        ]),
+      );
+
+      const results = await deliverOutboundPayloads({
+        cfg: {},
+        channel: "matrix",
+        to: "!room:1",
+        payloads: [{ text: "", mediaUrl: "https://example.com/photo.png" }],
+      });
+
+      expect(sendText).not.toHaveBeenCalled();
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ ok: true });
+    });
+
+    it("TC-4: plugin with neither sendText nor sendMedia is rejected", async () => {
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "matrix",
+            source: "test",
+            plugin: createOutboundTestPlugin({
+              id: "matrix",
+              outbound: {
+                deliveryMode: "direct",
+                // Neither sendText nor sendMedia
+              } as Parameters<typeof createOutboundTestPlugin>[0]["outbound"],
+            }),
+          },
+        ]),
+      );
+
+      await expect(
+        deliverOutboundPayloads({
+          cfg: {},
+          channel: "matrix",
+          to: "!room:1",
+          payloads: [{ text: "hello" }],
+        }),
+      ).rejects.toThrow("Outbound not configured");
+    });
+
+    it("TC-5: plugin with both sendText and sendMedia uses the plugin's own sendMedia", async () => {
+      const sendText = vi
+        .fn()
+        .mockResolvedValue({ channel: "matrix", messageId: "tx-5t", roomId: "r1" });
+      const sendMedia = vi
+        .fn()
+        .mockResolvedValue({ channel: "matrix", messageId: "tx-5m", roomId: "r1" });
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "matrix",
+            source: "test",
+            plugin: createOutboundTestPlugin({
+              id: "matrix",
+              outbound: {
+                deliveryMode: "direct",
+                sendText,
+                sendMedia,
+              },
+            }),
+          },
+        ]),
+      );
+
+      const results = await deliverOutboundPayloads({
+        cfg: {},
+        channel: "matrix",
+        to: "!room:1",
+        payloads: [{ text: "caption", mediaUrl: "https://example.com/photo.png" }],
+      });
+
+      expect(sendMedia).toHaveBeenCalledTimes(1);
+      expect(sendMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "caption", mediaUrl: "https://example.com/photo.png" }),
+      );
+      expect(sendText).not.toHaveBeenCalled();
+      expect(results[0]).toMatchObject({ channel: "matrix", messageId: "tx-5m" });
+    });
   });
 });
 

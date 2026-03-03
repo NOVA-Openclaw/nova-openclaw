@@ -133,4 +133,4 @@ openclaw plugins install ./extensions/tlon
 
 - 群组回复需要提及（例如 `~your-bot-ship`）才能响应。
 - 话题回复：如果入站消息在话题中，OpenClaw 会在话题内回复。
-- 媒体：`sendMedia` 回退为文本 + URL（无原生上传）。
+- 图片：URL 会上传至 Tlon 存储并嵌入为图片块。

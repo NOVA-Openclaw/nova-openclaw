@@ -424,6 +424,11 @@ export default function (api) {
 - `capabilities`（聊天类型、媒体、线程等）
 - `outbound.deliveryMode` + `outbound.sendText`（用于基本发送）
 
+  > **`sendMedia` 是可选的。** 纯文本渠道可以完全省略它。
+  > 当收到媒体消息而 `sendMedia` 未实现时，OpenClaw 会回退到通过 `sendText`
+  > 发送说明文字，静默丢弃媒体 URL。支持原生媒体上传的渠道应实现 `sendMedia`
+  > 以保留完整附件。
+
 4. 根据需要添加可选适配器
 
 - `setup`（向导）、`security`（私信策略）、`status`（健康/诊断）
