@@ -1012,7 +1012,7 @@ describe("deliverOutboundPayloads", () => {
 
       expect(sendText).not.toHaveBeenCalled();
       expect(results).toHaveLength(1);
-      expect(results[0]).toMatchObject({ ok: true });
+      expect(results[0]).toMatchObject({ channel: "agent_chat", messageId: "" });
     });
 
     it("TC-4: plugin with neither sendText nor sendMedia is rejected", async () => {

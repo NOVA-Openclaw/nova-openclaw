@@ -188,7 +188,7 @@ function createPluginHandler(
       }
       // Text-only plugin: fall back to sendText with the caption, dropping the media URL.
       if (!caption) {
-        return { ok: true } as OutboundDeliveryResult;
+        return { channel: params.channel, messageId: "" } as OutboundDeliveryResult;
       }
       return sendText({
         ...resolveCtx(overrides),
