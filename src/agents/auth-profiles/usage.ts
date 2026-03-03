@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "../../config/config.js";
-import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 import { normalizeProviderId } from "../model-selection.js";
 import { saveAuthProfileStore, updateAuthProfileStoreWithLock } from "./store.js";
+import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
 const FAILURE_REASON_PRIORITY: AuthProfileFailureReason[] = [
   "auth_permanent",
@@ -37,7 +37,11 @@ export function resolveProfileUnusableUntil(
 /**
  * Check if a profile is currently in cooldown (due to rate limiting or errors).
  */
-export function isProfileInCooldown(store: AuthProfileStore, profileId: string): boolean {
+export function isProfileInCooldown(
+  store: AuthProfileStore,
+  profileId: string,
+  now?: number,
+): boolean {
   if (isAuthCooldownBypassedForProvider(store.profiles[profileId]?.provider)) {
     return false;
   }
@@ -46,7 +50,8 @@ export function isProfileInCooldown(store: AuthProfileStore, profileId: string):
     return false;
   }
   const unusableUntil = resolveProfileUnusableUntil(stats);
-  return unusableUntil ? Date.now() < unusableUntil : false;
+  const ts = now ?? Date.now();
+  return unusableUntil ? ts < unusableUntil : false;
 }
 
 function isActiveUnusableWindow(until: number | undefined, now: number): boolean {

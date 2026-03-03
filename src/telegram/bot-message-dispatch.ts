@@ -1,11 +1,4 @@
 import type { Bot } from "grammy";
-import type { ReplyPayload } from "../auto-reply/types.js";
-import type { OpenClawConfig, ReplyToMode, TelegramAccountConfig } from "../config/types.js";
-import type { RuntimeEnv } from "../runtime.js";
-import type { TelegramMessageContext } from "./bot-message-context.js";
-import type { TelegramBotOptions } from "./bot.js";
-import type { TelegramStreamMode } from "./bot/types.js";
-import type { TelegramInlineButtons } from "./button-types.js";
 import { resolveAgentDir } from "../agents/agent-scope.js";
 import {
   findModelInCatalog,
@@ -16,15 +9,22 @@ import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
 import { resolveChunkMode } from "../auto-reply/chunk.js";
 import { clearHistoryEntriesIfEnabled } from "../auto-reply/reply/history.js";
 import { dispatchReplyWithBufferedBlockDispatcher } from "../auto-reply/reply/provider-dispatcher.js";
+import type { ReplyPayload } from "../auto-reply/types.js";
 import { removeAckReactionAfterReply } from "../channels/ack-reactions.js";
 import { logAckFailure, logTypingFailure } from "../channels/logging.js";
 import { createReplyPrefixOptions } from "../channels/reply-prefix.js";
 import { createTypingCallbacks } from "../channels/typing.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
+import type { OpenClawConfig, ReplyToMode, TelegramAccountConfig } from "../config/types.js";
 import { danger, logVerbose } from "../globals.js";
 import { getAgentScopedMediaLocalRoots } from "../media/local-roots.js";
+import type { RuntimeEnv } from "../runtime.js";
+import type { TelegramMessageContext } from "./bot-message-context.js";
+import type { TelegramBotOptions } from "./bot.js";
 import { deliverReplies } from "./bot/delivery.js";
+import type { TelegramStreamMode } from "./bot/types.js";
+import type { TelegramInlineButtons } from "./button-types.js";
 import { createTelegramDraftStream } from "./draft-stream.js";
 import { renderTelegramHtmlText } from "./format.js";
 import {
@@ -225,16 +225,20 @@ export const dispatchTelegramMessage = async ({
       stream,
       lastPartialText: "",
       hasStreamedMessage: false,
-      previewRevisionBaseline: stream?.previewRevision?.() ?? 0,
     };
   };
   const lanes: Record<LaneName, DraftLaneState> = {
     answer: createDraftLane("answer", canStreamAnswerDraft),
     reasoning: createDraftLane("reasoning", canStreamReasoningDraft),
   };
+  const finalizedPreviewByLane: Record<LaneName, boolean> = {
+    answer: false,
+    reasoning: false,
+  };
   const answerLane = lanes.answer;
   const reasoningLane = lanes.reasoning;
   let splitReasoningOnNextStream = false;
+  let skipNextAnswerMessageStartRotation = false;
   const reasoningStepState = createTelegramReasoningStepState();
   type SplitLaneSegment = { lane: LaneName; text: string };
   type SplitLaneSegmentsResult = {
@@ -260,7 +264,29 @@ export const dispatchTelegramMessage = async ({
   const resetDraftLaneState = (lane: DraftLaneState) => {
     lane.lastPartialText = "";
     lane.hasStreamedMessage = false;
-    lane.previewRevisionBaseline = lane.stream?.previewRevision?.() ?? lane.previewRevisionBaseline;
+  };
+  const rotateAnswerLaneForNewAssistantMessage = () => {
+    let didForceNewMessage = false;
+    if (answerLane.hasStreamedMessage) {
+      const previewMessageId = answerLane.stream?.messageId();
+      // Only archive previews that still need a matching final text update.
+      // Once a preview has already been finalized, archiving it here causes
+      // cleanup to delete a user-visible final message on later media-only turns.
+      if (typeof previewMessageId === "number" && !finalizedPreviewByLane.answer) {
+        archivedAnswerPreviews.push({
+          messageId: previewMessageId,
+          textSnapshot: answerLane.lastPartialText,
+        });
+      }
+      answerLane.stream?.forceNewMessage();
+      didForceNewMessage = true;
+    }
+    resetDraftLaneState(answerLane);
+    if (didForceNewMessage) {
+      // New assistant message boundary: this lane now tracks a fresh preview lifecycle.
+      finalizedPreviewByLane.answer = false;
+    }
+    return didForceNewMessage;
   };
   const updateDraftFromPartial = (lane: DraftLaneState, text: string | undefined) => {
     const laneStream = lane.stream;
@@ -287,6 +313,13 @@ export const dispatchTelegramMessage = async ({
   };
   const ingestDraftLaneSegments = (text: string | undefined) => {
     const split = splitTextIntoLaneSegments(text);
+    const hasAnswerSegment = split.segments.some((segment) => segment.lane === "answer");
+    if (hasAnswerSegment && finalizedPreviewByLane.answer) {
+      // Some providers can emit the first partial of a new assistant message before
+      // onAssistantMessageStart() arrives. Rotate preemptively so we do not edit
+      // the previously finalized preview message with the next message's text.
+      skipNextAnswerMessageStartRotation = rotateAnswerLaneForNewAssistantMessage();
+    }
     for (const segment of split.segments) {
       if (segment.lane === "reasoning") {
         reasoningStepState.noteReasoningHint();
@@ -376,10 +409,6 @@ export const dispatchTelegramMessage = async ({
       ? ctxPayload.ReplyToBody.trim() || undefined
       : undefined;
   const deliveryState = createLaneDeliveryStateTracker();
-  const finalizedPreviewByLane: Record<LaneName, boolean> = {
-    answer: false,
-    reasoning: false,
-  };
   const clearGroupHistory = () => {
     if (isGroup && historyKey) {
       clearHistoryEntriesIfEnabled({ historyMap: groupHistories, historyKey, limit: historyLimit });
@@ -599,21 +628,16 @@ export const dispatchTelegramMessage = async ({
         onAssistantMessageStart: answerLane.stream
           ? async () => {
               reasoningStepState.resetForNextStep();
-              if (answerLane.hasStreamedMessage) {
-                const previewMessageId = answerLane.stream?.messageId();
-                // Only archive previews that still need a matching final text update.
-                // Once a preview has already been finalized, archiving it here causes
-                // cleanup to delete a user-visible final message on later media-only turns.
-                if (typeof previewMessageId === "number" && !finalizedPreviewByLane.answer) {
-                  archivedAnswerPreviews.push({
-                    messageId: previewMessageId,
-                    textSnapshot: answerLane.lastPartialText,
-                  });
-                }
-                answerLane.stream?.forceNewMessage();
+              if (skipNextAnswerMessageStartRotation) {
+                skipNextAnswerMessageStartRotation = false;
+                finalizedPreviewByLane.answer = false;
+                return;
               }
-              resetDraftLaneState(answerLane);
-              // New assistant message boundary: this lane now tracks a fresh preview lifecycle.
+              rotateAnswerLaneForNewAssistantMessage();
+              // Message-start is an explicit assistant-message boundary.
+              // Even when no forceNewMessage happened (e.g. prior answer had no
+              // streamed partials), the next partial belongs to a fresh lifecycle
+              // and must not trigger late pre-rotation mid-message.
               finalizedPreviewByLane.answer = false;
             }
           : undefined,
