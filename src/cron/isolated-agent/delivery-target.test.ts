@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
-import { DEFAULT_CHAT_CHANNEL } from "../../channels/registry.js";
-
 vi.mock("../../config/sessions.js", () => ({
   loadSessionStore: vi.fn().mockReturnValue({}),
   resolveAgentMainSessionKey: vi.fn().mockReturnValue("agent:test:main"),
