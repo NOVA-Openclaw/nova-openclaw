@@ -514,6 +514,12 @@ Model provider docs live under `/providers/*`.
 - `capabilities` (chat types, media, threads, etc.)
 - `outbound.deliveryMode` + `outbound.sendText` (for basic send)
 
+  > **`sendMedia` is optional.** Text-only channels can omit it entirely.
+  > When a media payload arrives and `sendMedia` is absent, OpenClaw falls back
+  > to sending the caption text via `sendText`, silently dropping the media URL.
+  > Channels that support native media uploads should implement `sendMedia` to
+  > preserve the full attachment.
+
 4. Add optional adapters as needed
 
 - `setup` (wizard), `security` (DM policy), `status` (health/diagnostics)
