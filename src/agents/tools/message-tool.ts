@@ -1,6 +1,4 @@
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
-import type { AnyAgentTool } from "./common.js";
 import { BLUEBUBBLES_GROUP_ACTIONS } from "../../channels/plugins/bluebubbles-actions.js";
 import { listChannelPlugins } from "../../channels/plugins/index.js";
 import {
@@ -14,6 +12,7 @@ import {
   CHANNEL_MESSAGE_ACTION_NAMES,
   type ChannelMessageActionName,
 } from "../../channels/plugins/types.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig } from "../../config/config.js";
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "../../gateway/protocol/client-info.js";
 import { getToolResult, runMessageAction } from "../../infra/outbound/message-action-runner.js";
@@ -24,6 +23,7 @@ import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { listChannelSupportedActions } from "../channel-tools.js";
 import { channelTargetSchema, channelTargetsSchema, stringEnum } from "../schema/typebox.js";
+import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
 import { resolveGatewayOptions } from "./gateway.js";
 
@@ -277,6 +277,34 @@ function buildPollSchema() {
     pollOption: Type.Optional(Type.Array(Type.String())),
     pollDurationHours: Type.Optional(Type.Number()),
     pollMulti: Type.Optional(Type.Boolean()),
+    pollId: Type.Optional(Type.String()),
+    pollOptionId: Type.Optional(
+      Type.String({
+        description: "Poll answer id to vote for. Use when the channel exposes stable answer ids.",
+      }),
+    ),
+    pollOptionIds: Type.Optional(
+      Type.Array(
+        Type.String({
+          description:
+            "Poll answer ids to vote for in a multiselect poll. Use when the channel exposes stable answer ids.",
+        }),
+      ),
+    ),
+    pollOptionIndex: Type.Optional(
+      Type.Number({
+        description:
+          "1-based poll option number to vote for, matching the rendered numbered poll choices.",
+      }),
+    ),
+    pollOptionIndexes: Type.Optional(
+      Type.Array(
+        Type.Number({
+          description:
+            "1-based poll option numbers to vote for in a multiselect poll, matching the rendered numbered poll choices.",
+        }),
+      ),
+    ),
   };
 }
 

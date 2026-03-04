@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import type {
   AssistantMessage,
@@ -7,7 +8,6 @@ import type {
   Tool,
 } from "@mariozechner/pi-ai";
 import { createAssistantMessageEventStream } from "@mariozechner/pi-ai";
-import { randomUUID } from "node:crypto";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   buildAssistantMessage as buildStreamAssistantMessage,
@@ -405,7 +405,10 @@ function resolveOllamaChatUrl(baseUrl: string): string {
   return `${apiBase}/api/chat`;
 }
 
-export function createOllamaStreamFn(baseUrl: string): StreamFn {
+export function createOllamaStreamFn(
+  baseUrl: string,
+  defaultHeaders?: Record<string, string>,
+): StreamFn {
   const chatUrl = resolveOllamaChatUrl(baseUrl);
 
   return (model, context, options) => {
@@ -440,6 +443,7 @@ export function createOllamaStreamFn(baseUrl: string): StreamFn {
 
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
+          ...defaultHeaders,
           ...options?.headers,
         };
         if (options?.apiKey) {
