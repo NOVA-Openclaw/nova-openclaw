@@ -1,13 +1,13 @@
 import type { OpenClawConfig } from "../config/config.js";
+import { resolvePluginTools } from "../plugins/tools.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
+import { resolveSessionAgentId } from "./agent-scope.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
-import type { AnyAgentTool } from "./tools/common.js";
-import { resolvePluginTools } from "../plugins/tools.js";
-import { resolveSessionAgentId } from "./agent-scope.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
+import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool } from "./tools/cron-tool.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
 import { createImageTool } from "./tools/image-tool.js";
@@ -60,6 +60,8 @@ export function createOpenClawTools(options?: {
   hasRepliedRef?: { value: boolean };
   /** If true, the model has native vision capability */
   modelHasVision?: boolean;
+  /** If true, nodes action="invoke" can call media-returning commands directly. */
+  allowMediaInvokeCommands?: boolean;
   /** Explicit agent ID override for cron/hook sessions. */
   requesterAgentIdOverride?: string;
   /** Require explicit message targets (no implicit last-route sends). */
@@ -136,6 +138,8 @@ export function createOpenClawTools(options?: {
       currentChannelId: options?.currentChannelId,
       currentThreadTs: options?.currentThreadTs,
       config: options?.config,
+      modelHasVision: options?.modelHasVision,
+      allowMediaInvokeCommands: options?.allowMediaInvokeCommands,
     }),
     createCronTool({
       agentSessionKey: options?.agentSessionKey,

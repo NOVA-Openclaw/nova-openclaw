@@ -1,5 +1,5 @@
-import type { AddressInfo } from "node:net";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TEST_GATEWAY_TOKEN = "test-gateway-token-1234567890";
@@ -335,6 +335,7 @@ describe("POST /tools/invoke", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body).toHaveProperty("result");
+    expect(lastCreateOpenClawToolsContext?.allowMediaInvokeCommands).toBe(true);
   });
 
   it("supports tools.alsoAllow in profile and implicit modes", async () => {
