@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ResolvedAcpxPluginConfig } from "../config.js";
 import { resolvePreferredOpenClawTmpDir } from "../../../../src/infra/tmp-openclaw-dir.js";
+import type { ResolvedAcpxPluginConfig } from "../config.js";
 import { ACPX_PINNED_VERSION } from "../config.js";
 import { AcpxRuntime } from "../runtime.js";
 
@@ -75,14 +75,35 @@ const setValue = command === "set" ? String(args[commandIndex + 2] || "") : "";
 
 if (command === "sessions" && args[commandIndex + 1] === "ensure") {
   writeLog({ kind: "ensure", agent, args, sessionName: ensureName });
-  emitJson({
-    action: "session_ensured",
-    acpxRecordId: "rec-" + ensureName,
-    acpxSessionId: "sid-" + ensureName,
-    agentSessionId: "inner-" + ensureName,
-    name: ensureName,
-    created: true,
-  });
+  if (process.env.MOCK_ACPX_ENSURE_EMPTY === "1") {
+    emitJson({ action: "session_ensured", name: ensureName });
+  } else {
+    emitJson({
+      action: "session_ensured",
+      acpxRecordId: "rec-" + ensureName,
+      acpxSessionId: "sid-" + ensureName,
+      agentSessionId: "inner-" + ensureName,
+      name: ensureName,
+      created: true,
+    });
+  }
+  process.exit(0);
+}
+
+if (command === "sessions" && args[commandIndex + 1] === "new") {
+  writeLog({ kind: "new", agent, args, sessionName: ensureName });
+  if (process.env.MOCK_ACPX_NEW_EMPTY === "1") {
+    emitJson({ action: "session_created", name: ensureName });
+  } else {
+    emitJson({
+      action: "session_created",
+      acpxRecordId: "rec-" + ensureName,
+      acpxSessionId: "sid-" + ensureName,
+      agentSessionId: "inner-" + ensureName,
+      name: ensureName,
+      created: true,
+    });
+  }
   process.exit(0);
 }
 

@@ -1,4 +1,3 @@
-import type { APIChannel } from "discord-api-types/v10";
 import {
   serializePayload,
   type MessagePayloadFile,
@@ -6,8 +5,7 @@ import {
   type RequestClient,
 } from "@buape/carbon";
 import { ChannelType, Routes } from "discord-api-types/v10";
-import type { DiscordSendResult } from "./send.types.js";
-import { loadConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
 import { recordChannelActivity } from "../infra/channel-activity.js";
 import { loadWebMedia } from "../web/media.js";
 import { resolveDiscordAccount } from "./accounts.js";
@@ -28,6 +26,7 @@ import {
   stripUndefinedFields,
   SUPPRESS_NOTIFICATIONS_FLAG,
 } from "./send.shared.js";
+import type { DiscordSendResult } from "./send.types.js";
 
 const DISCORD_FORUM_LIKE_TYPES = new Set<number>([ChannelType.GuildForum, ChannelType.GuildMedia]);
 
@@ -42,6 +41,7 @@ function extractComponentAttachmentNames(spec: DiscordComponentMessageSpec): str
 }
 
 type DiscordComponentSendOpts = {
+  cfg?: OpenClawConfig;
   accountId?: string;
   token?: string;
   rest?: RequestClient;
@@ -59,10 +59,10 @@ export async function sendDiscordComponentMessage(
   spec: DiscordComponentMessageSpec,
   opts: DiscordComponentSendOpts = {},
 ): Promise<DiscordSendResult> {
-  const cfg = loadConfig();
+  const cfg = opts.cfg ?? loadConfig();
   const accountInfo = resolveDiscordAccount({ cfg, accountId: opts.accountId });
   const { token, rest, request } = createDiscordClient(opts, cfg);
-  const recipient = await parseAndResolveRecipient(to, opts.accountId);
+  const recipient = await parseAndResolveRecipient(to, opts.accountId, cfg);
   const { channelId } = await resolveChannelId(rest, recipient, request);
 
   const channelType = await resolveDiscordChannelType(rest, channelId);

@@ -1,11 +1,11 @@
+import fsp from "node:fs/promises";
+import path from "node:path";
 import type {
   ChannelOnboardingAdapter,
   ChannelOnboardingDmPolicy,
   OpenClawConfig,
   WizardPrompter,
-} from "openclaw/plugin-sdk";
-import fsp from "node:fs/promises";
-import path from "node:path";
+} from "openclaw/plugin-sdk/zalouser";
 import {
   addWildcardAllowFrom,
   DEFAULT_ACCOUNT_ID,
@@ -15,7 +15,7 @@ import {
   promptAccountId,
   promptChannelAccessConfig,
   resolvePreferredOpenClawTmpDir,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/zalouser";
 import {
   listZalouserAccountIds,
   resolveDefaultZalouserAccountId,

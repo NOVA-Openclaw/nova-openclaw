@@ -1,16 +1,16 @@
 import type { App } from "@slack/bolt";
 import type { HistoryEntry } from "../../auto-reply/reply/history.js";
-import type { OpenClawConfig, SlackReactionNotificationMode } from "../../config/config.js";
-import type { DmPolicy, GroupPolicy } from "../../config/types.js";
-import type { RuntimeEnv } from "../../runtime.js";
-import type { SlackMessageEvent } from "../types.js";
-import type { SlackChannelConfigEntries } from "./channel-config.js";
 import { formatAllowlistMatchMeta } from "../../channels/allowlist-match.js";
+import type { OpenClawConfig, SlackReactionNotificationMode } from "../../config/config.js";
 import { resolveSessionKey, type SessionScope } from "../../config/sessions.js";
+import type { DmPolicy, GroupPolicy } from "../../config/types.js";
 import { logVerbose } from "../../globals.js";
 import { createDedupeCache } from "../../infra/dedupe.js";
 import { getChildLogger } from "../../logging.js";
+import type { RuntimeEnv } from "../../runtime.js";
+import type { SlackMessageEvent } from "../types.js";
 import { normalizeAllowList, normalizeAllowListLower, normalizeSlackSlug } from "./allow-list.js";
+import type { SlackChannelConfigEntries } from "./channel-config.js";
 import { resolveSlackChannelConfig } from "./channel-config.js";
 import { normalizeSlackChannelType } from "./channel-type.js";
 import { isSlackChannelAllowedByPolicy } from "./policy.js";
@@ -52,6 +52,7 @@ export type SlackMonitorContext = {
   slashCommand: Required<import("../../config/config.js").SlackSlashCommandConfig>;
   textLimit: number;
   ackReactionScope: string;
+  typingReaction: string;
   mediaMaxBytes: number;
   removeAckAfterReply: boolean;
 
@@ -114,6 +115,7 @@ export function createSlackMonitorContext(params: {
   slashCommand: SlackMonitorContext["slashCommand"];
   textLimit: number;
   ackReactionScope: string;
+  typingReaction: string;
   mediaMaxBytes: number;
   removeAckAfterReply: boolean;
 }): SlackMonitorContext {
@@ -390,6 +392,7 @@ export function createSlackMonitorContext(params: {
     slashCommand: params.slashCommand,
     textLimit: params.textLimit,
     ackReactionScope: params.ackReactionScope,
+    typingReaction: params.typingReaction,
     mediaMaxBytes: params.mediaMaxBytes,
     removeAckAfterReply: params.removeAckAfterReply,
     logger,

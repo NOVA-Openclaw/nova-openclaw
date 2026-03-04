@@ -2,9 +2,9 @@ import type {
   AllowlistMatch,
   ChannelGroupContext,
   GroupToolPolicyConfig,
-} from "openclaw/plugin-sdk";
-import type { FeishuConfig, FeishuGroupConfig } from "./types.js";
+} from "openclaw/plugin-sdk/feishu";
 import { normalizeFeishuTarget } from "./targets.js";
+import type { FeishuConfig, FeishuGroupConfig } from "./types.js";
 
 export type FeishuAllowlistMatch = AllowlistMatch<"wildcard" | "id">;
 

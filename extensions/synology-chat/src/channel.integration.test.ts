@@ -1,5 +1,5 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { EventEmitter } from "node:events";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeFormBody, makeReq, makeRes } from "./test-http-utils.js";
 
@@ -12,8 +12,8 @@ type RegisteredRoute = {
 const registerPluginHttpRouteMock = vi.fn<(params: RegisteredRoute) => () => void>(() => vi.fn());
 const dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockResolvedValue({ counts: {} });
 
-vi.mock("openclaw/plugin-sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk")>();
+vi.mock("openclaw/plugin-sdk/synology-chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/synology-chat")>();
   return {
     ...actual,
     DEFAULT_ACCOUNT_ID: "default",

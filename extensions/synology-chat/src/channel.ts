@@ -9,12 +9,12 @@ import {
   setAccountEnabledInConfigSection,
   registerPluginHttpRoute,
   buildChannelConfigSchema,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/synology-chat";
 import { z } from "zod";
-import type { ResolvedSynologyChatAccount } from "./types.js";
 import { listAccountIds, resolveAccount } from "./accounts.js";
 import { sendMessage, sendFileUrl } from "./client.js";
 import { getSynologyRuntime } from "./runtime.js";
+import type { ResolvedSynologyChatAccount } from "./types.js";
 import { createWebhookHandler } from "./webhook-handler.js";
 
 const CHANNEL_ID = "synology-chat";

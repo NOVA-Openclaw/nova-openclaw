@@ -1,13 +1,4 @@
 import type { Bot } from "grammy";
-import type { MsgContext } from "../auto-reply/templating.js";
-import type { OpenClawConfig } from "../config/config.js";
-import type {
-  DmPolicy,
-  TelegramDirectConfig,
-  TelegramGroupConfig,
-  TelegramTopicConfig,
-} from "../config/types.js";
-import type { StickerMetadata, TelegramContext } from "./bot/types.js";
 import { resolveAckReaction } from "../agents/identity.js";
 import {
   findModelInCatalog,
@@ -25,6 +16,7 @@ import {
 } from "../auto-reply/reply/history.js";
 import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
 import { buildMentionRegexes, matchesMentionWithExplicit } from "../auto-reply/reply/mentions.js";
+import type { MsgContext } from "../auto-reply/templating.js";
 import { shouldAckReaction as shouldAckReactionGate } from "../channels/ack-reactions.js";
 import { resolveControlCommandGate } from "../channels/command-gating.js";
 import { formatLocationText, toLocationContext } from "../channels/location.js";
@@ -35,12 +27,28 @@ import {
   createStatusReactionController,
   type StatusReactionController,
 } from "../channels/status-reactions.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { loadConfig } from "../config/config.js";
 import { readSessionUpdatedAt, resolveStorePath } from "../config/sessions.js";
+import type {
+  DmPolicy,
+  TelegramDirectConfig,
+  TelegramGroupConfig,
+  TelegramTopicConfig,
+} from "../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
 import { recordChannelActivity } from "../infra/channel-activity.js";
-import { resolveAgentRoute } from "../routing/resolve-route.js";
-import { DEFAULT_ACCOUNT_ID, resolveThreadSessionKeys } from "../routing/session-key.js";
+import {
+  buildAgentSessionKey,
+  pickFirstExistingAgentId,
+  resolveAgentRoute,
+  type ResolvedAgentRoute,
+} from "../routing/resolve-route.js";
+import {
+  DEFAULT_ACCOUNT_ID,
+  buildAgentMainSessionKey,
+  resolveThreadSessionKeys,
+} from "../routing/session-key.js";
 import { resolvePinnedMainDmOwnerFromAllowlist } from "../security/dm-policy-shared.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import {
@@ -66,6 +74,7 @@ import {
   hasBotMention,
   resolveTelegramThreadSpec,
 } from "./bot/helpers.js";
+import type { StickerMetadata, TelegramContext } from "./bot/types.js";
 import { enforceTelegramDmAccess } from "./dm-access.js";
 import { isTelegramForumServiceMessage } from "./forum-service-message.js";
 import { evaluateTelegramGroupBaseAccess } from "./group-access.js";
@@ -199,8 +208,9 @@ export const buildTelegramMessageContext = async ({
     : resolveTelegramDirectPeerId({ chatId, senderId });
   const parentPeer = buildTelegramParentPeer({ isGroup, resolvedThreadId, chatId });
   // Fresh config for bindings lookup; other routing inputs are payload-derived.
-  const route = resolveAgentRoute({
-    cfg: loadConfig(),
+  const freshCfg = loadConfig();
+  let route: ResolvedAgentRoute = resolveAgentRoute({
+    cfg: freshCfg,
     channel: "telegram",
     accountId: account.accountId,
     peer: {
@@ -209,6 +219,32 @@ export const buildTelegramMessageContext = async ({
     },
     parentPeer,
   });
+  // Per-topic agentId override: re-derive session key under the topic's agent.
+  const rawTopicAgentId = topicConfig?.agentId?.trim();
+  if (rawTopicAgentId) {
+    // Validate agentId against configured agents; falls back to default if not found.
+    const topicAgentId = pickFirstExistingAgentId(freshCfg, rawTopicAgentId);
+    const overrideSessionKey = buildAgentSessionKey({
+      agentId: topicAgentId,
+      channel: "telegram",
+      accountId: account.accountId,
+      peer: { kind: isGroup ? "group" : "direct", id: peerId },
+      dmScope: freshCfg.session?.dmScope,
+      identityLinks: freshCfg.session?.identityLinks,
+    }).toLowerCase();
+    const overrideMainSessionKey = buildAgentMainSessionKey({
+      agentId: topicAgentId,
+    }).toLowerCase();
+    route = {
+      ...route,
+      agentId: topicAgentId,
+      sessionKey: overrideSessionKey,
+      mainSessionKey: overrideMainSessionKey,
+    };
+    logVerbose(
+      `telegram: per-topic agent override: topic=${resolvedThreadId ?? dmThreadId} agent=${topicAgentId} sessionKey=${overrideSessionKey}`,
+    );
+  }
   // Fail closed for named Telegram accounts when route resolution falls back to
   // default-agent routing. This prevents cross-account DM/session contamination.
   if (route.accountId !== DEFAULT_ACCOUNT_ID && route.matchedBy === "default") {
