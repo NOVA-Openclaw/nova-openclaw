@@ -1,8 +1,8 @@
 import chokidar from "chokidar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import type { ConfigFileSnapshot } from "../config/config.js";
-import { listChannelPlugins } from "../channels/plugins/index.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
@@ -157,6 +157,14 @@ describe("buildGatewayReloadPlan", () => {
     expect(plan.hotReasons).toEqual(
       expect.arrayContaining(["models.providers.openai.models", "agents.defaults.model"]),
     );
+  });
+
+  it("restarts heartbeat when agents.defaults.models allowlist changes", () => {
+    const plan = buildGatewayReloadPlan(["agents.defaults.models"]);
+    expect(plan.restartGateway).toBe(false);
+    expect(plan.restartHeartbeat).toBe(true);
+    expect(plan.hotReasons).toContain("agents.defaults.models");
+    expect(plan.noopPaths).toEqual([]);
   });
 
   it("hot-reloads health monitor when channelHealthCheckMinutes changes", () => {

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelId } from "../channels/plugins/types.js";
 import type { ChannelAccountSnapshot } from "../channels/plugins/types.js";
-import type { ChannelManager, ChannelRuntimeSnapshot } from "./server-channels.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
+import type { ChannelManager, ChannelRuntimeSnapshot } from "./server-channels.js";
 
 function createMockChannelManager(overrides?: Partial<ChannelManager>): ChannelManager {
   return {
@@ -227,6 +227,63 @@ describe("channel-health-monitor", () => {
     expect(manager.resetRestartAttempts).toHaveBeenCalledWith("whatsapp", "default");
     expect(manager.startChannel).toHaveBeenCalledWith("whatsapp", "default");
     monitor.stop();
+  });
+
+  it("skips restart when channel is busy with active runs", async () => {
+    const now = Date.now();
+    const manager = createSnapshotManager({
+      discord: {
+        default: {
+          running: true,
+          connected: false,
+          enabled: true,
+          configured: true,
+          lastStartAt: now - 300_000,
+          activeRuns: 2,
+          busy: true,
+          lastRunActivityAt: now - 30_000,
+        },
+      },
+    });
+    await expectNoRestart(manager);
+  });
+
+  it("restarts busy channels when run activity is stale", async () => {
+    const now = Date.now();
+    const manager = createSnapshotManager({
+      discord: {
+        default: {
+          running: true,
+          connected: false,
+          enabled: true,
+          configured: true,
+          lastStartAt: now - 300_000,
+          activeRuns: 1,
+          busy: true,
+          lastRunActivityAt: now - 26 * 60_000,
+        },
+      },
+    });
+    await expectRestartedChannel(manager, "discord");
+  });
+
+  it("restarts disconnected channels when busy flags are inherited from a prior lifecycle", async () => {
+    const now = Date.now();
+    const manager = createSnapshotManager({
+      discord: {
+        default: {
+          running: true,
+          connected: false,
+          enabled: true,
+          configured: true,
+          lastStartAt: now - 300_000,
+          activeRuns: 1,
+          busy: true,
+          lastRunActivityAt: now - 301_000,
+        },
+      },
+    });
+    await expectRestartedChannel(manager, "discord");
   });
 
   it("skips recently-started channels while they are still connecting", async () => {
