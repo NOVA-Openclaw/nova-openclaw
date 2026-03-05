@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { createServer } from "node:http";
 import WebSocket, { WebSocketServer } from "ws";
 import { isLoopbackAddress, isLoopbackHost } from "../gateway/net.js";
 import { rawDataToString } from "../infra/ws.js";
@@ -249,8 +249,8 @@ export async function ensureChromeExtensionRelayServer(opts: {
   );
 
   const initPromise = (async (): Promise<ChromeExtensionRelayServer> => {
-    const relayAuthToken = resolveRelayAuthTokenForPort(info.port);
-    const relayAuthTokens = new Set(resolveRelayAcceptedTokensForPort(info.port));
+    const relayAuthToken = await resolveRelayAuthTokenForPort(info.port);
+    const relayAuthTokens = new Set(await resolveRelayAcceptedTokensForPort(info.port));
 
     let extensionWs: WebSocket | null = null;
     const cdpClients = new Set<WebSocket>();

@@ -1,7 +1,7 @@
-import type { AssistantMessage } from "@mariozechner/pi-ai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { AuthProfileFailureReason } from "./auth-profiles.js";
@@ -635,6 +635,15 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
       errorMessage: "rate limit",
       sessionKey: "agent:test:auto",
       runId: "run:auto",
+    });
+    expect(typeof usageStats["openai:p2"]?.lastUsed).toBe("number");
+  });
+
+  it("rotates for overloaded prompt failures across auto-pinned profiles", async () => {
+    const { usageStats } = await runAutoPinnedRotationCase({
+      errorMessage: '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+      sessionKey: "agent:test:overloaded-rotation",
+      runId: "run:overloaded-rotation",
     });
     expect(typeof usageStats["openai:p2"]?.lastUsed).toBe("number");
   });

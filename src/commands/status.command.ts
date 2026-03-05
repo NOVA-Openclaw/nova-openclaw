@@ -1,11 +1,10 @@
-import type { HeartbeatEventPayload } from "../infra/heartbeat-events.js";
-import type { RuntimeEnv } from "../runtime.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { withProgress } from "../cli/progress.js";
 import { loadConfig, resolveGatewayPort } from "../config/config.js";
 import { buildGatewayConnectionDetails, callGateway } from "../gateway/call.js";
 import { info } from "../globals.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
+import type { HeartbeatEventPayload } from "../infra/heartbeat-events.js";
 import { formatUsageReportLines, loadProviderUsageSummary } from "../infra/provider-usage.js";
 import { normalizeUpdateChannel, resolveUpdateChannelDisplay } from "../infra/update-channels.js";
 import { formatGitInstallLabel } from "../infra/update-check.js";
@@ -15,6 +14,7 @@ import {
   resolveMemoryVectorState,
   type Tone,
 } from "../memory/status-format.js";
+import type { RuntimeEnv } from "../runtime.js";
 import { runSecurityAudit } from "../security/audit.js";
 import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
@@ -30,7 +30,6 @@ import {
   formatTokensCompact,
   shortenText,
 } from "./status.format.js";
-import { resolveGatewayProbeAuth } from "./status.gateway-probe.js";
 import { scanStatus } from "./status.scan.js";
 import {
   formatUpdateAvailableHint,
@@ -118,6 +117,8 @@ export async function statusCommand(
     gatewayConnection,
     remoteUrlMissing,
     gatewayMode,
+    gatewayProbeAuth,
+    gatewayProbeAuthWarning,
     gatewayProbe,
     gatewayReachable,
     gatewaySelf,
@@ -195,6 +196,7 @@ export async function statusCommand(
             connectLatencyMs: gatewayProbe?.connectLatencyMs ?? null,
             self: gatewaySelf,
             error: gatewayProbe?.error ?? null,
+            authWarning: gatewayProbeAuthWarning ?? null,
           },
           gatewayService: daemon,
           nodeService: nodeDaemon,
@@ -250,7 +252,7 @@ export async function statusCommand(
         : warn(gatewayProbe?.error ? `unreachable (${gatewayProbe.error})` : "unreachable");
     const auth =
       gatewayReachable && !remoteUrlMissing
-        ? ` · auth ${formatGatewayAuthUsed(resolveGatewayProbeAuth(cfg))}`
+        ? ` · auth ${formatGatewayAuthUsed(gatewayProbeAuth)}`
         : "";
     const self =
       gatewaySelf?.host || gatewaySelf?.version || gatewaySelf?.platform
@@ -411,6 +413,9 @@ export async function statusCommand(
       Value: updateAvailability.available ? warn(`available · ${updateLine}`) : updateLine,
     },
     { Item: "Gateway", Value: gatewayValue },
+    ...(gatewayProbeAuthWarning
+      ? [{ Item: "Gateway auth warning", Value: warn(gatewayProbeAuthWarning) }]
+      : []),
     { Item: "Gateway service", Value: daemonValue },
     { Item: "Node service", Value: nodeDaemonValue },
     { Item: "Agents", Value: agentsValue },

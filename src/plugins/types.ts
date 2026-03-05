@@ -1,6 +1,6 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Command } from "commander";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AuthProfileCredential, OAuthCredential } from "../agents/auth-profiles/types.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
@@ -369,6 +369,16 @@ export type PluginHookBeforePromptBuildEvent = {
 export type PluginHookBeforePromptBuildResult = {
   systemPrompt?: string;
   prependContext?: string;
+  /**
+   * Prepended to the agent system prompt so providers can cache it (e.g. prompt caching).
+   * Use for static plugin guidance instead of prependContext to avoid per-turn token cost.
+   */
+  prependSystemContext?: string;
+  /**
+   * Appended to the agent system prompt so providers can cache it (e.g. prompt caching).
+   * Use for static plugin guidance instead of prependContext to avoid per-turn token cost.
+   */
+  appendSystemContext?: string;
 };
 
 // before_agent_start hook (legacy compatibility: combines both phases)

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { FeishuConfig } from "./types.js";
 import {
   isFeishuGroupAllowed,
   resolveFeishuAllowlistMatch,
   resolveFeishuGroupConfig,
 } from "./policy.js";
+import type { FeishuConfig } from "./types.js";
 
 describe("feishu policy", () => {
   describe("resolveFeishuGroupConfig", () => {
@@ -109,6 +109,46 @@ describe("feishu policy", () => {
           senderId: "oc_group_123",
         }),
       ).toBe(true);
+    });
+
+    it("allows group when groupPolicy is 'open'", () => {
+      expect(
+        isFeishuGroupAllowed({
+          groupPolicy: "open",
+          allowFrom: [],
+          senderId: "oc_group_999",
+        }),
+      ).toBe(true);
+    });
+
+    it("treats 'allowall' as equivalent to 'open'", () => {
+      expect(
+        isFeishuGroupAllowed({
+          groupPolicy: "allowall",
+          allowFrom: [],
+          senderId: "oc_group_999",
+        }),
+      ).toBe(true);
+    });
+
+    it("rejects group when groupPolicy is 'disabled'", () => {
+      expect(
+        isFeishuGroupAllowed({
+          groupPolicy: "disabled",
+          allowFrom: ["oc_group_999"],
+          senderId: "oc_group_999",
+        }),
+      ).toBe(false);
+    });
+
+    it("rejects group when groupPolicy is 'allowlist' and allowFrom is empty", () => {
+      expect(
+        isFeishuGroupAllowed({
+          groupPolicy: "allowlist",
+          allowFrom: [],
+          senderId: "oc_group_999",
+        }),
+      ).toBe(false);
     });
   });
 });
