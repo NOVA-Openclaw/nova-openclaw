@@ -1,6 +1,4 @@
 import fs from "node:fs";
-import type { CronJob } from "../types.js";
-import type { CronServiceState } from "./state.js";
 import {
   buildDeliveryFromLegacyPayload,
   hasLegacyDeliveryHints,
@@ -10,8 +8,10 @@ import { parseAbsoluteTimeMs } from "../parse.js";
 import { migrateLegacyCronPayload } from "../payload-migration.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "../stagger.js";
 import { loadCronStore, saveCronStore } from "../store.js";
+import type { CronJob } from "../types.js";
 import { recomputeNextRuns } from "./jobs.js";
 import { inferLegacyName, normalizeOptionalText } from "./normalize.js";
+import type { CronServiceState } from "./state.js";
 
 function buildDeliveryPatchFromLegacyPayload(payload: Record<string, unknown>) {
   const deliver = payload.deliver;
@@ -543,7 +543,7 @@ export async function ensureLoaded(
   }
 
   if (mutated) {
-    await persist(state);
+    await persist(state, { skipBackup: true });
   }
 }
 
@@ -561,11 +561,11 @@ export function warnIfDisabled(state: CronServiceState, action: string) {
   );
 }
 
-export async function persist(state: CronServiceState) {
+export async function persist(state: CronServiceState, opts?: { skipBackup?: boolean }) {
   if (!state.store) {
     return;
   }
-  await saveCronStore(state.deps.storePath, state.store);
+  await saveCronStore(state.deps.storePath, state.store, opts);
   // Update file mtime after save to prevent immediate reload
   state.storeFileMtimeMs = await getFileMtimeMs(state.deps.storePath);
 }

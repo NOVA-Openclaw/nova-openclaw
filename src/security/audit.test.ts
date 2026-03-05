@@ -4,12 +4,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ChannelPlugin } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import type { SecurityAuditOptions, SecurityAuditReport } from "./audit.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
   collectInstalledSkillsCodeSafetyFindings,
   collectPluginsCodeSafetyFindings,
 } from "./audit-extra.js";
+import type { SecurityAuditOptions, SecurityAuditReport } from "./audit.js";
 import { runSecurityAudit } from "./audit.js";
 import * as skillScanner from "./skill-scanner.js";
 
@@ -1995,6 +1995,51 @@ description: test skill
           }),
         ]),
       );
+    });
+  });
+
+  it("does not treat prototype properties as explicit Discord account config paths", async () => {
+    await withChannelSecurityStateDir(async () => {
+      const cfg: OpenClawConfig = {
+        channels: {
+          discord: {
+            enabled: true,
+            token: "t",
+            dangerouslyAllowNameMatching: true,
+            allowFrom: ["Alice#1234"],
+            accounts: {},
+          },
+        },
+      };
+
+      const pluginWithProtoDefaultAccount: ChannelPlugin = {
+        ...discordPlugin,
+        config: {
+          ...discordPlugin.config,
+          listAccountIds: () => [],
+          defaultAccountId: () => "toString",
+        },
+      };
+
+      const res = await runSecurityAudit({
+        config: cfg,
+        includeFilesystem: false,
+        includeChannelSecurity: true,
+        plugins: [pluginWithProtoDefaultAccount],
+      });
+
+      const dangerousMatchingFinding = res.findings.find(
+        (entry) => entry.checkId === "channels.discord.allowFrom.dangerous_name_matching_enabled",
+      );
+      expect(dangerousMatchingFinding).toBeDefined();
+      expect(dangerousMatchingFinding?.title).not.toContain("(account: toString)");
+
+      const nameBasedFinding = res.findings.find(
+        (entry) => entry.checkId === "channels.discord.allowFrom.name_based_entries",
+      );
+      expect(nameBasedFinding).toBeDefined();
+      expect(nameBasedFinding?.detail).toContain("channels.discord.allowFrom:Alice#1234");
+      expect(nameBasedFinding?.detail).not.toContain("channels.discord.accounts.toString");
     });
   });
 
