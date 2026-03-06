@@ -1,6 +1,7 @@
-import type { ConfigUiHint, ConfigUiHints } from "./schema.hints.js";
+import crypto from "node:crypto";
 import { CHANNEL_IDS } from "../channels/registry.js";
 import { VERSION } from "../version.js";
+import type { ConfigUiHint, ConfigUiHints } from "./schema.hints.js";
 import { applySensitiveHints, buildBaseHints, mapSensitivePaths } from "./schema.hints.js";
 import { applyDerivedTags } from "./schema.tags.js";
 import { OpenClawSchema } from "./zod-schema.js";
@@ -322,7 +323,24 @@ function buildMergedSchemaCacheKey(params: {
       configUiHints: channel.configUiHints ?? null,
     }))
     .toSorted((a, b) => a.id.localeCompare(b.id));
-  return JSON.stringify({ plugins, channels });
+  // Build the hash incrementally so we never materialize one giant JSON string.
+  const hash = crypto.createHash("sha256");
+  hash.update('{"plugins":[');
+  plugins.forEach((plugin, index) => {
+    if (index > 0) {
+      hash.update(",");
+    }
+    hash.update(JSON.stringify(plugin));
+  });
+  hash.update('],"channels":[');
+  channels.forEach((channel, index) => {
+    if (index > 0) {
+      hash.update(",");
+    }
+    hash.update(JSON.stringify(channel));
+  });
+  hash.update("]}");
+  return hash.digest("hex");
 }
 
 function setMergedSchemaCache(key: string, value: ConfigSchemaResponse): void {
