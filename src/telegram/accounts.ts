@@ -1,7 +1,7 @@
 import util from "node:util";
+import { createAccountActionGate } from "../channels/plugins/account-action-gate.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { TelegramAccountConfig, TelegramActionConfig } from "../config/types.js";
-import { createAccountActionGate } from "../channels/plugins/account-action-gate.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
@@ -140,6 +140,24 @@ export function createTelegramActionGate(params: {
     baseActions: params.cfg.channels?.telegram?.actions,
     accountActions: resolveAccountConfig(params.cfg, accountId)?.actions,
   });
+}
+
+export type TelegramPollActionGateState = {
+  sendMessageEnabled: boolean;
+  pollEnabled: boolean;
+  enabled: boolean;
+};
+
+export function resolveTelegramPollActionGateState(
+  isActionEnabled: (key: keyof TelegramActionConfig, defaultValue?: boolean) => boolean,
+): TelegramPollActionGateState {
+  const sendMessageEnabled = isActionEnabled("sendMessage");
+  const pollEnabled = isActionEnabled("poll");
+  return {
+    sendMessageEnabled,
+    pollEnabled,
+    enabled: sendMessageEnabled && pollEnabled,
+  };
 }
 
 export function resolveTelegramAccount(params: {

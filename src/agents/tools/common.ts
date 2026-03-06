@@ -1,7 +1,7 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
-import type { ImageSanitizationLimits } from "../image-sanitization.js";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { detectMime } from "../../media/mime.js";
+import type { ImageSanitizationLimits } from "../image-sanitization.js";
 import { sanitizeToolResultImages } from "../tool-images.js";
 
 // oxlint-disable-next-line typescript/no-explicit-any
@@ -129,9 +129,9 @@ export function readStringOrNumberParam(
 export function readNumberParam(
   params: Record<string, unknown>,
   key: string,
-  options: { required?: boolean; label?: string; integer?: boolean } = {},
+  options: { required?: boolean; label?: string; integer?: boolean; strict?: boolean } = {},
 ): number | undefined {
-  const { required = false, label = key, integer = false } = options;
+  const { required = false, label = key, integer = false, strict = false } = options;
   const raw = readParamRaw(params, key);
   let value: number | undefined;
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -139,7 +139,7 @@ export function readNumberParam(
   } else if (typeof raw === "string") {
     const trimmed = raw.trim();
     if (trimmed) {
-      const parsed = Number.parseFloat(trimmed);
+      const parsed = strict ? Number(trimmed) : Number.parseFloat(trimmed);
       if (Number.isFinite(parsed)) {
         value = parsed;
       }

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { GatewayBonjourBeacon } from "../infra/bonjour-discovery.js";
-import type { WizardPrompter } from "../wizard/prompts.js";
 import { captureEnv } from "../test-utils/env.js";
+import type { WizardPrompter } from "../wizard/prompts.js";
 import { createWizardPrompter } from "./test-wizard-helpers.js";
 
 const discoverGatewayBeacons = vi.hoisted(() => vi.fn<() => Promise<GatewayBonjourBeacon[]>>());
@@ -130,6 +130,27 @@ describe("promptRemoteGatewayConfig", () => {
     expect(next.gateway?.mode).toBe("remote");
     expect(next.gateway?.remote?.url).toBe("wss://remote.example.com:18789");
     expect(next.gateway?.remote?.token).toBeUndefined();
+  });
+
+  it("allows ws:// hostname remote URLs when OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1", async () => {
+    process.env.OPENCLAW_ALLOW_INSECURE_PRIVATE_WS = "1";
+    const text: WizardPrompter["text"] = vi.fn(async (params) => {
+      if (params.message === "Gateway WebSocket URL") {
+        expect(params.validate?.("ws://openclaw-gateway.ai:18789")).toBeUndefined();
+        expect(params.validate?.("ws://1.1.1.1:18789")).toContain("Use wss://");
+        return "ws://openclaw-gateway.ai:18789";
+      }
+      return "";
+    }) as WizardPrompter["text"];
+
+    const { next } = await runRemotePrompt({
+      text,
+      confirm: false,
+      selectResponses: { "Gateway auth": "off" },
+    });
+
+    expect(next.gateway?.mode).toBe("remote");
+    expect(next.gateway?.remote?.url).toBe("ws://openclaw-gateway.ai:18789");
   });
 
   it("supports storing remote auth as an external env secret ref", async () => {

@@ -1,26 +1,31 @@
 import { confirm as clackConfirm, select as clackSelect, text as clackText } from "@clack/prompts";
-import type { AuthProfileCredential } from "../../agents/auth-profiles/types.js";
-import type { ProviderAuthResult, ProviderPlugin } from "../../plugins/types.js";
-import type { RuntimeEnv } from "../../runtime.js";
 import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
 } from "../../agents/agent-scope.js";
 import { upsertAuthProfile } from "../../agents/auth-profiles.js";
+import type { AuthProfileCredential } from "../../agents/auth-profiles/types.js";
 import { normalizeProviderId } from "../../agents/model-selection.js";
 import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
 import { resolvePluginProviders } from "../../plugins/providers.js";
+import type { ProviderAuthResult, ProviderPlugin } from "../../plugins/types.js";
+import type { RuntimeEnv } from "../../runtime.js";
 import { stylePromptHint, stylePromptMessage } from "../../terminal/prompt-style.js";
 import { createClackPrompter } from "../../wizard/clack-prompter.js";
 import { validateAnthropicSetupToken } from "../auth-token.js";
 import { isRemoteEnvironment } from "../oauth-env.js";
 import { createVpsAwareOAuthHandlers } from "../oauth-flow.js";
-import { applyAuthProfileConfig } from "../onboard-auth.js";
+import { applyAuthProfileConfig, writeOAuthCredentials } from "../onboard-auth.js";
 import { openUrl } from "../onboard-helpers.js";
+import {
+  applyOpenAICodexModelDefault,
+  OPENAI_CODEX_DEFAULT_MODEL,
+} from "../openai-codex-model-default.js";
+import { loginOpenAICodexOAuth } from "../openai-codex-oauth.js";
 import {
   applyDefaultModel,
   mergeConfigPatch,
@@ -272,6 +277,51 @@ function credentialMode(credential: AuthProfileCredential): "api_key" | "oauth" 
   return "oauth";
 }
 
+async function runBuiltInOpenAICodexLogin(params: {
+  opts: LoginOptions;
+  runtime: RuntimeEnv;
+  prompter: ReturnType<typeof createClackPrompter>;
+  agentDir: string;
+}) {
+  const creds = await loginOpenAICodexOAuth({
+    prompter: params.prompter,
+    runtime: params.runtime,
+    isRemote: isRemoteEnvironment(),
+    openUrl: async (url) => {
+      await openUrl(url);
+    },
+    localBrowserMessage: "Complete sign-in in browser…",
+  });
+  if (!creds) {
+    throw new Error("OpenAI Codex OAuth did not return credentials.");
+  }
+
+  const profileId = await writeOAuthCredentials("openai-codex", creds, params.agentDir, {
+    syncSiblingAgents: true,
+  });
+  await updateConfig((cfg) => {
+    let next = applyAuthProfileConfig(cfg, {
+      profileId,
+      provider: "openai-codex",
+      mode: "oauth",
+    });
+    if (params.opts.setDefault) {
+      next = applyOpenAICodexModelDefault(next).next;
+    }
+    return next;
+  });
+
+  logConfigUpdated(params.runtime);
+  params.runtime.log(`Auth profile: ${profileId} (openai-codex/oauth)`);
+  if (params.opts.setDefault) {
+    params.runtime.log(`Default model set to ${OPENAI_CODEX_DEFAULT_MODEL}`);
+  } else {
+    params.runtime.log(
+      `Default model available: ${OPENAI_CODEX_DEFAULT_MODEL} (use --set-default to apply)`,
+    );
+  }
+}
+
 export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: RuntimeEnv) {
   if (!process.stdin.isTTY) {
     throw new Error("models auth login requires an interactive TTY.");
@@ -282,6 +332,18 @@ export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: Runtim
   const agentDir = resolveAgentDir(config, defaultAgentId);
   const workspaceDir =
     resolveAgentWorkspaceDir(config, defaultAgentId) ?? resolveDefaultAgentWorkspaceDir();
+  const requestedProviderId = normalizeProviderId(String(opts.provider ?? ""));
+  const prompter = createClackPrompter();
+
+  if (requestedProviderId === "openai-codex") {
+    await runBuiltInOpenAICodexLogin({
+      opts,
+      runtime,
+      prompter,
+      agentDir,
+    });
+    return;
+  }
 
   const providers = resolvePluginProviders({ config, workspaceDir });
   if (providers.length === 0) {
@@ -290,7 +352,6 @@ export async function modelsAuthLoginCommand(opts: LoginOptions, runtime: Runtim
     );
   }
 
-  const prompter = createClackPrompter();
   const requestedProvider = resolveRequestedLoginProviderOrThrow(providers, opts.provider);
   const selectedProvider =
     requestedProvider ??
