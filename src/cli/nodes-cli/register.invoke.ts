@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import type { NodesRpcOpts } from "./types.js";
 import { resolveAgentConfig, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { loadConfig } from "../../config/config.js";
 import { randomIdempotencyKey } from "../../gateway/call.js";
@@ -10,6 +9,8 @@ import {
   type ExecSecurity,
   maxAsk,
   minSecurity,
+  normalizeExecAsk,
+  normalizeExecSecurity,
   resolveExecApprovalsFromFile,
 } from "../../infra/exec-approvals.js";
 import { buildNodeShellCommand } from "../../infra/node-shell.js";
@@ -20,6 +21,7 @@ import { parseEnvPairs, parseTimeoutMs } from "../nodes-run.js";
 import { getNodesTheme, runNodesCommand } from "./cli-utils.js";
 import { parseNodeList } from "./format.js";
 import { callGatewayCli, nodesCallOpts, resolveNodeId, unauthorizedHintForMessage } from "./rpc.js";
+import type { NodesRpcOpts } from "./types.js";
 
 type NodesRunOpts = NodesRpcOpts & {
   node?: string;
@@ -42,22 +44,6 @@ type ExecDefaults = {
   pathPrepend?: string[];
   safeBins?: string[];
 };
-
-function normalizeExecSecurity(value?: string | null): ExecSecurity | null {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "deny" || normalized === "allowlist" || normalized === "full") {
-    return normalized;
-  }
-  return null;
-}
-
-function normalizeExecAsk(value?: string | null): ExecAsk | null {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "off" || normalized === "on-miss" || normalized === "always") {
-    return normalized as ExecAsk;
-  }
-  return null;
-}
 
 function resolveExecDefaults(
   cfg: ReturnType<typeof loadConfig>,

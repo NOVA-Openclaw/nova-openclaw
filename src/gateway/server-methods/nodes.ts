@@ -1,4 +1,3 @@
-import type { GatewayRequestHandlers } from "./types.js";
 import { loadConfig } from "../../config/config.js";
 import { listDevicePairing } from "../../infra/device-pairing.js";
 import {
@@ -44,6 +43,7 @@ import {
   safeParseJson,
   uniqueSortedStrings,
 } from "./nodes.helpers.js";
+import type { GatewayRequestHandlers } from "./types.js";
 
 const NODE_WAKE_RECONNECT_WAIT_MS = 3_000;
 const NODE_WAKE_RECONNECT_RETRY_WAIT_MS = 12_000;
@@ -274,20 +274,7 @@ export const nodeHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const p = params as {
-      nodeId: string;
-      displayName?: string;
-      platform?: string;
-      version?: string;
-      coreVersion?: string;
-      uiVersion?: string;
-      deviceFamily?: string;
-      modelIdentifier?: string;
-      caps?: string[];
-      commands?: string[];
-      remoteIp?: string;
-      silent?: boolean;
-    };
+    const p = params as Parameters<typeof requestNodePairing>[0];
     await respondUnavailableOnThrow(respond, async () => {
       const result = await requestNodePairing({
         nodeId: p.nodeId,
@@ -300,6 +287,7 @@ export const nodeHandlers: GatewayRequestHandlers = {
         modelIdentifier: p.modelIdentifier,
         caps: p.caps,
         commands: p.commands,
+        permissions: p.permissions,
         remoteIp: p.remoteIp,
         silent: p.silent,
       });

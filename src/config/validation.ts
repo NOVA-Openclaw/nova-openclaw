@@ -1,5 +1,4 @@
 import path from "node:path";
-import type { OpenClawConfig, ConfigValidationIssue } from "./types.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { CHANNEL_IDS, normalizeChatChannelId } from "../channels/registry.js";
 import {
@@ -22,6 +21,7 @@ import { findDuplicateAgentDirs, formatDuplicateAgentDirError } from "./agent-di
 import { appendAllowedValuesHint, summarizeAllowedValues } from "./allowed-values.js";
 import { applyAgentDefaults, applyModelDefaults, applySessionDefaults } from "./defaults.js";
 import { findLegacyConfigIssues } from "./legacy.js";
+import type { OpenClawConfig, ConfigValidationIssue } from "./types.js";
 import { OpenClawSchema } from "./zod-schema.js";
 
 const LEGACY_REMOVED_PLUGIN_IDS = new Set(["google-antigravity-auth"]);
@@ -285,7 +285,7 @@ export function validateConfigObject(
   };
 }
 
-export function validateConfigObjectWithPlugins(raw: unknown):
+type ValidateConfigWithPluginsResult =
   | {
       ok: true;
       config: OpenClawConfig;
@@ -295,38 +295,20 @@ export function validateConfigObjectWithPlugins(raw: unknown):
       ok: false;
       issues: ConfigValidationIssue[];
       warnings: ConfigValidationIssue[];
-    } {
+    };
+
+export function validateConfigObjectWithPlugins(raw: unknown): ValidateConfigWithPluginsResult {
   return validateConfigObjectWithPluginsBase(raw, { applyDefaults: true });
 }
 
-export function validateConfigObjectRawWithPlugins(raw: unknown):
-  | {
-      ok: true;
-      config: OpenClawConfig;
-      warnings: ConfigValidationIssue[];
-    }
-  | {
-      ok: false;
-      issues: ConfigValidationIssue[];
-      warnings: ConfigValidationIssue[];
-    } {
+export function validateConfigObjectRawWithPlugins(raw: unknown): ValidateConfigWithPluginsResult {
   return validateConfigObjectWithPluginsBase(raw, { applyDefaults: false });
 }
 
 function validateConfigObjectWithPluginsBase(
   raw: unknown,
   opts: { applyDefaults: boolean },
-):
-  | {
-      ok: true;
-      config: OpenClawConfig;
-      warnings: ConfigValidationIssue[];
-    }
-  | {
-      ok: false;
-      issues: ConfigValidationIssue[];
-      warnings: ConfigValidationIssue[];
-    } {
+): ValidateConfigWithPluginsResult {
   const base = opts.applyDefaults ? validateConfigObject(raw) : validateConfigObjectRaw(raw);
   if (!base.ok) {
     return { ok: false, issues: base.issues, warnings: [] };

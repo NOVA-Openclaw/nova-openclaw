@@ -1,14 +1,8 @@
 import type { Skill } from "@mariozechner/pi-coding-agent";
-import type {
-  OpenClawSkillMetadata,
-  ParsedSkillFrontmatter,
-  SkillEntry,
-  SkillInstallSpec,
-  SkillInvocationPolicy,
-} from "./types.js";
 import { validateRegistryNpmSpec } from "../../infra/npm-registry-spec.js";
 import { parseFrontmatterBlock } from "../../markdown/frontmatter.js";
 import {
+  applyOpenClawManifestInstallCommonFields,
   getFrontmatterString,
   normalizeStringList,
   parseOpenClawManifestInstallBase,
@@ -18,6 +12,13 @@ import {
   resolveOpenClawManifestOs,
   resolveOpenClawManifestRequires,
 } from "../../shared/frontmatter.js";
+import type {
+  OpenClawSkillMetadata,
+  ParsedSkillFrontmatter,
+  SkillEntry,
+  SkillInstallSpec,
+  SkillInvocationPolicy,
+} from "./types.js";
 
 export function parseFrontmatter(content: string): ParsedSkillFrontmatter {
   return parseFrontmatterBlock(content);
@@ -113,19 +114,12 @@ function parseInstallSpec(input: unknown): SkillInstallSpec | undefined {
     return undefined;
   }
   const { raw } = parsed;
-  const spec: SkillInstallSpec = {
-    kind: parsed.kind as SkillInstallSpec["kind"],
-  };
-
-  if (parsed.id) {
-    spec.id = parsed.id;
-  }
-  if (parsed.label) {
-    spec.label = parsed.label;
-  }
-  if (parsed.bins) {
-    spec.bins = parsed.bins;
-  }
+  const spec = applyOpenClawManifestInstallCommonFields<SkillInstallSpec>(
+    {
+      kind: parsed.kind as SkillInstallSpec["kind"],
+    },
+    parsed,
+  );
   const osList = normalizeStringList(raw.os);
   if (osList.length > 0) {
     spec.os = osList;

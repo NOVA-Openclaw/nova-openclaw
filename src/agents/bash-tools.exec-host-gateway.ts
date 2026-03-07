@@ -1,7 +1,4 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import crypto from "node:crypto";
-import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
-import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import {
   addAllowlistEntry,
   type ExecAsk,
@@ -13,6 +10,7 @@ import {
   resolveAllowAlwaysPatterns,
 } from "../infra/exec-approvals.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
+import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
 import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
@@ -21,17 +19,19 @@ import {
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
 import {
+  createDefaultExecApprovalRequestContext,
+  resolveBaseExecApprovalDecision,
   resolveApprovalDecisionOrUndefined,
   resolveExecHostApprovalContext,
 } from "./bash-tools.exec-host-shared.js";
 import {
-  DEFAULT_APPROVAL_TIMEOUT_MS,
   DEFAULT_NOTIFY_TAIL_CHARS,
   createApprovalSlug,
   emitExecSystemEvent,
   normalizeNotifyOutput,
   runExecProcess,
 } from "./bash-tools.exec-runtime.js";
+import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 
 export type ProcessGatewayAllowlistParams = {
   command: string;
@@ -138,16 +138,24 @@ export async function processGatewayAllowlist(
   }
 
   if (requiresAsk) {
-    const approvalId = crypto.randomUUID();
-    const approvalSlug = createApprovalSlug(approvalId);
-    const contextKey = `exec:${approvalId}`;
+    const {
+      approvalId,
+      approvalSlug,
+      contextKey,
+      noticeSeconds,
+      warningText,
+      expiresAtMs: defaultExpiresAtMs,
+      preResolvedDecision: defaultPreResolvedDecision,
+    } = createDefaultExecApprovalRequestContext({
+      warnings: params.warnings,
+      approvalRunningNoticeMs: params.approvalRunningNoticeMs,
+      createApprovalSlug,
+    });
     const resolvedPath = allowlistEval.segments[0]?.resolution?.resolvedPath;
-    const noticeSeconds = Math.max(1, Math.round(params.approvalRunningNoticeMs / 1000));
     const effectiveTimeout =
       typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec;
-    const warningText = params.warnings.length ? `${params.warnings.join("\n")}\n\n` : "";
-    let expiresAtMs = Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
-    let preResolvedDecision: string | null | undefined;
+    let expiresAtMs = defaultExpiresAtMs;
+    let preResolvedDecision = defaultPreResolvedDecision;
 
     // Register first so the returned approval ID is actionable immediately.
     const registration = await registerExecApprovalRequestForHostOrThrow({
@@ -184,24 +192,19 @@ export async function processGatewayAllowlist(
         return;
       }
 
-      let approvedByAsk = false;
-      let deniedReason: string | null = null;
+      const baseDecision = resolveBaseExecApprovalDecision({
+        decision,
+        askFallback,
+        obfuscationDetected: obfuscation.detected,
+      });
+      let approvedByAsk = baseDecision.approvedByAsk;
+      let deniedReason = baseDecision.deniedReason;
 
-      if (decision === "deny") {
-        deniedReason = "user-denied";
-      } else if (!decision) {
-        if (obfuscation.detected) {
-          deniedReason = "approval-timeout (obfuscation-detected)";
-        } else if (askFallback === "full") {
-          approvedByAsk = true;
-        } else if (askFallback === "allowlist") {
-          if (!analysisOk || !allowlistSatisfied) {
-            deniedReason = "approval-timeout (allowlist-miss)";
-          } else {
-            approvedByAsk = true;
-          }
+      if (baseDecision.timedOut && askFallback === "allowlist") {
+        if (!analysisOk || !allowlistSatisfied) {
+          deniedReason = "approval-timeout (allowlist-miss)";
         } else {
-          deniedReason = "approval-timeout";
+          approvedByAsk = true;
         }
       } else if (decision === "allow-once") {
         approvedByAsk = true;

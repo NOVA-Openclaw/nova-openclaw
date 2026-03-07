@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import {
   listAgentIds,
   resolveAgentDir,
@@ -47,6 +46,7 @@ import {
   validateAgentsUpdateParams,
 } from "../protocol/index.js";
 import { listAgentsForGateway } from "../session-utils.js";
+import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
 const BOOTSTRAP_FILE_NAMES = [
   DEFAULT_AGENTS_FILENAME,
@@ -732,10 +732,19 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
     const content = String(params.content ?? "");
+    const relativeWritePath = path.relative(resolvedPath.workspaceReal, resolvedPath.ioPath);
+    if (
+      !relativeWritePath ||
+      relativeWritePath.startsWith("..") ||
+      path.isAbsolute(relativeWritePath)
+    ) {
+      respondWorkspaceFileUnsafe(respond, name);
+      return;
+    }
     try {
       await writeFileWithinRoot({
-        rootDir: workspaceDir,
-        relativePath: name,
+        rootDir: resolvedPath.workspaceReal,
+        relativePath: relativeWritePath,
         data: content,
         encoding: "utf8",
       });
