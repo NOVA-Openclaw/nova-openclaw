@@ -28,6 +28,8 @@ Docs: https://docs.openclaw.ai
 - Tools/Diffs guidance: restore a short system-prompt hint for enabled diffs while keeping the detailed instructions in the companion skill, so diffs usage guidance stays out of user-prompt space. (#36904) thanks @gumadeiras.
 - Tools/Diffs guidance loading: move diffs usage guidance from unconditional prompt-hook injection to the plugin companion skill path, reducing unrelated-turn prompt noise while keeping diffs tool behavior unchanged. (#32630) thanks @sircrumpet.
 - Docs/Web search: remove outdated Brave free-tier wording and replace prescriptive AI ToS guidance with neutral compliance language in Brave setup docs. (#26860) Thanks @HenryLoenwind.
+- Config/Compaction safeguard tuning: expose `agents.defaults.compaction.recentTurnsPreserve` and quality-guard retry knobs through the validated config surface and embedded-runner wiring, with regression coverage for real config loading and schema metadata. (#25557) thanks @rodrigouroz.
+- iOS/App Store Connect release prep: align iOS bundle identifiers under `ai.openclaw.client`, refresh Watch app icons, add Fastlane metadata/screenshot automation, and support Keychain-backed ASC auth for uploads. (#38936) Thanks @ngutman.
 
 ### Breaking
 
@@ -229,6 +231,12 @@ Docs: https://docs.openclaw.ai
 - Sessions/bootstrap cache rollover invalidation: clear cached workspace bootstrap snapshots whenever an existing `sessionKey` rolls to a new `sessionId` across auto-reply, command, and isolated cron session resolvers, so `AGENTS.md`/`MEMORY.md`/`USER.md` updates are reloaded after daily, idle, or forced session resets instead of staying stale until gateway restart. (#38494) Thanks @LivingInDrm.
 - Gateway/Telegram polling health monitor: skip stale-socket restarts for Telegram long-polling channels and thread channel identity through shared health evaluation so polling connections are not restarted on the WebSocket stale-socket heuristic. (#38395) Thanks @ql-wade and @Takhoffman.
 - Daemon/systemd fresh-install probe: check for OpenClaw's managed user unit before running `systemctl --user is-enabled`, so first-time Linux installs no longer fail on generic missing-unit probe errors. (#38819) Thanks @adaHubble.
+- Gateway/Windows restart supervision: relaunch task-managed gateways through Scheduled Task with quoted helper-script command paths, distinguish restart-capable supervisors per platform, and stop orphaned Windows gateway children during self-restart. (#38825) Thanks @obviyus.
+- Telegram/native topic command routing: resolve forum-topic native commands through the same conversation route as inbound messages so topic `agentId` overrides and bound topic sessions target the active session instead of the default topic-parent session. (#38871) Thanks @obviyus.
+- Markdown/assistant image hardening: flatten remote markdown images to plain text across the Control UI, exported HTML, and shared Swift chat while keeping inline `data:image/...` markdown renderable, so model output no longer triggers automatic remote image fetches. (#38895) Thanks @obviyus.
+- Config/compaction safeguard settings: regression-test `agents.defaults.compaction.recentTurnsPreserve` through `loadConfig()` and cover the new help metadata entry so the exposed preserve knob stays wired through schema validation and config UX. (#25557) thanks @rodrigouroz.
+- iOS/Quick Setup presentation: skip automatic Quick Setup when a gateway is already configured (active connect config, last-known connection, preferred gateway, or manual host), so reconnecting installs no longer get prompted to connect again. (#38964) Thanks @ngutman.
+- CLI/Docs memory help accuracy: clarify `openclaw memory status --deep` behavior and align memory command examples/docs with the current search options. (#31803) Thanks @JasonOA888 and @Avi974.
 
 ## 2026.3.2
 
