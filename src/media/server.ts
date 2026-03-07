@@ -1,6 +1,6 @@
+import fs from "node:fs/promises";
 import type { Server } from "node:http";
 import express, { type Express } from "express";
-import fs from "node:fs/promises";
 import { danger } from "../globals.js";
 import { SafeOpenError, readFileWithinRoot } from "../infra/fs-safe.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -96,7 +96,7 @@ export function attachMediaRoutes(
 
   // periodic cleanup
   setInterval(() => {
-    void cleanOldMedia(ttlMs);
+    void cleanOldMedia(ttlMs, { recursive: false });
   }, ttlMs).unref();
 }
 

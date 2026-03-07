@@ -1,11 +1,11 @@
-import type { OpenClawConfig } from "../../config/config.js";
-import type { RuntimeEnv } from "../../runtime.js";
 import {
   ensureAuthProfileStore,
   resolveApiKeyForProfile,
   resolveAuthProfileOrder,
 } from "../../agents/auth-profiles.js";
 import { resolveEnvApiKey } from "../../agents/model-auth.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import type { RuntimeEnv } from "../../runtime.js";
 import { normalizeOptionalSecretInput } from "../../utils/normalize-secret-input.js";
 import type { SecretInputMode } from "../onboard-types.js";
 
@@ -70,7 +70,8 @@ export async function resolveNonInteractiveApiKey(params: {
   const resolvedEnvKey = envResolved?.apiKey ?? explicitEnvKey;
   const resolvedEnvVarName = parseEnvVarNameFromSourceLabel(envResolved?.source) ?? explicitEnvVar;
 
-  if (params.secretInputMode === "ref") {
+  const useSecretRefMode = params.secretInputMode === "ref"; // pragma: allowlist secret
+  if (useSecretRefMode) {
     if (!resolvedEnvKey && flagKey) {
       params.runtime.error(
         [

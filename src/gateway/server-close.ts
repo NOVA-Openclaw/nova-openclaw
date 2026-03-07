@@ -1,10 +1,10 @@
 import type { Server as HttpServer } from "node:http";
 import type { WebSocketServer } from "ws";
 import type { CanvasHostHandler, CanvasHostServer } from "../canvas-host/server.js";
-import type { HeartbeatRunner } from "../infra/heartbeat-runner.js";
-import type { PluginServicesHandle } from "../plugins/services.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { stopGmailWatcher } from "../hooks/gmail-watcher.js";
+import type { HeartbeatRunner } from "../infra/heartbeat-runner.js";
+import type { PluginServicesHandle } from "../plugins/services.js";
 
 export function createGatewayCloseHandler(params: {
   bonjourStop: (() => Promise<void>) | null;
@@ -21,6 +21,7 @@ export function createGatewayCloseHandler(params: {
   tickInterval: ReturnType<typeof setInterval>;
   healthInterval: ReturnType<typeof setInterval>;
   dedupeCleanup: ReturnType<typeof setInterval>;
+  mediaCleanup: ReturnType<typeof setInterval> | null;
   agentUnsub: (() => void) | null;
   heartbeatUnsub: (() => void) | null;
   chatRunState: { clear: () => void };
@@ -87,6 +88,9 @@ export function createGatewayCloseHandler(params: {
     clearInterval(params.tickInterval);
     clearInterval(params.healthInterval);
     clearInterval(params.dedupeCleanup);
+    if (params.mediaCleanup) {
+      clearInterval(params.mediaCleanup);
+    }
     if (params.agentUnsub) {
       try {
         params.agentUnsub();

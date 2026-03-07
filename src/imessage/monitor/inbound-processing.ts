@@ -1,5 +1,3 @@
-import type { OpenClawConfig } from "../../config/config.js";
-import type { MonitorIMessageOpts, IMessagePayload } from "./types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import {
   formatInboundEnvelope,
@@ -16,6 +14,7 @@ import { finalizeInboundContext } from "../../auto-reply/reply/inbound-context.j
 import { buildMentionRegexes, matchesMentionPatterns } from "../../auto-reply/reply/mentions.js";
 import { resolveControlCommandGate } from "../../channels/command-gating.js";
 import { logInboundDrop } from "../../channels/logging.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import {
   resolveChannelGroupPolicy,
   resolveChannelGroupRequireMention,
@@ -31,6 +30,8 @@ import {
   isAllowedIMessageSender,
   normalizeIMessageHandle,
 } from "../targets.js";
+import { detectReflectedContent } from "./reflection-guard.js";
+import type { MonitorIMessageOpts, IMessagePayload } from "./types.js";
 
 type IMessageReplyContext = {
   id?: string;
@@ -214,7 +215,7 @@ export function resolveIMessageInboundDecision(params: {
     return { kind: "drop", reason: "empty body" };
   }
 
-  // Echo detection: check if the received message matches a recently sent message (within 5 seconds).
+  // Echo detection: check if the received message matches a recently sent message.
   // Scope by conversation so same text in different chats is not conflated.
   const inboundMessageId = params.message.id != null ? String(params.message.id) : undefined;
   if (params.echoCache && (messageText || inboundMessageId)) {
@@ -235,6 +236,17 @@ export function resolveIMessageInboundDecision(params: {
       );
       return { kind: "drop", reason: "echo" };
     }
+  }
+
+  // Reflection guard: drop inbound messages that contain assistant-internal
+  // metadata markers. These indicate outbound content was reflected back as
+  // inbound, which causes recursive echo amplification.
+  const reflection = detectReflectedContent(messageText);
+  if (reflection.isReflection) {
+    params.logVerbose?.(
+      `imessage: dropping reflected assistant content (markers: ${reflection.matchedLabels.join(", ")})`,
+    );
+    return { kind: "drop", reason: "reflected assistant content" };
   }
 
   const replyContext = describeReplyContext(params.message);

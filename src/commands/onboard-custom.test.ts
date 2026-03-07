@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
 import { CONTEXT_WINDOW_HARD_MIN_TOKENS } from "../agents/context-window-guard.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { defaultRuntime } from "../runtime.js";
 import {
   applyCustomApiConfig,
@@ -429,7 +429,7 @@ describe("parseNonInteractiveCustomApiFlags", () => {
       baseUrl: "https://llm.example.com/v1",
       modelId: "foo-large",
       compatibility: "openai",
-      apiKey: "custom-test-key",
+      apiKey: "custom-test-key", // pragma: allowlist secret
       providerId: "my-custom",
     });
   });

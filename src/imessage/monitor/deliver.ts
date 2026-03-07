@@ -1,12 +1,13 @@
-import type { ReplyPayload } from "../../auto-reply/types.js";
-import type { RuntimeEnv } from "../../runtime.js";
-import type { createIMessageRpcClient } from "../client.js";
-import type { SentMessageCache } from "./echo-cache.js";
 import { chunkTextWithMode, resolveChunkMode } from "../../auto-reply/chunk.js";
+import type { ReplyPayload } from "../../auto-reply/types.js";
 import { loadConfig } from "../../config/config.js";
 import { resolveMarkdownTableMode } from "../../config/markdown-tables.js";
 import { convertMarkdownTables } from "../../markdown/tables.js";
+import type { RuntimeEnv } from "../../runtime.js";
+import type { createIMessageRpcClient } from "../client.js";
 import { sendMessageIMessage } from "../send.js";
+import type { SentMessageCache } from "./echo-cache.js";
+import { sanitizeOutboundText } from "./sanitize-outbound.js";
 
 export async function deliverReplies(params: {
   replies: ReplyPayload[];
@@ -30,7 +31,7 @@ export async function deliverReplies(params: {
   const chunkMode = resolveChunkMode(cfg, "imessage", accountId);
   for (const payload of replies) {
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
-    const rawText = payload.text ?? "";
+    const rawText = sanitizeOutboundText(payload.text ?? "");
     const text = convertMarkdownTables(rawText, tableMode);
     if (!text && mediaList.length === 0) {
       continue;
