@@ -1,4 +1,3 @@
-import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { hasControlCommand } from "../../auto-reply/command-detection.js";
 import { resolveInboundDebounceMs } from "../../auto-reply/inbound-debounce.js";
 import { getReplyFromConfig } from "../../auto-reply/reply.js";
@@ -6,6 +5,7 @@ import { DEFAULT_GROUP_HISTORY_LIMIT } from "../../auto-reply/reply/history.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { waitForever } from "../../cli/wait.js";
 import { loadConfig } from "../../config/config.js";
+import { createConnectedChannelStatusPatch } from "../../gateway/channel-status-patches.js";
 import { logVerbose } from "../../globals.js";
 import { formatDurationPrecise } from "../../infra/format-time/format-duration.ts";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
@@ -28,6 +28,7 @@ import { whatsappHeartbeatLog, whatsappLog } from "./loggers.js";
 import { buildMentionConfig } from "./mentions.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
+import type { WebChannelStatus, WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
 
 function isNonRetryableWebCloseStatus(statusCode: unknown): boolean {
@@ -210,9 +211,7 @@ export async function monitorWebChannel(
       },
     });
 
-    status.connected = true;
-    status.lastConnectedAt = Date.now();
-    status.lastEventAt = status.lastConnectedAt;
+    Object.assign(status, createConnectedChannelStatusPatch());
     status.lastError = null;
     emitStatus();
 

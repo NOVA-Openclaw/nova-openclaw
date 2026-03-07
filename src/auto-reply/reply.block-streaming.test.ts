@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { withTempHome as withTempHomeHarness } from "../config/home-env.test-harness.js";
 import { getReplyFromConfig } from "./reply.js";
 
@@ -211,7 +211,7 @@ describe("block streaming", () => {
       expect(onBlockReply).toHaveBeenCalledTimes(1);
       expect(onBlockReply.mock.calls[0][0]).toMatchObject({
         text: "Result",
-        mediaUrls: ["./image.png"],
+        mediaUrls: [path.join(home, "openclaw", "image.png")],
       });
     });
   });
