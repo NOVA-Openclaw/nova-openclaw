@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ResolvedSynologyChatAccount } from "./types.js";
 import { makeFormBody, makeReq, makeRes } from "./test-http-utils.js";
+import type { ResolvedSynologyChatAccount } from "./types.js";
 import {
   clearSynologyWebhookRateLimiterStateForTest,
   createWebhookHandler,
@@ -238,6 +238,7 @@ describe("createWebhookHandler", () => {
         body: "Hello from json",
         from: "123",
         senderName: "json-user",
+        commandAuthorized: true,
       }),
     );
   });
@@ -397,6 +398,7 @@ describe("createWebhookHandler", () => {
         senderName: "testuser",
         provider: "synology-chat",
         chatType: "direct",
+        commandAuthorized: true,
       }),
     );
   });
@@ -423,6 +425,7 @@ describe("createWebhookHandler", () => {
     expect(deliver).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining("[FILTERED]"),
+        commandAuthorized: true,
       }),
     );
   });

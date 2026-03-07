@@ -21,6 +21,7 @@
  * @see src/agents/openai-ws-connection.ts for the connection manager
  */
 
+import { randomUUID } from "node:crypto";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import type {
   AssistantMessage,
@@ -31,7 +32,6 @@ import type {
   ToolCall,
 } from "@mariozechner/pi-ai";
 import { createAssistantMessageEventStream, streamSimple } from "@mariozechner/pi-ai";
-import { randomUUID } from "node:crypto";
 import {
   OpenAIWebSocketManager,
   type ContentPart,
@@ -589,10 +589,15 @@ export function createOpenAIWebSocketStreamFn(
         extraParams.reasoning = reasoning;
       }
 
+      // Respect compat.supportsStore — providers like Gemini reject unknown
+      // fields such as `store` with a 400 error.  Fixes #39086.
+      const supportsStore = (model as { compat?: { supportsStore?: boolean } }).compat
+        ?.supportsStore;
+
       const payload: Record<string, unknown> = {
         type: "response.create",
         model: model.id,
-        store: false,
+        ...(supportsStore !== false ? { store: false } : {}),
         input: inputItems,
         instructions: context.systemPrompt ?? undefined,
         tools: tools.length > 0 ? tools : undefined,

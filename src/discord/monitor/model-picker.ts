@@ -1,4 +1,3 @@
-import type { APISelectMenuOption } from "discord-api-types/v10";
 import {
   Button,
   Container,
@@ -10,13 +9,14 @@ import {
   type MessagePayloadObject,
   type TopLevelComponents,
 } from "@buape/carbon";
+import type { APISelectMenuOption } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
-import type { OpenClawConfig } from "../../config/config.js";
 import { normalizeProviderId } from "../../agents/model-selection.js";
 import {
   buildModelsProviderData,
   type ModelsProviderData,
 } from "../../auto-reply/reply/commands-models.js";
+import type { OpenClawConfig } from "../../config/config.js";
 
 export const DISCORD_MODEL_PICKER_CUSTOM_ID_KEY = "mdlpk";
 export const DISCORD_CUSTOM_ID_MAX_CHARS = 100;
@@ -541,8 +541,11 @@ function buildModelRows(params: {
  * Source-of-truth data for Discord picker views. This intentionally reuses the
  * same provider/model resolver used by text and Telegram model commands.
  */
-export async function loadDiscordModelPickerData(cfg: OpenClawConfig): Promise<ModelsProviderData> {
-  return buildModelsProviderData(cfg);
+export async function loadDiscordModelPickerData(
+  cfg: OpenClawConfig,
+  agentId?: string,
+): Promise<ModelsProviderData> {
+  return buildModelsProviderData(cfg, agentId);
 }
 
 export function buildDiscordModelPickerCustomId(params: {

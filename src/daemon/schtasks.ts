@@ -1,5 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseCmdScriptCommandLine, quoteCmdScriptArg } from "./cmd-argv.js";
+import { assertNoCmdLineBreak, parseCmdSetAssignment, renderCmdSetAssignment } from "./cmd-set.js";
+import { resolveGatewayServiceDescription, resolveGatewayWindowsTaskName } from "./constants.js";
+import { formatLine, writeFormattedLines } from "./output.js";
+import { resolveGatewayStateDir } from "./paths.js";
+import { parseKeyValueOutput } from "./runtime-parse.js";
+import { execSchtasks } from "./schtasks-exec.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
 import type {
   GatewayServiceCommandConfig,
@@ -10,13 +17,6 @@ import type {
   GatewayServiceManageArgs,
   GatewayServiceRenderArgs,
 } from "./service-types.js";
-import { parseCmdScriptCommandLine, quoteCmdScriptArg } from "./cmd-argv.js";
-import { assertNoCmdLineBreak, parseCmdSetAssignment, renderCmdSetAssignment } from "./cmd-set.js";
-import { resolveGatewayServiceDescription, resolveGatewayWindowsTaskName } from "./constants.js";
-import { formatLine, writeFormattedLines } from "./output.js";
-import { resolveGatewayStateDir } from "./paths.js";
-import { parseKeyValueOutput } from "./runtime-parse.js";
-import { execSchtasks } from "./schtasks-exec.js";
 
 function resolveTaskName(env: GatewayServiceEnv): string {
   const override = env.OPENCLAW_WINDOWS_TASK_NAME?.trim();
@@ -163,13 +163,23 @@ export function deriveScheduledTaskRuntimeStatus(parsed: ScheduledTaskInfo): {
   if (!statusRaw) {
     return { status: "unknown" };
   }
-  if (statusRaw !== "running") {
-    return { status: "stopped" };
-  }
 
   const normalizedResult = normalizeTaskResultCode(parsed.lastRunResult);
   const runningCodes = new Set(["0x41301"]);
-  if (normalizedResult && !runningCodes.has(normalizedResult)) {
+  const isRunningByCode = normalizedResult != null && runningCodes.has(normalizedResult);
+  const isRunningByStatus = statusRaw === "running";
+
+  // schtasks.exe localizes its Status field ("Running" in English,
+  // "Wird ausgeführt" in German, "En cours" in French, etc.).
+  // Prefer the locale-invariant Last Run Result code 0x41301
+  // ("task is currently running") over string matching. (#39057)
+  if (!isRunningByStatus && !isRunningByCode) {
+    return { status: "stopped" };
+  }
+
+  // Cross-check: if the English status says "running" but the result
+  // code disagrees, the runtime state is likely stale.
+  if (isRunningByStatus && normalizedResult && !isRunningByCode) {
     return {
       status: "stopped",
       detail: `Task reports Running but Last Run Result=${parsed.lastRunResult}; treating as stale runtime state.`,

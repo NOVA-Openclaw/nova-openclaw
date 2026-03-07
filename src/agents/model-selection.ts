@@ -1,9 +1,9 @@
 import type { OpenClawConfig } from "../config/config.js";
-import type { ModelCatalogEntry } from "./model-catalog.js";
 import { resolveAgentModelPrimaryValue, toAgentModelListLike } from "../config/model-input.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveAgentConfig, resolveAgentEffectiveModelPrimary } from "./agent-scope.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
+import type { ModelCatalogEntry } from "./model-catalog.js";
 import { splitTrailingAuthProfile } from "./model-ref-profile.js";
 import { normalizeGoogleModelId } from "./models-config.providers.js";
 
@@ -315,6 +315,28 @@ export function resolveConfiguredModelRef(params: {
     });
     if (resolved) {
       return resolved.ref;
+    }
+  }
+  // Before falling back to the hardcoded default, check if the default provider
+  // is actually available. If it isn't but other providers are configured, prefer
+  // the first configured provider's first model to avoid reporting a stale default
+  // from a removed provider. (See #38880)
+  const configuredProviders = params.cfg.models?.providers;
+  if (configuredProviders && typeof configuredProviders === "object") {
+    const hasDefaultProvider = Boolean(configuredProviders[params.defaultProvider]);
+    if (!hasDefaultProvider) {
+      const availableProvider = Object.entries(configuredProviders).find(
+        ([, providerCfg]) =>
+          providerCfg &&
+          Array.isArray(providerCfg.models) &&
+          providerCfg.models.length > 0 &&
+          providerCfg.models[0]?.id,
+      );
+      if (availableProvider) {
+        const [providerName, providerCfg] = availableProvider;
+        const firstModel = providerCfg.models[0];
+        return { provider: providerName, model: firstModel.id };
+      }
     }
   }
   return { provider: params.defaultProvider, model: params.defaultModel };

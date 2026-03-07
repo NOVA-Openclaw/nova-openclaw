@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ResolvedNextcloudTalkAccount } from "./accounts.js";
 import { createStartAccountContext } from "../../test-utils/start-account-context.js";
+import type { ResolvedNextcloudTalkAccount } from "./accounts.js";
 
 const hoisted = vi.hoisted(() => ({
   monitorNextcloudTalkProvider: vi.fn(),
@@ -21,11 +21,11 @@ function buildAccount(): ResolvedNextcloudTalkAccount {
     accountId: "default",
     enabled: true,
     baseUrl: "https://nextcloud.example.com",
-    secret: "secret",
-    secretSource: "config",
+    secret: "secret", // pragma: allowlist secret
+    secretSource: "config", // pragma: allowlist secret
     config: {
       baseUrl: "https://nextcloud.example.com",
-      botSecret: "secret",
+      botSecret: "secret", // pragma: allowlist secret
       webhookPath: "/nextcloud-talk-webhook",
       webhookPort: 8788,
     },
