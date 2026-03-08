@@ -1,5 +1,4 @@
 import type { OpenClawConfig, SkillConfig } from "../../config/config.js";
-import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 import {
   evaluateRuntimeEligibility,
   hasBinary,
@@ -7,7 +6,9 @@ import {
   resolveConfigPath,
   resolveRuntimePlatform,
 } from "../../shared/config-eval.js";
+import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import { resolveSkillKey } from "./frontmatter.js";
+import type { SkillEligibilityContext, SkillEntry } from "./types.js";
 
 const DEFAULT_CONFIG_VALUES: Record<string, boolean> = {
   "browser.enabled": true,
@@ -42,7 +43,7 @@ function normalizeAllowlist(input: unknown): string[] | undefined {
   if (!Array.isArray(input)) {
     return undefined;
   }
-  const normalized = input.map((entry) => String(entry).trim()).filter(Boolean);
+  const normalized = normalizeStringEntries(input);
   return normalized.length > 0 ? normalized : undefined;
 }
 

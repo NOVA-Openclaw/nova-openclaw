@@ -1,11 +1,11 @@
-import type { DatabaseSync } from "node:sqlite";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import type { MemoryIndexManager } from "./index.js";
 import { resetEmbeddingMocks } from "./embedding.test-mocks.js";
+import type { MemoryIndexManager } from "./index.js";
 import { getRequiredMemoryIndexManager } from "./test-manager-helpers.js";
 
 describe("memory manager readonly recovery", () => {
@@ -108,5 +108,15 @@ describe("memory manager readonly recovery", () => {
     await expect(currentManager.sync({ reason: "test" })).rejects.toThrow("embedding timeout");
     expect(runSyncSpy).toHaveBeenCalledTimes(1);
     expect(openDatabaseSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it("sets busy_timeout on memory sqlite connections", async () => {
+    const currentManager = await createManager();
+    const db = (currentManager as unknown as { db: DatabaseSync }).db;
+    const row = db.prepare("PRAGMA busy_timeout").get() as
+      | { busy_timeout?: number; timeout?: number }
+      | undefined;
+    const busyTimeout = row?.busy_timeout ?? row?.timeout;
+    expect(busyTimeout).toBe(5000);
   });
 });

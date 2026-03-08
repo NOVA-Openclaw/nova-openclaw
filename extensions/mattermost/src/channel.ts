@@ -1,9 +1,16 @@
 import {
+  buildAccountScopedDmSecurityPolicy,
+  collectOpenGroupPolicyRestrictSendersWarnings,
+  formatNormalizedAllowFromEntries,
+  mapAllowFromEntries,
+} from "openclaw/plugin-sdk";
+import {
   applyAccountNameToChannelSection,
+  applySetupAccountConfigPatch,
+  buildComputedAccountStatusSnapshot,
   buildChannelConfigSchema,
   DEFAULT_ACCOUNT_ID,
   deleteAccountFromConfigSection,
-  formatPairingApproveHint,
   migrateBaseNameToDefaultAccount,
   normalizeAccountId,
   resolveAllowlistProviderRuntimeGroupPolicy,
@@ -270,27 +277,25 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
       baseUrl: account.baseUrl,
     }),
     resolveAllowFrom: ({ cfg, accountId }) =>
-      (resolveMattermostAccount({ cfg, accountId }).config.allowFrom ?? []).map((entry) =>
-        String(entry),
-      ),
+      mapAllowFromEntries(resolveMattermostAccount({ cfg, accountId }).config.allowFrom),
     formatAllowFrom: ({ allowFrom }) =>
-      allowFrom.map((entry) => formatAllowEntry(String(entry))).filter(Boolean),
+      formatNormalizedAllowFromEntries({
+        allowFrom,
+        normalizeEntry: formatAllowEntry,
+      }),
   },
   security: {
     resolveDmPolicy: ({ cfg, accountId, account }) => {
-      const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
-      const useAccountPath = Boolean(cfg.channels?.mattermost?.accounts?.[resolvedAccountId]);
-      const basePath = useAccountPath
-        ? `channels.mattermost.accounts.${resolvedAccountId}.`
-        : "channels.mattermost.";
-      return {
-        policy: account.config.dmPolicy ?? "pairing",
+      return buildAccountScopedDmSecurityPolicy({
+        cfg,
+        channelKey: "mattermost",
+        accountId,
+        fallbackAccountId: account.accountId ?? DEFAULT_ACCOUNT_ID,
+        policy: account.config.dmPolicy,
         allowFrom: account.config.allowFrom ?? [],
-        policyPath: `${basePath}dmPolicy`,
-        allowFromPath: basePath,
-        approveHint: formatPairingApproveHint("mattermost"),
+        policyPathSuffix: "dmPolicy",
         normalizeEntry: (raw) => normalizeAllowEntry(raw),
-      };
+      });
     },
     collectWarnings: ({ account, cfg }) => {
       const defaultGroupPolicy = resolveDefaultGroupPolicy(cfg);
@@ -299,12 +304,13 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
         groupPolicy: account.config.groupPolicy,
         defaultGroupPolicy,
       });
-      if (groupPolicy !== "open") {
-        return [];
-      }
-      return [
-        `- Mattermost channels: groupPolicy="open" allows any member to trigger (mention-gated). Set channels.mattermost.groupPolicy="allowlist" + channels.mattermost.groupAllowFrom to restrict senders.`,
-      ];
+      return collectOpenGroupPolicyRestrictSendersWarnings({
+        groupPolicy,
+        surface: "Mattermost channels",
+        openScope: "any member",
+        groupPolicyPath: "channels.mattermost.groupPolicy",
+        groupAllowFromPath: "channels.mattermost.groupAllowFrom",
+      });
     },
   },
   groups: {
@@ -391,24 +397,24 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
       }
       return await probeMattermost(baseUrl, token, timeoutMs);
     },
-    buildAccountSnapshot: ({ account, runtime, probe }) => ({
-      accountId: account.accountId,
-      name: account.name,
-      enabled: account.enabled,
-      configured: Boolean(account.botToken && account.baseUrl),
-      botTokenSource: account.botTokenSource,
-      baseUrl: account.baseUrl,
-      running: runtime?.running ?? false,
-      connected: runtime?.connected ?? false,
-      lastConnectedAt: runtime?.lastConnectedAt ?? null,
-      lastDisconnect: runtime?.lastDisconnect ?? null,
-      lastStartAt: runtime?.lastStartAt ?? null,
-      lastStopAt: runtime?.lastStopAt ?? null,
-      lastError: runtime?.lastError ?? null,
-      probe,
-      lastInboundAt: runtime?.lastInboundAt ?? null,
-      lastOutboundAt: runtime?.lastOutboundAt ?? null,
-    }),
+    buildAccountSnapshot: ({ account, runtime, probe }) => {
+      const base = buildComputedAccountStatusSnapshot({
+        accountId: account.accountId,
+        name: account.name,
+        enabled: account.enabled,
+        configured: Boolean(account.botToken && account.baseUrl),
+        runtime,
+        probe,
+      });
+      return {
+        ...base,
+        botTokenSource: account.botTokenSource,
+        baseUrl: account.baseUrl,
+        connected: runtime?.connected ?? false,
+        lastConnectedAt: runtime?.lastConnectedAt ?? null,
+        lastDisconnect: runtime?.lastDisconnect ?? null,
+      };
+    },
   },
   setup: {
     resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
@@ -449,43 +455,18 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
               channelKey: "mattermost",
             })
           : namedConfig;
-      if (accountId === DEFAULT_ACCOUNT_ID) {
-        return {
-          ...next,
-          channels: {
-            ...next.channels,
-            mattermost: {
-              ...next.channels?.mattermost,
-              enabled: true,
-              ...(input.useEnv
-                ? {}
-                : {
-                    ...(token ? { botToken: token } : {}),
-                    ...(baseUrl ? { baseUrl } : {}),
-                  }),
-            },
-          },
-        };
-      }
-      return {
-        ...next,
-        channels: {
-          ...next.channels,
-          mattermost: {
-            ...next.channels?.mattermost,
-            enabled: true,
-            accounts: {
-              ...next.channels?.mattermost?.accounts,
-              [accountId]: {
-                ...next.channels?.mattermost?.accounts?.[accountId],
-                enabled: true,
-                ...(token ? { botToken: token } : {}),
-                ...(baseUrl ? { baseUrl } : {}),
-              },
-            },
-          },
-        },
-      };
+      const patch = input.useEnv
+        ? {}
+        : {
+            ...(token ? { botToken: token } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
+          };
+      return applySetupAccountConfigPatch({
+        cfg: next,
+        channelKey: "mattermost",
+        accountId,
+        patch,
+      });
     },
   },
   gateway: {

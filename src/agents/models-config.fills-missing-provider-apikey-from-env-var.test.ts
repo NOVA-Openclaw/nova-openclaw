@@ -234,7 +234,7 @@ describe("models-config", () => {
       const parsed = await runCustomProviderMergeTest({
         seedProvider: {
           baseUrl: "https://agent.example/v1",
-          apiKey: "AGENT_KEY",
+          apiKey: "AGENT_KEY", // pragma: allowlist secret
           api: "openai-responses",
           models: [{ id: "agent-model", name: "Agent model", input: ["text"] }],
         },
@@ -413,7 +413,8 @@ describe("models-config", () => {
           models: {
             providers: {
               openai: {
-                apiKey: "sk-plaintext-should-not-appear", // already resolved by loadConfig
+                baseUrl: "https://api.openai.com/v1",
+                apiKey: "sk-plaintext-should-not-appear", // pragma: allowlist secret; already resolved by loadConfig
                 api: "openai-completions",
                 models: [
                   {
