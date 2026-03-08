@@ -1,5 +1,5 @@
 import type { CronJob, CronJobCreate, CronJobPatch } from "../types.js";
-import type { CronServiceState } from "./state.js";
+import { normalizeCronCreateDeliveryInput } from "./initial-delivery.js";
 import {
   applyJobPatch,
   computeJobNextRunAtMs,
@@ -11,6 +11,7 @@ import {
   recomputeNextRunsForMaintenance,
 } from "./jobs.js";
 import { locked } from "./locked.js";
+import type { CronServiceState } from "./state.js";
 import { ensureLoaded, persist, warnIfDisabled } from "./store.js";
 import {
   applyJobResult,
@@ -234,7 +235,8 @@ export async function add(state: CronServiceState, input: CronJobCreate) {
   return await locked(state, async () => {
     warnIfDisabled(state, "add");
     await ensureLoaded(state);
-    const job = createJob(state, input);
+    const normalizedInput = normalizeCronCreateDeliveryInput(input);
+    const job = createJob(state, normalizedInput);
     state.store?.jobs.push(job);
 
     // Defensive: recompute all next-run times to ensure consistency

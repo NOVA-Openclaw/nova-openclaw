@@ -1,15 +1,11 @@
-import type { CronJobCreate, CronJobPatch } from "./types.js";
 import { sanitizeAgentId } from "../routing/session-key.js";
 import { isRecord } from "../utils.js";
-import {
-  buildDeliveryFromLegacyPayload,
-  hasLegacyDeliveryHints,
-  stripLegacyDeliveryFields,
-} from "./legacy-delivery.js";
+import { normalizeLegacyDeliveryInput } from "./legacy-delivery.js";
 import { parseAbsoluteTimeMs } from "./parse.js";
 import { migrateLegacyCronPayload } from "./payload-migration.js";
 import { inferLegacyName } from "./service/normalize.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "./stagger.js";
+import type { CronJobCreate, CronJobPatch } from "./types.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -469,14 +465,20 @@ export function normalizeCronJobInput(
     const isIsolatedAgentTurn =
       sessionTarget === "isolated" || (sessionTarget === "" && payloadKind === "agentTurn");
     const hasDelivery = "delivery" in next && next.delivery !== undefined;
-    const hasLegacyDelivery = payload ? hasLegacyDeliveryHints(payload) : false;
-    if (!hasDelivery && isIsolatedAgentTurn && payloadKind === "agentTurn") {
-      if (payload && hasLegacyDelivery) {
-        next.delivery = buildDeliveryFromLegacyPayload(payload);
-        stripLegacyDeliveryFields(payload);
-      } else {
-        next.delivery = { mode: "announce" };
-      }
+    const normalizedLegacy = normalizeLegacyDeliveryInput({
+      delivery: isRecord(next.delivery) ? next.delivery : null,
+      payload,
+    });
+    if (normalizedLegacy.mutated && normalizedLegacy.delivery) {
+      next.delivery = normalizedLegacy.delivery;
+    }
+    if (
+      !hasDelivery &&
+      !normalizedLegacy.delivery &&
+      isIsolatedAgentTurn &&
+      payloadKind === "agentTurn"
+    ) {
+      next.delivery = { mode: "announce" };
     }
   }
 

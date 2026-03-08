@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ChannelId, ChannelPairingAdapter } from "../channels/plugins/types.js";
 import { getPairingAdapter } from "../channels/plugins/pairing.js";
+import type { ChannelId, ChannelPairingAdapter } from "../channels/plugins/types.js";
 import { resolveOAuthDir, resolveStateDir } from "../config/paths.js";
 import { withFileLock as withPathLock } from "../infra/file-lock.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
@@ -102,6 +102,14 @@ function resolveAllowFromPath(
     resolveCredentialsDir(env),
     `${base}-${safeAccountKey(normalizedAccountId)}-allowFrom.json`,
   );
+}
+
+export function resolveChannelAllowFromPath(
+  channel: PairingChannel,
+  env: NodeJS.ProcessEnv = process.env,
+  accountId?: string,
+): string {
+  return resolveAllowFromPath(channel, env, accountId);
 }
 
 async function readJsonFile<T>(

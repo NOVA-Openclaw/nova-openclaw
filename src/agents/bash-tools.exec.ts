@@ -1,12 +1,7 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type {
-  ExecElevatedDefaults,
-  ExecToolDefaults,
-  ExecToolDetails,
-} from "./bash-tools.exec-types.js";
-import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { type ExecHost, loadExecApprovals, maxAsk, minSecurity } from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import {
   getShellPathFromLoginShell,
@@ -34,6 +29,11 @@ import {
   execSchema,
   validateHostEnv,
 } from "./bash-tools.exec-runtime.js";
+import type {
+  ExecElevatedDefaults,
+  ExecToolDefaults,
+  ExecToolDetails,
+} from "./bash-tools.exec-types.js";
 import {
   buildSandboxEnv,
   clampWithDefault,
@@ -324,7 +324,8 @@ export function createExecTool(
       if (elevatedRequested && elevatedMode === "full") {
         security = "full";
       }
-      const configuredAsk = defaults?.ask ?? "on-miss";
+      // Keep local exec defaults in sync with exec-approvals.json when tools.exec.ask is unset.
+      const configuredAsk = defaults?.ask ?? loadExecApprovals().defaults?.ask ?? "on-miss";
       const requestedAsk = normalizeExecAsk(params.ask);
       let ask = maxAsk(configuredAsk, requestedAsk ?? configuredAsk);
       const bypassApprovals = elevatedRequested && elevatedMode === "full";
@@ -363,32 +364,18 @@ export function createExecTool(
       const inheritedBaseEnv = coerceEnv(process.env);
       const baseEnv = host === "sandbox" ? inheritedBaseEnv : sanitizeHostBaseEnv(inheritedBaseEnv);
 
-      // Inject agent environment variables for subagent sessions
-      const agentEnvVars: Record<string, string> = {};
-      if (agentId) {
-        agentEnvVars.OPENCLAW_AGENT_ID = agentId;
-        agentEnvVars.CLAWDBOT_AGENT_ID = agentId;
-      }
-      if (defaults?.sessionKey) {
-        agentEnvVars.OPENCLAW_SESSION_KEY = defaults.sessionKey;
-      }
-
       // Logic: Sandbox gets raw env. Host (gateway/node) must pass validation.
       // We validate BEFORE merging to prevent any dangerous vars from entering the stream.
       if (host !== "sandbox" && params.env) {
         validateHostEnv(params.env);
       }
 
-      // Merge order: process.env <- agentEnvVars <- params.env (user can override agent vars)
-      const mergedEnv = params.env
-        ? { ...baseEnv, ...agentEnvVars, ...params.env }
-        : { ...baseEnv, ...agentEnvVars };
+      const mergedEnv = params.env ? { ...baseEnv, ...params.env } : baseEnv;
 
       const env = sandbox
         ? buildSandboxEnv({
             defaultPath: DEFAULT_PATH,
             paramsEnv: params.env,
-            agentEnvVars,
             sandboxEnv: sandbox.env,
             containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
           })
