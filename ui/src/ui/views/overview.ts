@@ -1,11 +1,11 @@
 import { html } from "lit";
-import type { GatewayHelloOk } from "../gateway.ts";
-import type { UiSettings } from "../storage.ts";
 import { ConnectErrorDetailCodes } from "../../../../src/gateway/protocol/connect-error-details.js";
 import { t, i18n, SUPPORTED_LOCALES, type Locale } from "../../i18n/index.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../external-link.ts";
 import { formatRelativeTimestamp, formatDurationHuman } from "../format.ts";
+import type { GatewayHelloOk } from "../gateway.ts";
 import { formatNextRun } from "../presenter.ts";
+import type { UiSettings } from "../storage.ts";
 import { shouldShowPairingHint } from "./overview-hints.ts";
 
 export type OverviewProps = {
@@ -205,7 +205,11 @@ export function renderOverview(props: OverviewProps) {
               .value=${props.settings.gatewayUrl}
               @input=${(e: Event) => {
                 const v = (e.target as HTMLInputElement).value;
-                props.onSettingsChange({ ...props.settings, gatewayUrl: v });
+                props.onSettingsChange({
+                  ...props.settings,
+                  gatewayUrl: v,
+                  token: v.trim() === props.settings.gatewayUrl.trim() ? props.settings.token : "",
+                });
               }}
               placeholder="ws://100.x.y.z:18789"
             />

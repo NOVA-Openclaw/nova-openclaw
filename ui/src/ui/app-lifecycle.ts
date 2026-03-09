@@ -1,4 +1,3 @@
-import type { Tab } from "./navigation.ts";
 import { connectGateway } from "./app-gateway.ts";
 import {
   startLogsPolling,
@@ -18,6 +17,7 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { loadControlUiBootstrapConfig } from "./controllers/control-ui-bootstrap.ts";
+import type { Tab } from "./navigation.ts";
 
 type LifecycleHost = {
   basePath: string;
@@ -45,8 +45,8 @@ type LifecycleHost = {
 export function handleConnected(host: LifecycleHost) {
   const connectGeneration = ++host.connectGeneration;
   host.basePath = inferBasePath();
-  const bootstrapReady = loadControlUiBootstrapConfig(host);
   applySettingsFromUrl(host as unknown as Parameters<typeof applySettingsFromUrl>[0]);
+  const bootstrapReady = loadControlUiBootstrapConfig(host);
   syncTabWithLocation(host as unknown as Parameters<typeof syncTabWithLocation>[0], true);
   syncThemeWithSettings(host as unknown as Parameters<typeof syncThemeWithSettings>[0]);
   attachThemeListener(host as unknown as Parameters<typeof attachThemeListener>[0]);

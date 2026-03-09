@@ -1,5 +1,3 @@
-import type { OpenClawApp } from "./app.ts";
-import type { AgentsListResult } from "./types.ts";
 import { refreshChat } from "./app-chat.ts";
 import {
   startLogsPolling,
@@ -8,6 +6,7 @@ import {
   stopDebugPolling,
 } from "./app-polling.ts";
 import { scheduleChatScroll, scheduleLogsScroll } from "./app-scroll.ts";
+import type { OpenClawApp } from "./app.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
 import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
@@ -38,6 +37,7 @@ import {
 import { saveSettings, type UiSettings } from "./storage.ts";
 import { startThemeTransition, type ThemeTransitionContext } from "./theme-transition.ts";
 import { resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme.ts";
+import type { AgentsListResult } from "./types.ts";
 
 type SettingsHost = {
   settings: UiSettings;
@@ -59,6 +59,7 @@ type SettingsHost = {
   themeMedia: MediaQueryList | null;
   themeMediaHandler: ((event: MediaQueryListEvent) => void) | null;
   pendingGatewayUrl?: string | null;
+  pendingGatewayToken?: string | null;
 };
 
 export function applySettings(host: SettingsHost, next: UiSettings) {
@@ -94,18 +95,26 @@ export function applySettingsFromUrl(host: SettingsHost) {
   const params = new URLSearchParams(url.search);
   const hashParams = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
 
-  const tokenRaw = params.get("token") ?? hashParams.get("token");
+  const gatewayUrlRaw = params.get("gatewayUrl") ?? hashParams.get("gatewayUrl");
+  const nextGatewayUrl = gatewayUrlRaw?.trim() ?? "";
+  const gatewayUrlChanged = Boolean(nextGatewayUrl && nextGatewayUrl !== host.settings.gatewayUrl);
+  const tokenRaw = hashParams.get("token");
   const passwordRaw = params.get("password") ?? hashParams.get("password");
   const sessionRaw = params.get("session") ?? hashParams.get("session");
-  const gatewayUrlRaw = params.get("gatewayUrl") ?? hashParams.get("gatewayUrl");
   let shouldCleanUrl = false;
+
+  if (params.has("token")) {
+    params.delete("token");
+    shouldCleanUrl = true;
+  }
 
   if (tokenRaw != null) {
     const token = tokenRaw.trim();
-    if (token && token !== host.settings.token) {
+    if (token && gatewayUrlChanged) {
+      host.pendingGatewayToken = token;
+    } else if (token && token !== host.settings.token) {
       applySettings(host, { ...host.settings, token });
     }
-    params.delete("token");
     hashParams.delete("token");
     shouldCleanUrl = true;
   }
@@ -130,9 +139,14 @@ export function applySettingsFromUrl(host: SettingsHost) {
   }
 
   if (gatewayUrlRaw != null) {
-    const gatewayUrl = gatewayUrlRaw.trim();
-    if (gatewayUrl && gatewayUrl !== host.settings.gatewayUrl) {
-      host.pendingGatewayUrl = gatewayUrl;
+    if (gatewayUrlChanged) {
+      host.pendingGatewayUrl = nextGatewayUrl;
+      if (!tokenRaw?.trim()) {
+        host.pendingGatewayToken = null;
+      }
+    } else {
+      host.pendingGatewayUrl = null;
+      host.pendingGatewayToken = null;
     }
     params.delete("gatewayUrl");
     hashParams.delete("gatewayUrl");
