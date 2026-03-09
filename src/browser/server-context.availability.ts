@@ -1,9 +1,3 @@
-import type { ResolvedBrowserProfile } from "./config.js";
-import type {
-  BrowserServerState,
-  ContextOptions,
-  ProfileRuntimeState,
-} from "./server-context.types.js";
 import {
   PROFILE_ATTACH_RETRY_TIMEOUT_MS,
   PROFILE_POST_RESTART_WS_TIMEOUT_MS,
@@ -15,6 +9,7 @@ import {
   launchOpenClawChrome,
   stopOpenClawChrome,
 } from "./chrome.js";
+import type { ResolvedBrowserProfile } from "./config.js";
 import {
   ensureChromeExtensionRelayServer,
   stopChromeExtensionRelayServer,
@@ -25,6 +20,11 @@ import {
   CDP_READY_AFTER_LAUNCH_POLL_MS,
   CDP_READY_AFTER_LAUNCH_WINDOW_MS,
 } from "./server-context.constants.js";
+import type {
+  BrowserServerState,
+  ContextOptions,
+  ProfileRuntimeState,
+} from "./server-context.types.js";
 
 type AvailabilityDeps = {
   opts: ContextOptions;
@@ -117,7 +117,10 @@ export function createProfileAvailability({
 
     if (isExtension) {
       if (!httpReachable) {
-        await ensureChromeExtensionRelayServer({ cdpUrl: profile.cdpUrl });
+        await ensureChromeExtensionRelayServer({
+          cdpUrl: profile.cdpUrl,
+          bindHost: current.resolved.relayBindHost,
+        });
         if (!(await isHttpReachable(PROFILE_ATTACH_RETRY_TIMEOUT_MS))) {
           throw new Error(
             `Chrome extension relay for profile "${profile.name}" is not reachable at ${profile.cdpUrl}.`,

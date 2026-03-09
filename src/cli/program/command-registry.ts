@@ -1,8 +1,8 @@
 import type { Command } from "commander";
-import type { ProgramContext } from "./context.js";
 import { getPrimaryCommand, hasHelpOrVersion } from "../argv.js";
 import { reparseProgramFromActionArgs } from "./action-reparse.js";
 import { removeCommandByName } from "./command-tree.js";
+import type { ProgramContext } from "./context.js";
 import { registerSubCliCommands } from "./register.subclis.js";
 
 type CommandRegisterParams = {
@@ -90,6 +90,19 @@ const coreEntries: CoreCliEntry[] = [
     register: async ({ program }) => {
       const mod = await import("../config-cli.js");
       mod.registerConfigCli(program);
+    },
+  },
+  {
+    commands: [
+      {
+        name: "backup",
+        description: "Create and verify local backup archives for OpenClaw state",
+        hasSubcommands: true,
+      },
+    ],
+    register: async ({ program }) => {
+      const mod = await import("./register.backup.js");
+      mod.registerBackupCommand(program);
     },
   },
   {
