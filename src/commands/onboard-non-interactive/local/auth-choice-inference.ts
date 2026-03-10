@@ -1,5 +1,5 @@
-import type { AuthChoice, OnboardOptions } from "../../onboard-types.js";
 import { ONBOARD_PROVIDER_AUTH_FLAGS } from "../../onboard-provider-auth-flags.js";
+import type { AuthChoice, OnboardOptions } from "../../onboard-types.js";
 
 type AuthChoiceFlag = {
   optionKey: keyof AuthChoiceFlagOptions;
@@ -30,6 +30,8 @@ type AuthChoiceFlagOptions = Pick<
   | "xaiApiKey"
   | "litellmApiKey"
   | "qianfanApiKey"
+  | "modelstudioApiKeyCn"
+  | "modelstudioApiKey"
   | "volcengineApiKey"
   | "byteplusApiKey"
   | "customBaseUrl"
