@@ -1,19 +1,11 @@
-import type { DatabaseSync } from "node:sqlite";
-import { type FSWatcher } from "chokidar";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ResolvedMemorySearchConfig } from "../agents/memory-search.js";
-import type { OpenClawConfig } from "../config/config.js";
-import type {
-  MemoryEmbeddingProbeResult,
-  MemoryProviderStatus,
-  MemorySearchManager,
-  MemorySearchResult,
-  MemorySource,
-  MemorySyncProgressUpdate,
-} from "./types.js";
+import type { DatabaseSync } from "node:sqlite";
+import { type FSWatcher } from "chokidar";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import type { ResolvedMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   createEmbeddingProvider,
@@ -31,6 +23,14 @@ import { isMemoryPath, normalizeExtraMemoryPaths } from "./internal.js";
 import { MemoryManagerEmbeddingOps } from "./manager-embedding-ops.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
 import { extractKeywords } from "./query-expansion.js";
+import type {
+  MemoryEmbeddingProbeResult,
+  MemoryProviderStatus,
+  MemorySearchManager,
+  MemorySearchResult,
+  MemorySource,
+  MemorySyncProgressUpdate,
+} from "./types.js";
 const SNIPPET_MAX_CHARS = 700;
 const VECTOR_TABLE = "chunks_vec";
 const FTS_TABLE = "chunks_fts";
@@ -41,6 +41,22 @@ const log = createSubsystemLogger("memory");
 
 const INDEX_CACHE = new Map<string, MemoryIndexManager>();
 const INDEX_CACHE_PENDING = new Map<string, Promise<MemoryIndexManager>>();
+
+export async function closeAllMemoryIndexManagers(): Promise<void> {
+  const pending = Array.from(INDEX_CACHE_PENDING.values());
+  if (pending.length > 0) {
+    await Promise.allSettled(pending);
+  }
+  const managers = Array.from(INDEX_CACHE.values());
+  INDEX_CACHE.clear();
+  for (const manager of managers) {
+    try {
+      await manager.close();
+    } catch (err) {
+      log.warn(`failed to close memory index manager: ${String(err)}`);
+    }
+  }
+}
 
 export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements MemorySearchManager {
   private readonly cacheKey: string;

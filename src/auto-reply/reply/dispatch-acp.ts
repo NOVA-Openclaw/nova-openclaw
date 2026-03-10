@@ -1,8 +1,6 @@
-import type { OpenClawConfig } from "../../config/config.js";
-import type { TtsAutoMode } from "../../config/types.tts.js";
-import type { FinalizedMsgContext } from "../templating.js";
-import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
+import fs from "node:fs/promises";
 import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
+import type { AcpTurnAttachment } from "../../acp/control-plane/manager.types.js";
 import { resolveAcpAgentPolicyError, resolveAcpDispatchPolicyError } from "../../acp/policy.js";
 import { formatAcpRuntimeErrorText } from "../../acp/runtime/error-text.js";
 import { toAcpRuntimeError } from "../../acp/runtime/errors.js";
@@ -12,10 +10,17 @@ import {
   resolveSessionIdentityFromMeta,
 } from "../../acp/runtime/session-identity.js";
 import { readAcpSessionEntry } from "../../acp/runtime/session-meta.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import type { TtsAutoMode } from "../../config/types.tts.js";
 import { logVerbose } from "../../globals.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { generateSecureUuid } from "../../infra/secure-random.js";
 import { prefixSystemMessage } from "../../infra/system-message.js";
+import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
+import {
+  normalizeAttachmentPath,
+  normalizeAttachments,
+} from "../../media-understanding/attachments.normalize.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { maybeApplyTtsToPayload, resolveTtsConfig } from "../../tts/tts.js";
 import {
@@ -23,8 +28,10 @@ import {
   maybeResolveTextAlias,
   shouldHandleTextCommands,
 } from "../commands-registry.js";
+import type { FinalizedMsgContext } from "../templating.js";
 import { createAcpReplyProjector } from "./acp-projector.js";
 import { createAcpDispatchDeliveryCoordinator } from "./dispatch-acp-delivery.js";
+import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 
 type DispatchProcessedRecorder = (
   outcome: "completed" | "skipped" | "error",
@@ -55,6 +62,40 @@ function resolveAcpPromptText(ctx: FinalizedMsgContext): string {
     "RawBody",
     "Body",
   ]).trim();
+}
+
+const ACP_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+async function resolveAcpAttachments(ctx: FinalizedMsgContext): Promise<AcpTurnAttachment[]> {
+  const mediaAttachments = normalizeAttachments(ctx);
+  const results: AcpTurnAttachment[] = [];
+  for (const attachment of mediaAttachments) {
+    const mediaType = attachment.mime ?? "application/octet-stream";
+    if (!mediaType.startsWith("image/")) {
+      continue;
+    }
+    const filePath = normalizeAttachmentPath(attachment.path);
+    if (!filePath) {
+      continue;
+    }
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size > ACP_ATTACHMENT_MAX_BYTES) {
+        logVerbose(
+          `dispatch-acp: skipping attachment ${filePath} (${stat.size} bytes exceeds ${ACP_ATTACHMENT_MAX_BYTES} byte limit)`,
+        );
+        continue;
+      }
+      const buf = await fs.readFile(filePath);
+      results.push({
+        mediaType,
+        data: buf.toString("base64"),
+      });
+    } catch {
+      // Skip unreadable files. Text content should still be delivered.
+    }
+  }
+  return results;
 }
 
 function resolveCommandCandidateText(ctx: FinalizedMsgContext): string {
@@ -188,15 +229,6 @@ export async function tryDispatchAcpReply(params: {
     onReplyStart: params.onReplyStart,
   });
 
-  const promptText = resolveAcpPromptText(params.ctx);
-  if (!promptText) {
-    const counts = params.dispatcher.getQueuedCounts();
-    delivery.applyRoutedCounts(counts);
-    params.recordProcessed("completed", { reason: "acp_empty_prompt" });
-    params.markIdle("message_completed");
-    return { queuedFinal: false, counts };
-  }
-
   const identityPendingBeforeTurn = isSessionIdentityPending(
     resolveSessionIdentityFromMeta(acpResolution.kind === "ready" ? acpResolution.meta : undefined),
   );
@@ -238,6 +270,28 @@ export async function tryDispatchAcpReply(params: {
     if (agentPolicyError) {
       throw agentPolicyError;
     }
+    if (!params.ctx.MediaUnderstanding?.length) {
+      try {
+        await applyMediaUnderstanding({
+          ctx: params.ctx,
+          cfg: params.cfg,
+        });
+      } catch (err) {
+        logVerbose(
+          `dispatch-acp: media understanding failed, proceeding with raw content: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    const promptText = resolveAcpPromptText(params.ctx);
+    const attachments = await resolveAcpAttachments(params.ctx);
+    if (!promptText && attachments.length === 0) {
+      const counts = params.dispatcher.getQueuedCounts();
+      delivery.applyRoutedCounts(counts);
+      params.recordProcessed("completed", { reason: "acp_empty_prompt" });
+      params.markIdle("message_completed");
+      return { queuedFinal: false, counts };
+    }
 
     try {
       await delivery.startReplyLifecycle();
@@ -251,6 +305,7 @@ export async function tryDispatchAcpReply(params: {
       cfg: params.cfg,
       sessionKey,
       text: promptText,
+      attachments: attachments.length > 0 ? attachments : undefined,
       mode: "prompt",
       requestId: resolveAcpRequestId(params.ctx),
       onEvent: async (event) => await projector.onEvent(event),

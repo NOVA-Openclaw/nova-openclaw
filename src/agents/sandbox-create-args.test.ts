@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { SandboxDockerConfig } from "./sandbox/types.js";
+import { OPENCLAW_CLI_ENV_VALUE } from "../infra/openclaw-exec-env.js";
 import { buildSandboxCreateArgs } from "./sandbox/docker.js";
+import type { SandboxDockerConfig } from "./sandbox/types.js";
 
 describe("buildSandboxCreateArgs", () => {
   function createSandboxConfig(
@@ -113,7 +114,14 @@ describe("buildSandboxCreateArgs", () => {
         "1.5",
       ]),
     );
-    expect(args).toEqual(expect.arrayContaining(["--env", "LANG=C.UTF-8"]));
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "--env",
+        "LANG=C.UTF-8",
+        "--env",
+        `OPENCLAW_CLI=${OPENCLAW_CLI_ENV_VALUE}`,
+      ]),
+    );
 
     const ulimitValues: string[] = [];
     for (let i = 0; i < args.length; i += 1) {

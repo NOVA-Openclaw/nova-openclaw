@@ -6,6 +6,12 @@ import type {
   SessionEntry,
 } from "../../config/sessions/types.js";
 import type { AcpRuntimeError } from "../runtime/errors.js";
+import { requireAcpRuntimeBackend } from "../runtime/registry.js";
+import {
+  listAcpSessionEntries,
+  readAcpSessionEntry,
+  upsertAcpSessionMeta,
+} from "../runtime/session-meta.js";
 import type {
   AcpRuntime,
   AcpRuntimeCapabilities,
@@ -15,12 +21,6 @@ import type {
   AcpRuntimeSessionMode,
   AcpRuntimeStatus,
 } from "../runtime/types.js";
-import { requireAcpRuntimeBackend } from "../runtime/registry.js";
-import {
-  listAcpSessionEntries,
-  readAcpSessionEntry,
-  upsertAcpSessionMeta,
-} from "../runtime/session-meta.js";
 
 export type AcpSessionResolution =
   | {
@@ -47,10 +47,16 @@ export type AcpInitializeSessionInput = {
   backendId?: string;
 };
 
+export type AcpTurnAttachment = {
+  mediaType: string;
+  data: string;
+};
+
 export type AcpRunTurnInput = {
   cfg: OpenClawConfig;
   sessionKey: string;
   text: string;
+  attachments?: AcpTurnAttachment[];
   mode: AcpRuntimePromptMode;
   requestId: string;
   signal?: AbortSignal;
