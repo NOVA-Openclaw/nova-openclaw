@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { NodeEvent, NodeEventContext } from "./server-node-events-types.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { createOutboundSendDeps } from "../cli/outbound-send-deps.js";
 import { agentCommandFromIngress } from "../commands/agent.js";
@@ -15,6 +14,7 @@ import { normalizeMainKey, scopedHeartbeatWakeOptions } from "../routing/session
 import { defaultRuntime } from "../runtime.js";
 import { parseMessageWithAttachments } from "./chat-attachments.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./server-methods/attachment-normalize.js";
+import type { NodeEvent, NodeEventContext } from "./server-node-events-types.js";
 import {
   loadSessionEntry,
   pruneLegacyStoreKeys,
@@ -536,6 +536,9 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       const cfg = loadConfig();
       const notifyOnExit = cfg.tools?.exec?.notifyOnExit !== false;
       if (!notifyOnExit) {
+        return;
+      }
+      if (obj.suppressNotifyOnExit === true) {
         return;
       }
 
