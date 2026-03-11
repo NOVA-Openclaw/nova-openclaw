@@ -1,12 +1,12 @@
 import { ChannelType, type Client } from "@buape/carbon";
 import { Routes } from "discord-api-types/v10";
-import type { ReplyToMode } from "../../config/config.js";
-import type { DiscordChannelConfigResolved } from "./allow-list.js";
-import type { DiscordMessageEvent } from "./listeners.js";
 import { createReplyReferencePlanner } from "../../auto-reply/reply/reply-reference.js";
+import type { ReplyToMode } from "../../config/config.js";
 import { logVerbose } from "../../globals.js";
 import { buildAgentSessionKey } from "../../routing/resolve-route.js";
 import { truncateUtf16Safe } from "../../utils.js";
+import type { DiscordChannelConfigResolved } from "./allow-list.js";
+import type { DiscordMessageEvent } from "./listeners.js";
 import {
   resolveDiscordChannelInfo,
   resolveDiscordEmbedText,
@@ -397,12 +397,18 @@ export async function maybeCreateDiscordAutoThread(params: {
       params.baseText || params.combinedBody || "Thread",
       params.message.id,
     );
+
+    // Parse archive duration from config, default to 60 minutes
+    const archiveDuration = params.channelConfig?.autoArchiveDuration
+      ? Number(params.channelConfig.autoArchiveDuration)
+      : 60;
+
     const created = (await params.client.rest.post(
       `${Routes.channelMessage(messageChannelId, params.message.id)}/threads`,
       {
         body: {
           name: threadName,
-          auto_archive_duration: 60,
+          auto_archive_duration: archiveDuration,
         },
       },
     )) as { id?: string };
