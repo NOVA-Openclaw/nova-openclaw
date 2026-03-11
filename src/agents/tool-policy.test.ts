@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import type { SandboxToolPolicy } from "./sandbox/types.js";
-import type { AnyAgentTool } from "./tools/common.js";
 import { isToolAllowed, resolveSandboxToolPolicyForAgent } from "./sandbox/tool-policy.js";
+import type { SandboxToolPolicy } from "./sandbox/types.js";
 import { TOOL_POLICY_CONFORMANCE } from "./tool-policy.conformance.js";
 import {
   applyOwnerOnlyToolPolicy,
@@ -12,6 +11,7 @@ import {
   resolveToolProfilePolicy,
   TOOL_GROUPS,
 } from "./tool-policy.js";
+import type { AnyAgentTool } from "./tools/common.js";
 
 function createOwnerPolicyTools() {
   return [
@@ -80,6 +80,7 @@ describe("tool-policy", () => {
     expect(isOwnerOnlyToolName("whatsapp_login")).toBe(true);
     expect(isOwnerOnlyToolName("cron")).toBe(true);
     expect(isOwnerOnlyToolName("gateway")).toBe(true);
+    expect(isOwnerOnlyToolName("nodes")).toBe(true);
     expect(isOwnerOnlyToolName("read")).toBe(false);
   });
 
@@ -106,6 +107,27 @@ describe("tool-policy", () => {
     ] as unknown as AnyAgentTool[];
     expect(applyOwnerOnlyToolPolicy(tools, false)).toEqual([]);
     expect(applyOwnerOnlyToolPolicy(tools, true)).toHaveLength(1);
+  });
+
+  it("strips nodes for non-owner senders via fallback policy", () => {
+    const tools = [
+      {
+        name: "read",
+        // oxlint-disable-next-line typescript/no-explicit-any
+        execute: async () => ({ content: [], details: {} }) as any,
+      },
+      {
+        name: "nodes",
+        // oxlint-disable-next-line typescript/no-explicit-any
+        execute: async () => ({ content: [], details: {} }) as any,
+      },
+    ] as unknown as AnyAgentTool[];
+
+    expect(applyOwnerOnlyToolPolicy(tools, false).map((tool) => tool.name)).toEqual(["read"]);
+    expect(applyOwnerOnlyToolPolicy(tools, true).map((tool) => tool.name)).toEqual([
+      "read",
+      "nodes",
+    ]);
   });
 });
 

@@ -1,9 +1,8 @@
-import type { Command } from "commander";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { Command } from "commander";
 import type { OpenClawConfig } from "../config/config.js";
-import type { PluginRecord } from "../plugins/registry.js";
 import { loadConfig, writeConfigFile } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { resolveArchiveKind } from "../infra/archive.js";
@@ -12,6 +11,7 @@ import { enablePluginInConfig } from "../plugins/enable.js";
 import { installPluginFromNpmSpec, installPluginFromPath } from "../plugins/install.js";
 import { recordPluginInstall } from "../plugins/installs.js";
 import { clearPluginManifestRegistryCache } from "../plugins/manifest-registry.js";
+import type { PluginRecord } from "../plugins/registry.js";
 import { applyExclusiveSlotSelection } from "../plugins/slots.js";
 import { resolvePluginSourceRoots, formatPluginSourceForTable } from "../plugins/source-display.js";
 import { buildPluginStatusReport } from "../plugins/status.js";
@@ -19,7 +19,7 @@ import { resolveUninstallDirectoryTarget, uninstallPlugin } from "../plugins/uni
 import { updateNpmInstalledPlugins } from "../plugins/update.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
-import { renderTable } from "../terminal/table.js";
+import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { resolveUserPath, shortenHomeInString, shortenHomePath } from "../utils.js";
 import { looksLikeLocalInstallSpec } from "./install-spec.js";
@@ -404,7 +404,7 @@ export function registerPluginsCli(program: Command) {
       );
 
       if (!opts.verbose) {
-        const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
+        const tableWidth = getTerminalTableWidth();
         const sourceRoots = resolvePluginSourceRoots({
           workspaceDir: report.workspaceDir,
         });

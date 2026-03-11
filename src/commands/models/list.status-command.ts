@@ -1,5 +1,4 @@
 import path from "node:path";
-import type { RuntimeEnv } from "../../runtime.js";
 import { resolveOpenClawAgentDir } from "../../agents/agent-paths.js";
 import {
   resolveAgentDir,
@@ -38,7 +37,8 @@ import {
   type UsageProviderId,
 } from "../../infra/provider-usage.js";
 import { getShellEnvAppliedKeys, shouldEnableShellEnvFallback } from "../../infra/shell-env.js";
-import { renderTable } from "../../terminal/table.js";
+import type { RuntimeEnv } from "../../runtime.js";
+import { getTerminalTableWidth, renderTable } from "../../terminal/table.js";
 import { colorize, theme } from "../../terminal/theme.js";
 import { shortenHomePath } from "../../utils.js";
 import { resolveProviderAuthOverview } from "./list.auth-overview.js";
@@ -631,7 +631,7 @@ export async function modelsStatusCommand(
     if (probeSummary.results.length === 0) {
       runtime.log(colorize(rich, theme.muted, "- none"));
     } else {
-      const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
+      const tableWidth = getTerminalTableWidth();
       const sorted = sortProbeResults(probeSummary.results);
       const statusColor = (status: string) => {
         if (status === "ok") {
