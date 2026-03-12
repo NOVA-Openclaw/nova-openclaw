@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import type { NodeSession } from "../node-registry.js";
-import type { GatewayRequestHandlers } from "./types.js";
 import {
   createBrowserControlContext,
   startBrowserControlServiceFromConfig,
@@ -9,8 +7,10 @@ import { applyBrowserProxyPaths, persistBrowserProxyFiles } from "../../browser/
 import { createBrowserRouteDispatcher } from "../../browser/routes/dispatcher.js";
 import { loadConfig } from "../../config/config.js";
 import { isNodeCommandAllowed, resolveNodeCommandAllowlist } from "../node-command-policy.js";
+import type { NodeSession } from "../node-registry.js";
 import { ErrorCodes, errorShape } from "../protocol/index.js";
 import { respondUnavailableOnNodeInvokeError, safeParseJson } from "./nodes.helpers.js";
+import type { GatewayRequestHandlers } from "./types.js";
 
 type BrowserRequestParams = {
   method?: string;
@@ -19,6 +19,26 @@ type BrowserRequestParams = {
   body?: unknown;
   timeoutMs?: number;
 };
+
+function normalizeBrowserRequestPath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  if (withLeadingSlash.length <= 1) {
+    return withLeadingSlash;
+  }
+  return withLeadingSlash.replace(/\/+$/, "");
+}
+
+function isPersistentBrowserProfileMutation(method: string, path: string): boolean {
+  const normalizedPath = normalizeBrowserRequestPath(path);
+  if (method === "POST" && normalizedPath === "/profiles/create") {
+    return true;
+  }
+  return method === "DELETE" && /^\/profiles\/[^/]+$/.test(normalizedPath);
+}
 
 function resolveRequestedProfile(params: {
   query?: Record<string, unknown>;
@@ -164,6 +184,17 @@ export const browserHandlers: GatewayRequestHandlers = {
         false,
         undefined,
         errorShape(ErrorCodes.INVALID_REQUEST, "method must be GET, POST, or DELETE"),
+      );
+      return;
+    }
+    if (isPersistentBrowserProfileMutation(methodRaw, path)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "browser.request cannot create or delete persistent browser profiles",
+        ),
       );
       return;
     }
