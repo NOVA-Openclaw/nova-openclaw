@@ -17,5 +17,8 @@ export function resolvePluginProviders(params: {
     logger: createPluginLoaderLogger(log),
   });
 
-  return registry.providers.map((entry) => entry.provider);
+  return registry.providers.map((entry) => ({
+    ...entry.provider,
+    pluginId: entry.pluginId,
+  }));
 }
