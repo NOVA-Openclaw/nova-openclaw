@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import type { DaemonInstallOptions, GatewayRpcOpts } from "./types.js";
 import { inheritOptionFromParent } from "../command-options.js";
 import {
   runDaemonInstall,
@@ -9,6 +8,7 @@ import {
   runDaemonStop,
   runDaemonUninstall,
 } from "./runners.js";
+import type { DaemonInstallOptions, GatewayRpcOpts } from "./types.js";
 
 function resolveInstallOptions(
   cmdOpts: DaemonInstallOptions,
@@ -44,12 +44,14 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
     .option("--password <password>", "Gateway password (password auth)")
     .option("--timeout <ms>", "Timeout in ms", "10000")
     .option("--no-probe", "Skip RPC probe")
+    .option("--require-rpc", "Exit non-zero when the RPC probe fails", false)
     .option("--deep", "Scan system-level services", false)
     .option("--json", "Output JSON", false)
     .action(async (cmdOpts, command) => {
       await runDaemonStatus({
         rpc: resolveRpcOptions(cmdOpts, command),
         probe: Boolean(cmdOpts.probe),
+        requireRpc: Boolean(cmdOpts.requireRpc),
         deep: Boolean(cmdOpts.deep),
         json: Boolean(cmdOpts.json),
       });

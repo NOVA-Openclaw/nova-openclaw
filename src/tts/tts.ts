@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { ReplyPayload } from "../auto-reply/types.js";
+import { normalizeChannelId } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
@@ -21,7 +22,6 @@ import type {
   TtsProvider,
   TtsModelOverrideConfig,
 } from "../config/types.tts.js";
-import { normalizeChannelId } from "../channels/plugins/index.js";
 import { logVerbose } from "../globals.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { stripMarkdown } from "../line/markdown-to-line.js";
@@ -559,6 +559,35 @@ function buildTtsFailureResult(errors: string[]): { success: false; error: strin
   };
 }
 
+function resolveTtsRequestSetup(params: {
+  text: string;
+  cfg: OpenClawConfig;
+  prefsPath?: string;
+  providerOverride?: TtsProvider;
+}):
+  | {
+      config: ResolvedTtsConfig;
+      providers: TtsProvider[];
+    }
+  | {
+      error: string;
+    } {
+  const config = resolveTtsConfig(params.cfg);
+  const prefsPath = params.prefsPath ?? resolveTtsPrefsPath(config);
+  if (params.text.length > config.maxTextLength) {
+    return {
+      error: `Text too long (${params.text.length} chars, max ${config.maxTextLength})`,
+    };
+  }
+
+  const userProvider = getTtsProvider(config, prefsPath);
+  const provider = params.providerOverride ?? userProvider;
+  return {
+    config,
+    providers: resolveTtsProviderOrder(provider),
+  };
+}
+
 export async function textToSpeech(params: {
   text: string;
   cfg: OpenClawConfig;
@@ -566,22 +595,19 @@ export async function textToSpeech(params: {
   channel?: string;
   overrides?: TtsDirectiveOverrides;
 }): Promise<TtsResult> {
-  const config = resolveTtsConfig(params.cfg);
-  const prefsPath = params.prefsPath ?? resolveTtsPrefsPath(config);
-  const channelId = resolveChannelId(params.channel);
-  const output = resolveOutputFormat(channelId);
-
-  if (params.text.length > config.maxTextLength) {
-    return {
-      success: false,
-      error: `Text too long (${params.text.length} chars, max ${config.maxTextLength})`,
-    };
+  const setup = resolveTtsRequestSetup({
+    text: params.text,
+    cfg: params.cfg,
+    prefsPath: params.prefsPath,
+    providerOverride: params.overrides?.provider,
+  });
+  if ("error" in setup) {
+    return { success: false, error: setup.error };
   }
 
-  const userProvider = getTtsProvider(config, prefsPath);
-  const overrideProvider = params.overrides?.provider;
-  const provider = overrideProvider ?? userProvider;
-  const providers = resolveTtsProviderOrder(provider);
+  const { config, providers } = setup;
+  const channelId = resolveChannelId(params.channel);
+  const output = resolveOutputFormat(channelId);
 
   const errors: string[] = [];
 
@@ -734,18 +760,16 @@ export async function textToSpeechTelephony(params: {
   cfg: OpenClawConfig;
   prefsPath?: string;
 }): Promise<TtsTelephonyResult> {
-  const config = resolveTtsConfig(params.cfg);
-  const prefsPath = params.prefsPath ?? resolveTtsPrefsPath(config);
-
-  if (params.text.length > config.maxTextLength) {
-    return {
-      success: false,
-      error: `Text too long (${params.text.length} chars, max ${config.maxTextLength})`,
-    };
+  const setup = resolveTtsRequestSetup({
+    text: params.text,
+    cfg: params.cfg,
+    prefsPath: params.prefsPath,
+  });
+  if ("error" in setup) {
+    return { success: false, error: setup.error };
   }
 
-  const userProvider = getTtsProvider(config, prefsPath);
-  const providers = resolveTtsProviderOrder(userProvider);
+  const { config, providers } = setup;
 
   const errors: string[] = [];
 

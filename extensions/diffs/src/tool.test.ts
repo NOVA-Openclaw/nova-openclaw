@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/diffs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestPluginApi } from "../../test-utils/plugin-api.js";
 import type { DiffScreenshotter } from "./browser.js";
 import { DEFAULT_DIFFS_TOOL_DEFAULTS } from "./config.js";
 import { DiffArtifactStore } from "./store.js";
@@ -383,7 +384,7 @@ describe("diffs tool", () => {
 });
 
 function createApi(): OpenClawPluginApi {
-  return {
+  return createTestPluginApi({
     id: "diffs",
     name: "Diffs",
     description: "Diffs",
@@ -395,26 +396,7 @@ function createApi(): OpenClawPluginApi {
       },
     },
     runtime: {} as OpenClawPluginApi["runtime"],
-    logger: {
-      info() {},
-      warn() {},
-      error() {},
-    },
-    registerTool() {},
-    registerHook() {},
-    registerHttpRoute() {},
-    registerChannel() {},
-    registerGatewayMethod() {},
-    registerCli() {},
-    registerService() {},
-    registerProvider() {},
-    registerCommand() {},
-    registerContextEngine() {},
-    resolvePath(input: string) {
-      return input;
-    },
-    on() {},
-  };
+  }) as OpenClawPluginApi;
 }
 
 function createToolWithScreenshotter(
@@ -432,7 +414,7 @@ function createToolWithScreenshotter(
 
 function expectArtifactOnlyFileResult(
   screenshotter: DiffScreenshotter,
-  result: { details?: Record<string, unknown> } | null | undefined,
+  result: { details?: unknown } | null | undefined,
 ) {
   expect(screenshotter.screenshotHtml).toHaveBeenCalledTimes(1);
   expect((result?.details as Record<string, unknown>).mode).toBe("file");
