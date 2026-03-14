@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
 import * as replyModule from "../auto-reply/reply.js";
+import type { OpenClawConfig } from "../config/config.js";
 import { runHeartbeatOnce } from "./heartbeat-runner.js";
 import {
   seedMainSessionStore,
@@ -118,7 +118,7 @@ describe("Ghost reminder bug (issue #13317)", () => {
           agentId: "main",
           reason: params.reason,
           deps: {
-            sendTelegram,
+            telegram: sendTelegram,
           },
         });
         const calledCtx = (getReplySpy.mock.calls[0]?.[0] ?? null) as {
