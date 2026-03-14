@@ -132,6 +132,7 @@
 - Framework: Vitest with V8 coverage thresholds (70% lines/branches/functions/statements).
 - Naming: match source names with `*.test.ts`; e2e in `*.e2e.test.ts`.
 - Run `pnpm test` (or `pnpm test:coverage`) before pushing when you touch logic.
+- For targeted/local debugging, keep using the wrapper: `pnpm test -- <path-or-filter> [vitest args...]` (for example `pnpm test -- src/commands/onboard-search.test.ts -t "shows registered plugin providers"`); do not default to raw `pnpm vitest run ...` because it bypasses wrapper config/profile/pool routing.
 - Do not set test workers above 16; tried already.
 - If local Vitest runs cause memory pressure (common on non-Mac-Studio hosts), use `OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test` for land/gate runs.
 - Live tests (real keys): `CLAWDBOT_LIVE_TEST=1 pnpm test:live` (OpenClaw-only) or `LIVE=1 pnpm test:live` (includes provider live tests). Docker: `pnpm test:docker:live-models`, `pnpm test:docker:live-gateway`. Onboarding Docker E2E: `pnpm test:docker:onboard`.
@@ -205,6 +206,8 @@
 - Parallels macOS smoke playbook:
   - `prlctl exec` is fine for deterministic repo commands, but it can misrepresent interactive shell behavior (`PATH`, `HOME`, `curl | bash`, shebang resolution). For installer parity or shell-sensitive repros, prefer the guest Terminal or `prlctl enter`.
   - Fresh Tahoe snapshot current reality: `brew` exists, `node` may not be on `PATH` in noninteractive guest exec. Use absolute `/opt/homebrew/bin/node` for repo/CLI runs when needed.
+  - Preferred automation entrypoint: `pnpm test:parallels:macos`. It restores the snapshot most closely matching `macOS 26.3.1 fresh`, serves the current `main` tarball from the host, then runs fresh-install and latest-release-to-main smoke lanes.
+  - Harness output: pass `--json` for machine-readable summary; per-phase logs land under `/tmp/openclaw-parallels-smoke.*`.
   - Fresh host-served tgz install: restore fresh snapshot, install tgz as guest root with `HOME=/var/root`, then run onboarding as the desktop user via `prlctl exec --current-user`.
   - For `openclaw onboard --non-interactive --secret-input-mode ref --install-daemon`, expect env-backed auth-profile refs (for example `OPENAI_API_KEY`) to be copied into the service env at install time; this path was fixed and should stay green.
   - Don’t run local + gateway agent turns in parallel on the same fresh workspace/session; they can collide on the session lock. Run sequentially.
