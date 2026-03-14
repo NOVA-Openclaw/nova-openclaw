@@ -1,6 +1,7 @@
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import {
+  formatBtwTextForExternalDelivery,
   isRenderablePayload,
   shouldSuppressReasoningPayload,
 } from "../../auto-reply/reply/reply-payloads.js";
@@ -59,7 +60,11 @@ export function normalizeReplyPayloadsForDelivery(
     const resolvedMediaUrl = hasMultipleMedia ? undefined : explicitMediaUrl;
     const next: ReplyPayload = {
       ...payload,
-      text: parsed.text ?? "",
+      text:
+        formatBtwTextForExternalDelivery({
+          ...payload,
+          text: parsed.text ?? "",
+        }) ?? "",
       mediaUrls: mergedMedia.length ? mergedMedia : undefined,
       mediaUrl: resolvedMediaUrl,
       replyToId: payload.replyToId ?? parsed.replyToId,
