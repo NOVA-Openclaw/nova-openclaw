@@ -1,12 +1,13 @@
 import type { Command } from "commander";
 import JSON5 from "json5";
-import type { RuntimeEnv } from "../runtime.js";
+import { OLLAMA_DEFAULT_BASE_URL } from "../agents/ollama-defaults.js";
 import { readConfigFileSnapshot, writeConfigFile } from "../config/config.js";
 import { formatConfigIssueLines, normalizeConfigIssues } from "../config/issue-format.js";
 import { CONFIG_PATH } from "../config/paths.js";
 import { isBlockedObjectKey } from "../config/prototype-keys.js";
 import { redactConfigObject } from "../config/redact-snapshot.js";
 import { danger, info, success } from "../globals.js";
+import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { theme } from "../terminal/theme.js";
@@ -20,7 +21,6 @@ type ConfigSetParseOpts = {
 
 const OLLAMA_API_KEY_PATH: PathSegment[] = ["models", "providers", "ollama", "apiKey"];
 const OLLAMA_PROVIDER_PATH: PathSegment[] = ["models", "providers", "ollama"];
-const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
 
 function isIndexSegment(raw: string): boolean {
   return /^[0-9]+$/.test(raw);

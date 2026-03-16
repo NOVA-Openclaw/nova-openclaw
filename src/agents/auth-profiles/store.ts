@@ -1,12 +1,12 @@
-import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import fs from "node:fs";
-import type { AuthProfileCredential, AuthProfileStore, ProfileUsageStats } from "./types.js";
+import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { resolveOAuthPath } from "../../config/paths.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
 import { AUTH_STORE_LOCK_OPTIONS, AUTH_STORE_VERSION, log } from "./constants.js";
 import { syncExternalCliCredentials } from "./external-cli-sync.js";
 import { ensureAuthStoreFile, resolveAuthStorePath, resolveLegacyAuthStorePath } from "./paths.js";
+import type { AuthProfileCredential, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
 type LegacyAuthStore = Record<string, AuthProfileCredential>;
 type CredentialRejectReason = "non_object" | "invalid_type" | "missing_provider";
@@ -381,7 +381,7 @@ function loadAuthProfileStoreForAgent(
   if (asStore) {
     // Runtime secret activation must remain read-only:
     // sync external CLI credentials in-memory, but never persist while readOnly.
-    const synced = syncExternalCliCredentials(asStore);
+    const synced = syncExternalCliCredentials(asStore, { log: !readOnly });
     if (synced && !readOnly) {
       saveJsonFile(authPath, asStore);
     }
@@ -413,7 +413,7 @@ function loadAuthProfileStoreForAgent(
 
   const mergedOAuth = mergeOAuthFileIntoStore(store);
   // Keep external CLI credentials visible in runtime even during read-only loads.
-  const syncedCli = syncExternalCliCredentials(store);
+  const syncedCli = syncExternalCliCredentials(store, { log: !readOnly });
   const forceReadOnly = process.env.OPENCLAW_AUTH_STORE_READONLY === "1";
   const shouldWrite = !readOnly && !forceReadOnly && (legacy !== null || mergedOAuth || syncedCli);
   if (shouldWrite) {
