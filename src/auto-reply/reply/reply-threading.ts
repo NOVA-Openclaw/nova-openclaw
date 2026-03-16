@@ -1,9 +1,8 @@
+import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { ReplyToMode } from "../../config/types.js";
 import type { OriginatingChannelType } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
-import { getChannelDock } from "../../channels/dock.js";
-import { normalizeChannelId } from "../../channels/plugins/index.js";
 
 export function resolveReplyToMode(
   cfg: OpenClawConfig,
@@ -15,7 +14,7 @@ export function resolveReplyToMode(
   if (!provider) {
     return "all";
   }
-  const resolved = getChannelDock(provider)?.threading?.resolveReplyToMode?.({
+  const resolved = getChannelPlugin(provider)?.threading?.resolveReplyToMode?.({
     cfg,
     accountId,
     chatType,
@@ -59,9 +58,9 @@ export function createReplyToModeFilterForChannel(
   const isWebchat = normalized === "webchat";
   // Default: allow explicit reply tags/directives even when replyToMode is "off".
   // Unknown channels fail closed; internal webchat stays allowed.
-  const dock = provider ? getChannelDock(provider) : undefined;
+  const threading = provider ? getChannelPlugin(provider)?.threading : undefined;
   const allowExplicitReplyTagsWhenOff = provider
-    ? (dock?.threading?.allowExplicitReplyTagsWhenOff ?? dock?.threading?.allowTagsWhenOff ?? true)
+    ? (threading?.allowExplicitReplyTagsWhenOff ?? threading?.allowTagsWhenOff ?? true)
     : isWebchat;
   return createReplyToModeFilter(mode, {
     allowExplicitReplyTagsWhenOff,
