@@ -1,16 +1,17 @@
-import type { DeviceAuthStore } from "../../../src/shared/device-auth.js";
 import {
   clearDeviceAuthTokenFromStore,
   type DeviceAuthEntry,
   loadDeviceAuthTokenFromStore,
   storeDeviceAuthTokenInStore,
 } from "../../../src/shared/device-auth-store.js";
+import type { DeviceAuthStore } from "../../../src/shared/device-auth.js";
+import { getSafeLocalStorage } from "../local-storage.ts";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
 
 function readStore(): DeviceAuthStore | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = getSafeLocalStorage()?.getItem(STORAGE_KEY);
     if (!raw) {
       return null;
     }
@@ -32,7 +33,7 @@ function readStore(): DeviceAuthStore | null {
 
 function writeStore(store: DeviceAuthStore) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    getSafeLocalStorage()?.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch {
     // best-effort
   }

@@ -23,6 +23,15 @@ export function rewritePackageExtensions(entries) {
     });
 }
 
+function rewritePackageEntry(entry) {
+  if (typeof entry !== "string" || entry.trim().length === 0) {
+    return undefined;
+  }
+  const normalized = entry.replace(/^\.\//, "");
+  const rewritten = normalized.replace(/\.[^.]+$/u, ".js");
+  return `./${rewritten}`;
+}
+
 function ensurePathInsideRoot(rootDir, rawPath) {
   const resolved = path.resolve(rootDir, rawPath);
   const relative = path.relative(rootDir, resolved);
@@ -38,6 +47,18 @@ function ensurePathInsideRoot(rootDir, rawPath) {
 
 function normalizeManifestRelativePath(rawPath) {
   return rawPath.replaceAll("\\", "/").replace(/^\.\//u, "");
+}
+
+function resolveDeclaredSkillSourcePath(params) {
+  const normalized = normalizeManifestRelativePath(params.rawPath);
+  const pluginLocalPath = ensurePathInsideRoot(params.pluginDir, normalized);
+  if (fs.existsSync(pluginLocalPath)) {
+    return pluginLocalPath;
+  }
+  if (!/^node_modules(?:\/|$)/u.test(normalized)) {
+    return pluginLocalPath;
+  }
+  return ensurePathInsideRoot(params.repoRoot, normalized);
 }
 
 function resolveBundledSkillTarget(rawPath) {
@@ -68,7 +89,11 @@ function copyDeclaredPluginSkillPaths(params) {
     if (typeof raw !== "string" || raw.trim().length === 0) {
       continue;
     }
-    const sourcePath = ensurePathInsideRoot(params.pluginDir, raw);
+    const sourcePath = resolveDeclaredSkillSourcePath({
+      rawPath: raw,
+      pluginDir: params.pluginDir,
+      repoRoot: params.repoRoot,
+    });
     const target = resolveBundledSkillTarget(raw);
     if (!fs.existsSync(sourcePath)) {
       // Some Docker/lightweight builds intentionally omit optional plugin-local
@@ -110,13 +135,6 @@ export function copyBundledPluginMetadata(params = {}) {
   }
 
   const sourcePluginDirs = new Set();
-  const removeGeneratedPluginArtifacts = (distPluginDir) => {
-    removeFileIfExists(path.join(distPluginDir, "openclaw.plugin.json"));
-    removeFileIfExists(path.join(distPluginDir, "package.json"));
-    removePathIfExists(path.join(distPluginDir, GENERATED_BUNDLED_SKILLS_DIR));
-    removePathIfExists(path.join(distPluginDir, "node_modules"));
-  };
-
   for (const dirent of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
     if (!dirent.isDirectory()) {
       continue;
@@ -129,7 +147,7 @@ export function copyBundledPluginMetadata(params = {}) {
     const distManifestPath = path.join(distPluginDir, "openclaw.plugin.json");
     const distPackageJsonPath = path.join(distPluginDir, "package.json");
     if (!fs.existsSync(manifestPath)) {
-      removeGeneratedPluginArtifacts(distPluginDir);
+      removePathIfExists(distPluginDir);
       continue;
     }
 
@@ -138,7 +156,12 @@ export function copyBundledPluginMetadata(params = {}) {
     // remove the older bad node_modules tree so release packs cannot pick it up.
     removePathIfExists(path.join(distPluginDir, GENERATED_BUNDLED_SKILLS_DIR));
     removePathIfExists(path.join(distPluginDir, "node_modules"));
-    const copiedSkills = copyDeclaredPluginSkillPaths({ manifest, pluginDir, distPluginDir });
+    const copiedSkills = copyDeclaredPluginSkillPaths({
+      manifest,
+      pluginDir,
+      distPluginDir,
+      repoRoot,
+    });
     const bundledManifest = Array.isArray(manifest.skills)
       ? { ...manifest, skills: copiedSkills }
       : manifest;
@@ -155,6 +178,9 @@ export function copyBundledPluginMetadata(params = {}) {
       packageJson.openclaw = {
         ...packageJson.openclaw,
         extensions: rewritePackageExtensions(packageJson.openclaw.extensions),
+        ...(typeof packageJson.openclaw.setupEntry === "string"
+          ? { setupEntry: rewritePackageEntry(packageJson.openclaw.setupEntry) }
+          : {}),
       };
     }
 
@@ -170,7 +196,7 @@ export function copyBundledPluginMetadata(params = {}) {
       continue;
     }
     const distPluginDir = path.join(distExtensionsRoot, dirent.name);
-    removeGeneratedPluginArtifacts(distPluginDir);
+    removePathIfExists(distPluginDir);
   }
 }
 

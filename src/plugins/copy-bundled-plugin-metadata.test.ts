@@ -152,6 +152,49 @@ describe("copyBundledPluginMetadata", () => {
     expect(bundledManifest.skills).toEqual(["./bundled-skills/@tloncorp/tlon-skill"]);
   });
 
+  it("falls back to repo-root hoisted node_modules skill paths", () => {
+    const repoRoot = makeRepoRoot("openclaw-bundled-plugin-hoisted-skill-");
+    const pluginDir = path.join(repoRoot, "extensions", "tlon");
+    const hoistedSkillDir = path.join(repoRoot, "node_modules", "@tloncorp", "tlon-skill");
+    fs.mkdirSync(hoistedSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(hoistedSkillDir, "SKILL.md"), "# Hoisted Tlon Skill\n", "utf8");
+    fs.mkdirSync(pluginDir, { recursive: true });
+    writeJson(path.join(pluginDir, "openclaw.plugin.json"), {
+      id: "tlon",
+      configSchema: { type: "object" },
+      skills: ["node_modules/@tloncorp/tlon-skill"],
+    });
+    writeJson(path.join(pluginDir, "package.json"), {
+      name: "@openclaw/tlon",
+      openclaw: { extensions: ["./index.ts"] },
+    });
+
+    copyBundledPluginMetadata({ repoRoot });
+
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          "dist",
+          "extensions",
+          "tlon",
+          "bundled-skills",
+          "@tloncorp",
+          "tlon-skill",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toContain("Hoisted Tlon Skill");
+    const bundledManifest = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, "dist", "extensions", "tlon", "openclaw.plugin.json"),
+        "utf8",
+      ),
+    ) as { skills?: string[] };
+    expect(bundledManifest.skills).toEqual(["./bundled-skills/@tloncorp/tlon-skill"]);
+  });
+
   it("omits missing declared skill paths and removes stale generated outputs", () => {
     const repoRoot = makeRepoRoot("openclaw-bundled-plugin-missing-skill-");
     const pluginDir = path.join(repoRoot, "extensions", "tlon");
@@ -215,6 +258,11 @@ describe("copyBundledPluginMetadata", () => {
       "node_modules",
     );
     fs.mkdirSync(staleNodeModulesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(repoRoot, "dist", "extensions", "removed-plugin", "index.js"),
+      "export default {}\n",
+      "utf8",
+    );
     writeJson(path.join(repoRoot, "dist", "extensions", "removed-plugin", "openclaw.plugin.json"), {
       id: "removed-plugin",
       configSchema: { type: "object" },
@@ -227,17 +275,26 @@ describe("copyBundledPluginMetadata", () => {
 
     copyBundledPluginMetadata({ repoRoot });
 
-    expect(
-      fs.existsSync(
-        path.join(repoRoot, "dist", "extensions", "removed-plugin", "openclaw.plugin.json"),
-      ),
-    ).toBe(false);
-    expect(
-      fs.existsSync(path.join(repoRoot, "dist", "extensions", "removed-plugin", "package.json")),
-    ).toBe(false);
-    expect(
-      fs.existsSync(path.join(repoRoot, "dist", "extensions", "removed-plugin", "bundled-skills")),
-    ).toBe(false);
-    expect(fs.existsSync(staleNodeModulesDir)).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, "dist", "extensions", "removed-plugin"))).toBe(false);
+  });
+
+  it("removes stale dist outputs when a source extension directory no longer has a manifest", () => {
+    const repoRoot = makeRepoRoot("openclaw-bundled-plugin-manifestless-source-");
+    const sourcePluginDir = path.join(repoRoot, "extensions", "google-gemini-cli-auth");
+    fs.mkdirSync(path.join(sourcePluginDir, "node_modules"), { recursive: true });
+    const staleDistDir = path.join(repoRoot, "dist", "extensions", "google-gemini-cli-auth");
+    fs.mkdirSync(staleDistDir, { recursive: true });
+    fs.writeFileSync(path.join(staleDistDir, "index.js"), "export default {}\n", "utf8");
+    writeJson(path.join(staleDistDir, "openclaw.plugin.json"), {
+      id: "google-gemini-cli-auth",
+      configSchema: { type: "object" },
+    });
+    writeJson(path.join(staleDistDir, "package.json"), {
+      name: "@openclaw/google-gemini-cli-auth",
+    });
+
+    copyBundledPluginMetadata({ repoRoot });
+
+    expect(fs.existsSync(staleDistDir)).toBe(false);
   });
 });

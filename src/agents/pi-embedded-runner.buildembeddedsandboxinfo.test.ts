@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { SandboxContext } from "./sandbox.js";
 import { buildEmbeddedSandboxInfo } from "./pi-embedded-runner.js";
+import type { SandboxContext } from "./sandbox.js";
 
 function createSandboxContext(overrides?: Partial<SandboxContext>): SandboxContext {
   const base = {
     enabled: true,
+    backendId: "docker",
     sessionKey: "session:test",
     workspaceDir: "/tmp/openclaw-sandbox",
     agentWorkspaceDir: "/tmp/openclaw-workspace",
     workspaceAccess: "none",
+    runtimeId: "openclaw-sbx-test",
+    runtimeLabel: "openclaw-sbx-test",
     containerName: "openclaw-sbx-test",
     containerWorkdir: "/workspace",
     docker: {
