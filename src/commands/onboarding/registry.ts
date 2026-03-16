@@ -1,12 +1,13 @@
+import { discordOnboardingAdapter } from "../../../extensions/discord/src/onboarding.js";
+import { imessageOnboardingAdapter } from "../../../extensions/imessage/src/onboarding.js";
+import { signalOnboardingAdapter } from "../../../extensions/signal/src/onboarding.js";
+import { slackOnboardingAdapter } from "../../../extensions/slack/src/onboarding.js";
+import { telegramOnboardingAdapter } from "../../../extensions/telegram/src/setup-surface.js";
+import { whatsappOnboardingAdapter } from "../../../extensions/whatsapp/src/onboarding.js";
+import { listChannelSetupPlugins } from "../../channels/plugins/setup-registry.js";
+import { buildChannelOnboardingAdapterFromSetupWizard } from "../../channels/plugins/setup-wizard.js";
 import type { ChannelChoice } from "../onboard-types.js";
 import type { ChannelOnboardingAdapter } from "./types.js";
-import { listChannelPlugins } from "../../channels/plugins/index.js";
-import { discordOnboardingAdapter } from "../../channels/plugins/onboarding/discord.js";
-import { imessageOnboardingAdapter } from "../../channels/plugins/onboarding/imessage.js";
-import { signalOnboardingAdapter } from "../../channels/plugins/onboarding/signal.js";
-import { slackOnboardingAdapter } from "../../channels/plugins/onboarding/slack.js";
-import { telegramOnboardingAdapter } from "../../channels/plugins/onboarding/telegram.js";
-import { whatsappOnboardingAdapter } from "../../channels/plugins/onboarding/whatsapp.js";
 
 const BUILTIN_ONBOARDING_ADAPTERS: ChannelOnboardingAdapter[] = [
   telegramOnboardingAdapter,
@@ -17,18 +18,41 @@ const BUILTIN_ONBOARDING_ADAPTERS: ChannelOnboardingAdapter[] = [
   imessageOnboardingAdapter,
 ];
 
+const setupWizardAdapters = new WeakMap<object, ChannelOnboardingAdapter>();
+
+function resolveChannelOnboardingAdapter(
+  plugin: ReturnType<typeof listChannelSetupPlugins>[number],
+): ChannelOnboardingAdapter | undefined {
+  if (plugin.setupWizard) {
+    const cached = setupWizardAdapters.get(plugin);
+    if (cached) {
+      return cached;
+    }
+    const adapter = buildChannelOnboardingAdapterFromSetupWizard({
+      plugin,
+      wizard: plugin.setupWizard,
+    });
+    setupWizardAdapters.set(plugin, adapter);
+    return adapter;
+  }
+  if (plugin.onboarding) {
+    return plugin.onboarding;
+  }
+  return undefined;
+}
+
 const CHANNEL_ONBOARDING_ADAPTERS = () => {
-  const fromRegistry = listChannelPlugins()
-    .map((plugin) => (plugin.onboarding ? ([plugin.id, plugin.onboarding] as const) : null))
-    .filter((entry): entry is readonly [ChannelChoice, ChannelOnboardingAdapter] => Boolean(entry));
-
-  // Fall back to built-in adapters to keep onboarding working even when the plugin registry
-  // fails to populate (see #25545).
-  const fromBuiltins = BUILTIN_ONBOARDING_ADAPTERS.map(
-    (adapter) => [adapter.channel, adapter] as const,
+  const adapters = new Map<ChannelChoice, ChannelOnboardingAdapter>(
+    BUILTIN_ONBOARDING_ADAPTERS.map((adapter) => [adapter.channel, adapter] as const),
   );
-
-  return new Map<ChannelChoice, ChannelOnboardingAdapter>([...fromBuiltins, ...fromRegistry]);
+  for (const plugin of listChannelSetupPlugins()) {
+    const adapter = resolveChannelOnboardingAdapter(plugin);
+    if (!adapter) {
+      continue;
+    }
+    adapters.set(plugin.id, adapter);
+  }
+  return adapters;
 };
 
 export function getChannelOnboardingAdapter(
