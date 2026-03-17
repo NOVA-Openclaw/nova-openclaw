@@ -10,8 +10,13 @@ import { clearSessionStoreCacheForTest, loadSessionStore, saveSessionStore } fro
 vi.mock("../config.js", () => ({
   loadConfig: vi.fn().mockReturnValue({}),
 }));
-const { loadConfig } = await import("../config.js");
-const mockLoadConfig = vi.mocked(loadConfig) as ReturnType<typeof vi.fn>;
+
+type StoreModule = typeof import("./store.js");
+
+let clearSessionStoreCacheForTest: StoreModule["clearSessionStoreCacheForTest"];
+let loadSessionStore: StoreModule["loadSessionStore"];
+let saveSessionStore: StoreModule["saveSessionStore"];
+let mockLoadConfig: ReturnType<typeof vi.fn>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -77,6 +82,11 @@ describe("Integration: saveSessionStore with pruning", () => {
   });
 
   beforeEach(async () => {
+    vi.resetModules();
+    ({ clearSessionStoreCacheForTest, loadSessionStore, saveSessionStore } =
+      await import("./store.js"));
+    const { loadConfig } = await import("../config.js");
+    mockLoadConfig = vi.mocked(loadConfig) as ReturnType<typeof vi.fn>;
     testDir = await createCaseDir("pruning-integ");
     storePath = path.join(testDir, "sessions.json");
     savedCacheTtl = process.env.OPENCLAW_SESSION_CACHE_TTL_MS;
