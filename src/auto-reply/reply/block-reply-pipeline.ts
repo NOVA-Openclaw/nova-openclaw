@@ -1,7 +1,8 @@
-import type { ReplyPayload } from "../types.js";
-import type { BlockStreamingCoalescing } from "./block-streaming.js";
+import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { logVerbose } from "../../globals.js";
+import type { ReplyPayload } from "../types.js";
 import { createBlockReplyCoalescer } from "./block-reply-coalescer.js";
+import type { BlockStreamingCoalescing } from "./block-streaming.js";
 
 export type BlockReplyPipeline = {
   enqueue: (payload: ReplyPayload) => void;
@@ -35,30 +36,20 @@ export function createAudioAsVoiceBuffer(params: {
 }
 
 export function createBlockReplyPayloadKey(payload: ReplyPayload): string {
-  const text = payload.text?.trim() ?? "";
-  const mediaList = payload.mediaUrls?.length
-    ? payload.mediaUrls
-    : payload.mediaUrl
-      ? [payload.mediaUrl]
-      : [];
+  const reply = resolveSendableOutboundReplyParts(payload);
   return JSON.stringify({
-    text,
-    mediaList,
+    text: reply.trimmedText,
+    mediaList: reply.mediaUrls,
     replyToId: payload.replyToId ?? null,
   });
 }
 
 export function createBlockReplyContentKey(payload: ReplyPayload): string {
-  const text = payload.text?.trim() ?? "";
-  const mediaList = payload.mediaUrls?.length
-    ? payload.mediaUrls
-    : payload.mediaUrl
-      ? [payload.mediaUrl]
-      : [];
+  const reply = resolveSendableOutboundReplyParts(payload);
   // Content-only key used for final-payload suppression after block streaming.
   // This intentionally ignores replyToId so a streamed threaded payload and the
   // later final payload still collapse when they carry the same content.
-  return JSON.stringify({ text, mediaList });
+  return JSON.stringify({ text: reply.trimmedText, mediaList: reply.mediaUrls });
 }
 
 const withTimeout = async <T>(
@@ -217,7 +208,7 @@ export function createBlockReplyPipeline(params: {
     if (bufferPayload(payload)) {
       return;
     }
-    const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+    const hasMedia = resolveSendableOutboundReplyParts(payload).hasMedia;
     if (hasMedia) {
       void coalescer?.flush({ force: true });
       sendPayload(payload, /* bypassSeenCheck */ false);
