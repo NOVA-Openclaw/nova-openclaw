@@ -42,6 +42,20 @@ const bundledExtensionSubpathLoaders = pluginSdkSubpaths.map((id: string) => ({
   load: () => importPluginSdkSubpath(`openclaw/plugin-sdk/${id}`),
 }));
 
+const trimmedLegacyExtensionSubpaths = [
+  "copilot-proxy",
+  "device-pair",
+  "diagnostics-otel",
+  "diffs",
+  "llm-task",
+  "memory-lancedb",
+  "open-prose",
+  "phone-control",
+  "talk-voice",
+  "thread-ownership",
+  "voice-call",
+] as const;
+
 const asExports = (mod: object) => mod as Record<string, unknown>;
 const ircSdk = await import("openclaw/plugin-sdk/irc");
 const feishuSdk = await import("openclaw/plugin-sdk/feishu");
@@ -56,11 +70,15 @@ const matrixSdk = await import("openclaw/plugin-sdk/matrix");
 const mattermostSdk = await import("openclaw/plugin-sdk/mattermost");
 const nextcloudTalkSdk = await import("openclaw/plugin-sdk/nextcloud-talk");
 const twitchSdk = await import("openclaw/plugin-sdk/twitch");
+const accountHelpersSdk = await import("openclaw/plugin-sdk/account-helpers");
 
 describe("plugin-sdk subpath exports", () => {
   it("exports compat helpers", () => {
     expect(typeof compatSdk.emptyPluginConfigSchema).toBe("function");
     expect(typeof compatSdk.resolveControlCommandGate).toBe("function");
+    expect(typeof compatSdk.createScopedChannelConfigAdapter).toBe("function");
+    expect(typeof compatSdk.createTopLevelChannelConfigAdapter).toBe("function");
+    expect(typeof compatSdk.createHybridChannelConfigAdapter).toBe("function");
   });
 
   it("keeps core focused on generic shared exports", () => {
@@ -69,6 +87,7 @@ describe("plugin-sdk subpath exports", () => {
     expect(typeof coreSdk.defineChannelPluginEntry).toBe("function");
     expect(typeof coreSdk.defineSetupPluginEntry).toBe("function");
     expect(typeof coreSdk.createChannelPluginBase).toBe("function");
+    expect(typeof coreSdk.isSecretRef).toBe("function");
     expect(typeof coreSdk.optionalStringEnum).toBe("function");
     expect("runPassiveAccountLifecycle" in asExports(coreSdk)).toBe(false);
     expect("createLoggerBackedRuntime" in asExports(coreSdk)).toBe(false);
@@ -81,6 +100,10 @@ describe("plugin-sdk subpath exports", () => {
   it("exports routing helpers from the dedicated subpath", () => {
     expect(typeof routingSdk.buildAgentSessionKey).toBe("function");
     expect(typeof routingSdk.resolveThreadSessionKeys).toBe("function");
+  });
+
+  it("exports account helper builders from the dedicated subpath", () => {
+    expect(typeof accountHelpersSdk.createAccountListHelpers).toBe("function");
   });
 
   it("exports runtime helpers from the dedicated subpath", () => {
@@ -251,8 +274,22 @@ describe("plugin-sdk subpath exports", () => {
   });
 
   it("exports Google Chat helpers", async () => {
+    expect(typeof googlechatSdk.buildChannelConfigSchema).toBe("function");
+    expect(typeof googlechatSdk.createWebhookInFlightLimiter).toBe("function");
+    expect(typeof googlechatSdk.fetchWithSsrFGuard).toBe("function");
     expect(typeof googlechatSdk.googlechatSetupWizard).toBe("object");
     expect(typeof googlechatSdk.googlechatSetupAdapter).toBe("object");
+    expect(typeof googlechatSdk.resolveGoogleChatGroupRequireMention).toBe("function");
+  });
+
+  it("keeps the Google Chat runtime seam aligned with the public SDK subpath", async () => {
+    const googlechatRuntimeApi = await import("../../extensions/googlechat/runtime-api.js");
+
+    expect(typeof googlechatRuntimeApi.buildChannelConfigSchema).toBe("function");
+    expect(typeof googlechatRuntimeApi.createWebhookInFlightLimiter).toBe("function");
+    expect(typeof googlechatRuntimeApi.fetchWithSsrFGuard).toBe("function");
+    expect(typeof googlechatRuntimeApi.createActionGate).toBe("function");
+    expect(typeof googlechatRuntimeApi.resolveWebhookTargetWithAuthOrReject).toBe("function");
   });
 
   it("exports Zalo helpers", async () => {
@@ -286,6 +323,12 @@ describe("plugin-sdk subpath exports", () => {
       const mod = await load();
       expect(typeof mod).toBe("object");
       expect(mod, `subpath ${id} should resolve`).toBeTruthy();
+    }
+  });
+
+  it("does not advertise trimmed legacy extension helper seams", () => {
+    for (const id of trimmedLegacyExtensionSubpaths) {
+      expect(pluginSdkSubpaths).not.toContain(id);
     }
   });
 
