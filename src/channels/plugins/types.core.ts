@@ -52,6 +52,12 @@ export type ChannelMessageToolSchemaContribution = {
   visibility?: "current-channel" | "all-configured";
 };
 
+export type ChannelMessageToolDiscovery = {
+  actions?: readonly ChannelMessageActionName[] | null;
+  capabilities?: readonly ChannelMessageCapability[] | null;
+  schema?: ChannelMessageToolSchemaContribution | ChannelMessageToolSchemaContribution[] | null;
+};
+
 export type ChannelSetupInput = {
   name?: string;
   token?: string;
@@ -376,6 +382,11 @@ export type ChannelThreadingToolContext = {
 
 export type ChannelMessagingAdapter = {
   normalizeTarget?: (raw: string) => string | undefined;
+  resolveSessionTarget?: (params: {
+    kind: "group" | "channel";
+    id: string;
+    threadId?: string | null;
+  }) => string | undefined;
   parseExplicitTarget?: (params: { raw: string }) => {
     to: string;
     threadId?: string | number;
@@ -478,33 +489,23 @@ export type ChannelToolSend = {
 
 export type ChannelMessageActionAdapter = {
   /**
-   * Advertise agent-discoverable actions for this channel.
-   * Keep this aligned with any gated capability checks. Poll discovery is
-   * not inferred from `outbound.sendPoll`, so channels that want agents to
-   * create polls should include `"poll"` here when enabled.
+   * Unified discovery surface for the shared `message` tool.
+   * This returns the scoped actions,
+   * capabilities, and schema fragments together so they cannot drift.
    */
-  listActions?: (params: ChannelMessageActionDiscoveryContext) => ChannelMessageActionName[];
+  describeMessageTool: (
+    params: ChannelMessageActionDiscoveryContext,
+  ) => ChannelMessageToolDiscovery | null | undefined;
   supportsAction?: (params: { action: ChannelMessageActionName }) => boolean;
-  getCapabilities?: (
-    params: ChannelMessageActionDiscoveryContext,
-  ) => readonly ChannelMessageCapability[];
-  /**
-   * Extend the shared `message` tool schema with channel-owned fields.
-   * Keep this aligned with `listActions` and `getCapabilities` so the exposed
-   * schema matches what the channel can actually execute in the current scope.
-   */
-  getToolSchema?: (
-    params: ChannelMessageActionDiscoveryContext,
-  ) =>
-    | ChannelMessageToolSchemaContribution
-    | ChannelMessageToolSchemaContribution[]
-    | null
-    | undefined;
   requiresTrustedRequesterSender?: (params: {
     action: ChannelMessageActionName;
     toolContext?: ChannelThreadingToolContext;
   }) => boolean;
   extractToolSend?: (params: { args: Record<string, unknown> }) => ChannelToolSend | null;
+  /**
+   * Prefer this for channel-specific poll semantics or extra poll parameters.
+   * Core only parses the shared poll model when falling back to `outbound.sendPoll`.
+   */
   handleAction?: (ctx: ChannelMessageActionContext) => Promise<AgentToolResult<unknown>>;
 };
 

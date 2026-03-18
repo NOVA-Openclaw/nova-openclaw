@@ -29,7 +29,7 @@ describe("channel tools", () => {
         resolveAccount: () => ({}),
       },
       actions: {
-        listActions: () => {
+        describeMessageTool: () => {
           throw new Error("boom");
         },
       },
@@ -70,7 +70,7 @@ describe("channel tools", () => {
         resolveAccount: () => ({}),
       },
       actions: {
-        listActions: () => [],
+        describeMessageTool: () => ({ actions: [] }),
       },
       outbound: {
         deliveryMode: "gateway",
@@ -102,7 +102,7 @@ describe("channel tools", () => {
         resolveAccount: () => ({}),
       },
       actions: {
-        listActions: () => ["react"],
+        describeMessageTool: () => ({ actions: ["react"] }),
       },
     };
 
@@ -110,5 +110,33 @@ describe("channel tools", () => {
 
     const cfg = {} as OpenClawConfig;
     expect(listChannelSupportedActions({ cfg, channel: "tg" })).toEqual(["react"]);
+  });
+
+  it("uses unified message tool discovery", () => {
+    const plugin: ChannelPlugin = {
+      id: "telegram",
+      meta: {
+        id: "telegram",
+        label: "Telegram",
+        selectionLabel: "Telegram",
+        docsPath: "/channels/telegram",
+        blurb: "telegram plugin",
+      },
+      capabilities: { chatTypes: ["direct"] },
+      config: {
+        listAccountIds: () => [],
+        resolveAccount: () => ({}),
+      },
+      actions: {
+        describeMessageTool: () => ({
+          actions: ["react"],
+        }),
+      },
+    };
+
+    setActivePluginRegistry(createTestRegistry([{ pluginId: "telegram", source: "test", plugin }]));
+
+    const cfg = {} as OpenClawConfig;
+    expect(listChannelSupportedActions({ cfg, channel: "telegram" })).toEqual(["react"]);
   });
 });
