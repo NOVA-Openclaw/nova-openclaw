@@ -1,11 +1,11 @@
 import type { OpenClawConfig } from "../config/config.js";
-import type { NodeSession } from "./node-registry.js";
 import {
   NODE_BROWSER_PROXY_COMMAND,
   NODE_SYSTEM_NOTIFY_COMMAND,
   NODE_SYSTEM_RUN_COMMANDS,
 } from "../infra/node-commands.js";
 import { normalizeDeviceMetadataForPolicy } from "./device-metadata-normalization.js";
+import type { NodeSession } from "./node-registry.js";
 
 const CANVAS_COMMANDS = [
   "canvas.present",
@@ -45,6 +45,7 @@ const PHOTOS_COMMANDS = ["photos.latest"];
 
 const MOTION_COMMANDS = ["motion.activity", "motion.pedometer"];
 
+const SMS_COMMANDS = ["sms.search"];
 const SMS_DANGEROUS_COMMANDS = ["sms.send"];
 
 // iOS nodes don't implement system.run/which, but they do support notifications.
@@ -97,6 +98,7 @@ const PLATFORM_DEFAULTS: Record<string, string[]> = {
     ...CALENDAR_COMMANDS,
     ...CALL_LOG_COMMANDS,
     ...REMINDERS_COMMANDS,
+    ...SMS_COMMANDS,
     ...PHOTOS_COMMANDS,
     ...MOTION_COMMANDS,
   ],

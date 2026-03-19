@@ -1,6 +1,6 @@
+import { toNumber } from "../format.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { SessionsListResult } from "../types.ts";
-import { toNumber } from "../format.ts";
 
 export type SessionsState = {
   client: GatewayBrowserClient | null;
@@ -13,6 +13,17 @@ export type SessionsState = {
   sessionsIncludeGlobal: boolean;
   sessionsIncludeUnknown: boolean;
 };
+
+export async function subscribeSessions(state: SessionsState) {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  try {
+    await state.client.request("sessions.subscribe", {});
+  } catch (err) {
+    state.sessionsError = String(err);
+  }
+}
 
 export async function loadSessions(
   state: SessionsState,
