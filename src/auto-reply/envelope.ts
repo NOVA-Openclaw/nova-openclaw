@@ -1,7 +1,7 @@
-import type { OpenClawConfig } from "../config/config.js";
 import { resolveUserTimezone } from "../agents/date-time.js";
 import { normalizeChatType } from "../channels/chat-type.js";
 import { resolveSenderLabel, type SenderLabelParams } from "../channels/sender-label.js";
+import type { OpenClawConfig } from "../config/config.js";
 import {
   resolveTimezone,
   formatUtcTimestamp,
@@ -102,7 +102,7 @@ function resolveEnvelopeTimezone(options: NormalizedEnvelopeOptions): ResolvedEn
   return explicit ? { mode: "iana", timeZone: explicit } : { mode: "utc" };
 }
 
-function formatTimestamp(
+export function formatEnvelopeTimestamp(
   ts: number | Date | undefined,
   options?: EnvelopeFormatOptions,
 ): string | undefined {
@@ -179,7 +179,7 @@ export function formatAgentEnvelope(params: AgentEnvelopeParams): string {
   if (params.ip?.trim()) {
     parts.push(sanitizeEnvelopeHeaderPart(params.ip.trim()));
   }
-  const ts = formatTimestamp(params.timestamp, resolved);
+  const ts = formatEnvelopeTimestamp(params.timestamp, resolved);
   if (ts) {
     parts.push(ts);
   }
