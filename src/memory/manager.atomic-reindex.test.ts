@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { OpenClawConfig } from "../config/config.js";
 import type { MemoryIndexManager } from "./index.js";
 
-
 let shouldFail = false;
 
 type EmbeddingTestMocksModule = typeof import("./embedding.test-mocks.js");

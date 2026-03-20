@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import type { ReplyDispatcher } from "./reply/reply-dispatcher.js";
 import { clearInternalHooks, registerInternalHook } from "../hooks/internal-hooks.js";
 import { dispatchInboundMessage, withReplyDispatcher } from "./dispatch.js";
+import type { ReplyDispatcher } from "./reply/reply-dispatcher.js";
 import { buildTestCtx } from "./reply/test-ctx.js";
 
 function createDispatcher(record: string[]): ReplyDispatcher {
