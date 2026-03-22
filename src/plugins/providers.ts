@@ -131,12 +131,13 @@ export function resolvePluginProviders(params: {
   activate?: boolean;
   cache?: boolean;
 }): ProviderPlugin[] {
+  const env = params.env ?? process.env;
   const bundledProviderCompatPluginIds =
     params.bundledProviderAllowlistCompat || params.bundledProviderVitestCompat
       ? resolveBundledProviderCompatPluginIds({
           config: params.config,
           workspaceDir: params.workspaceDir,
-          env: params.env,
+          env,
           onlyPluginIds: params.onlyPluginIds,
         })
       : [];
@@ -163,7 +164,7 @@ export function resolvePluginProviders(params: {
   const registry = loadOpenClawPlugins({
     config,
     workspaceDir: params.workspaceDir,
-    env: params.env,
+    env,
     onlyPluginIds: params.onlyPluginIds,
     cache: params.cache ?? false,
     activate: params.activate ?? false,
