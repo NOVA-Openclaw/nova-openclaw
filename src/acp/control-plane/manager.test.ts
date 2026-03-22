@@ -32,8 +32,8 @@ vi.mock("../runtime/registry.js", async (importOriginal) => {
   };
 });
 
-let AcpSessionManager: typeof import("./manager.js").AcpSessionManager;
-let AcpRuntimeError: typeof import("../runtime/errors.js").AcpRuntimeError;
+const { AcpSessionManager } = await import("./manager.js");
+const { AcpRuntimeError } = await import("../runtime/errors.js");
 
 const baseCfg = {
   acp: {
@@ -148,10 +148,7 @@ function extractRuntimeOptionsFromUpserts(): Array<AcpSessionRuntimeOptions | un
 }
 
 describe("AcpSessionManager", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    ({ AcpSessionManager } = await import("./manager.js"));
-    ({ AcpRuntimeError } = await import("../runtime/errors.js"));
+  beforeEach(() => {
     hoisted.listAcpSessionEntriesMock.mockReset().mockResolvedValue([]);
     hoisted.readAcpSessionEntryMock.mockReset();
     hoisted.upsertAcpSessionMetaMock.mockReset().mockResolvedValue(null);
