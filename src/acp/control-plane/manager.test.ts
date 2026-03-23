@@ -1490,7 +1490,7 @@ describe("AcpSessionManager", () => {
       cfg: baseCfg,
       sessionKey: "agent:codex:acp:session-1",
       key: "model",
-      value: "openai-codex/gpt-5.3-codex",
+      value: "openai-codex/gpt-5.4",
     });
     expect(runtimeState.setMode).not.toHaveBeenCalled();
 
@@ -1747,7 +1747,7 @@ describe("AcpSessionManager", () => {
         ...readySessionMeta(),
         runtimeOptions: {
           runtimeMode: "plan",
-          model: "openai-codex/gpt-5.3-codex",
+          model: "openai-codex/gpt-5.4",
           permissionProfile: "strict",
           timeoutSeconds: 120,
         },
@@ -1771,7 +1771,7 @@ describe("AcpSessionManager", () => {
     expect(runtimeState.setConfigOption).toHaveBeenCalledWith(
       expect.objectContaining({
         key: "model",
-        value: "openai-codex/gpt-5.3-codex",
+        value: "openai-codex/gpt-5.4",
       }),
     );
     expect(runtimeState.setConfigOption).toHaveBeenCalledWith(
@@ -1813,7 +1813,7 @@ describe("AcpSessionManager", () => {
         cfg: baseCfg,
         sessionKey: "agent:codex:acp:session-1",
         key: "model",
-        value: "gpt-5.3-codex",
+        value: "gpt-5.4",
       }),
     ).rejects.toMatchObject({
       code: "ACP_BACKEND_UNSUPPORTED_CONTROL",
