@@ -87,6 +87,26 @@ async function runCli(args: string[]): Promise<void> {
   await program.parseAsync(args, { from: "user" });
 }
 
+const mockedModuleIds = ["../config/config.js", "../infra/clipboard.js", "../runtime.js"];
+
+const unmockedDependencyIds = [
+  "../commands/dashboard.js",
+  "../gateway/resolve-configured-secret-input-string.js",
+  "../pairing/setup-code.js",
+  "./command-secret-gateway.js",
+  "./program/register.maintenance.js",
+  "./qr-cli.js",
+];
+
+async function loadCliModules() {
+  vi.resetModules();
+  for (const id of unmockedDependencyIds) {
+    vi.doUnmock(id);
+  }
+  ({ registerQrCli } = await import("./qr-cli.js"));
+  ({ registerMaintenanceCommands } = await import("./program/register.maintenance.js"));
+}
+
 describe("cli integration: qr + dashboard token SecretRef", () => {
   let envSnapshot: ReturnType<typeof captureEnv>;
 
@@ -101,13 +121,19 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
   });
 
   beforeAll(async () => {
-    vi.resetModules();
-    ({ registerQrCli } = await import("./qr-cli.js"));
-    ({ registerMaintenanceCommands } = await import("./program/register.maintenance.js"));
+    await loadCliModules();
   });
 
   afterAll(() => {
     envSnapshot.restore();
+    vi.restoreAllMocks();
+    for (const id of mockedModuleIds) {
+      vi.doUnmock(id);
+    }
+    for (const id of unmockedDependencyIds) {
+      vi.doUnmock(id);
+    }
+    vi.resetModules();
   });
 
   beforeEach(() => {
@@ -165,7 +191,9 @@ describe("cli integration: qr + dashboard token SecretRef", () => {
       config: fixture,
     });
 
-    await expect(runCli(["qr", "--setup-code-only"])).rejects.toThrow("__exit__:1");
+    await expect(runCli(["qr", "--setup-code-only"])).rejects.toThrow(
+      /(__exit__:1|process\.exit unexpectedly called with "?1"?)/,
+    );
     expect(runtimeErrors.join("\n")).toMatch(/SHARED_GATEWAY_TOKEN/);
 
     runtimeLogs.length = 0;
