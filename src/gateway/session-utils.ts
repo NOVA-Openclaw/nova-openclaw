@@ -277,9 +277,18 @@ function resolveChildSessionKeys(
     }
     const spawnedBy = entry.spawnedBy?.trim();
     const parentSessionKey = entry.parentSessionKey?.trim();
-    if (spawnedBy === controllerSessionKey || parentSessionKey === controllerSessionKey) {
-      childSessionKeys.add(key);
+    if (spawnedBy !== controllerSessionKey && parentSessionKey !== controllerSessionKey) {
+      continue;
     }
+    const latest = getLatestSubagentRunByChildSessionKey(key);
+    if (latest) {
+      const latestControllerSessionKey =
+        latest.controllerSessionKey?.trim() || latest.requesterSessionKey?.trim();
+      if (latestControllerSessionKey !== controllerSessionKey) {
+        continue;
+      }
+    }
+    childSessionKeys.add(key);
   }
   const childSessions = Array.from(childSessionKeys);
   return childSessions.length > 0 ? childSessions : undefined;
@@ -356,6 +365,22 @@ export function loadSessionEntry(sessionKey: string) {
   });
   const legacyKey = match?.key !== canonicalKey ? match?.key : undefined;
   return { cfg, storePath, store, entry: match?.entry, canonicalKey, legacyKey };
+}
+
+export function resolveFreshestSessionEntryFromStoreKeys(
+  store: Record<string, SessionEntry>,
+  storeKeys: string[],
+): SessionEntry | undefined {
+  const matches = storeKeys
+    .map((key) => store[key])
+    .filter((entry): entry is SessionEntry => Boolean(entry));
+  if (matches.length === 0) {
+    return undefined;
+  }
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  return [...matches].toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
 }
 
 /**
@@ -1065,6 +1090,8 @@ export function buildGatewaySessionRow(params: {
   const parsedAgent = parseAgentSessionKey(key);
   const sessionAgentId = normalizeAgentId(parsedAgent?.agentId ?? resolveDefaultAgentId(cfg));
   const subagentRun = getLatestSubagentRunByChildSessionKey(key);
+  const subagentOwner =
+    subagentRun?.controllerSessionKey?.trim() || subagentRun?.requesterSessionKey?.trim();
   const subagentStatus = subagentRun ? resolveSubagentSessionStatus(subagentRun) : undefined;
   const subagentStartedAt = subagentRun ? getSubagentSessionStartedAt(subagentRun) : undefined;
   const subagentEndedAt = subagentRun ? subagentRun.endedAt : undefined;
@@ -1142,7 +1169,7 @@ export function buildGatewaySessionRow(params: {
 
   return {
     key,
-    spawnedBy: entry?.spawnedBy,
+    spawnedBy: subagentOwner || entry?.spawnedBy,
     kind: classifySessionKey(key, entry),
     label: entry?.label,
     displayName,
@@ -1172,7 +1199,7 @@ export function buildGatewaySessionRow(params: {
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
-    parentSessionKey: entry?.parentSessionKey,
+    parentSessionKey: subagentOwner || entry?.parentSessionKey,
     childSessions,
     responseUsage: entry?.responseUsage,
     modelProvider,
@@ -1256,6 +1283,12 @@ export function listSessionsFromStore(params: {
       }
       if (key === "unknown" || key === "global") {
         return false;
+      }
+      const latest = getLatestSubagentRunByChildSessionKey(key);
+      if (latest) {
+        const latestControllerSessionKey =
+          latest.controllerSessionKey?.trim() || latest.requesterSessionKey?.trim();
+        return latestControllerSessionKey === spawnedBy;
       }
       return entry?.spawnedBy === spawnedBy;
     })
