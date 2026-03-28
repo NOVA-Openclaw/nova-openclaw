@@ -67,6 +67,20 @@ function expectNormalizedProviderFixture(params: {
   return result;
 }
 
+function expectProviderNormalizationResult(params: {
+  provider: ProviderPlugin;
+  expectedProvider?: Record<string, unknown>;
+  expectedDiagnostics?: ReadonlyArray<{ level: PluginDiagnostic["level"]; message: string }>;
+  expectedDiagnosticText?: readonly string[];
+  assert?: (
+    provider: ReturnType<typeof normalizeRegisteredProvider>,
+    diagnostics: PluginDiagnostic[],
+  ) => void;
+}) {
+  const { diagnostics, provider } = expectNormalizedProviderFixture(params);
+  params.assert?.(provider, diagnostics);
+}
+
 describe("normalizeRegisteredProvider", () => {
   it.each([
     {
@@ -184,24 +198,8 @@ describe("normalizeRegisteredProvider", () => {
         ]);
       },
     },
-  ] as const)(
-    "$name",
-    ({ provider: inputProvider, expectedProvider, expectedDiagnostics, assert }) => {
-      const { diagnostics, provider } = expectNormalizedProviderFixture({
-        provider: inputProvider,
-        ...(expectedProvider ? { expectedProvider } : {}),
-        ...(expectedDiagnostics ? { expectedDiagnostics } : {}),
-      });
-
-      if (assert) {
-        assert(provider, diagnostics);
-        return;
-      }
-    },
-  );
-
-  it("prefers catalog when a provider registers both catalog and discovery", () => {
-    const { provider } = expectNormalizedProviderFixture({
+    {
+      name: "prefers catalog when a provider registers both catalog and discovery",
       provider: makeProvider({
         catalog: {
           run: async () => null,
@@ -218,9 +216,27 @@ describe("normalizeRegisteredProvider", () => {
       expectedDiagnosticText: [
         'provider "demo" registered both catalog and discovery; using catalog',
       ],
-    });
-
-    expect(provider?.catalog).toBeDefined();
-    expect(provider?.discovery).toBeUndefined();
-  });
+      assert: (provider: ReturnType<typeof normalizeRegisteredProvider>) => {
+        expect(provider?.catalog).toBeDefined();
+        expect(provider?.discovery).toBeUndefined();
+      },
+    },
+  ] as const)(
+    "$name",
+    ({
+      provider: inputProvider,
+      expectedProvider,
+      expectedDiagnostics,
+      expectedDiagnosticText,
+      assert,
+    }) => {
+      expectProviderNormalizationResult({
+        provider: inputProvider,
+        ...(expectedProvider ? { expectedProvider } : {}),
+        ...(expectedDiagnostics ? { expectedDiagnostics } : {}),
+        ...(expectedDiagnosticText ? { expectedDiagnosticText } : {}),
+        ...(assert ? { assert } : {}),
+      });
+    },
+  );
 });

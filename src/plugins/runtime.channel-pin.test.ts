@@ -38,6 +38,52 @@ function expectActiveChannelRegistry(registry: ReturnType<typeof createEmptyPlug
   expect(getActivePluginChannelRegistry()).toBe(registry);
 }
 
+function expectPinnedChannelRegistry(
+  startupRegistry: ReturnType<typeof createEmptyPluginRegistry>,
+  replacementRegistry: ReturnType<typeof createEmptyPluginRegistry>,
+) {
+  setActivePluginRegistry(startupRegistry);
+  pinActivePluginChannelRegistry(startupRegistry);
+  setActivePluginRegistry(replacementRegistry);
+  expectActiveChannelRegistry(startupRegistry);
+}
+
+function expectResetClearsPinnedChannelRegistry(params: {
+  startupRegistry: ReturnType<typeof createEmptyPluginRegistry>;
+  freshRegistry: ReturnType<typeof createEmptyPluginRegistry>;
+}) {
+  setActivePluginRegistry(params.startupRegistry);
+  pinActivePluginChannelRegistry(params.startupRegistry);
+
+  resetPluginRuntimeStateForTest();
+
+  setActivePluginRegistry(params.freshRegistry);
+  expectActiveChannelRegistry(params.freshRegistry);
+}
+
+function expectChannelRegistrySwap(params: {
+  startupRegistry: ReturnType<typeof createEmptyPluginRegistry>;
+  replacementRegistry: ReturnType<typeof createEmptyPluginRegistry>;
+  pin?: boolean;
+  releaseRegistry?: ReturnType<typeof createEmptyPluginRegistry>;
+  expectedDuringSwap: ReturnType<typeof createEmptyPluginRegistry>;
+  expectedAfterRelease: ReturnType<typeof createEmptyPluginRegistry>;
+}) {
+  setActivePluginRegistry(params.startupRegistry);
+  if (params.pin) {
+    pinActivePluginChannelRegistry(params.startupRegistry);
+  }
+
+  setActivePluginRegistry(params.replacementRegistry);
+  expectActiveChannelRegistry(params.expectedDuringSwap);
+
+  if (params.pin && params.releaseRegistry) {
+    releasePinnedPluginChannelRegistry(params.releaseRegistry);
+  }
+
+  expectActiveChannelRegistry(params.expectedAfterRelease);
+}
+
 describe("channel registry pinning", () => {
   afterEach(() => {
     resetPluginRuntimeStateForTest();
@@ -51,14 +97,9 @@ describe("channel registry pinning", () => {
 
   it("preserves pinned channel registry across setActivePluginRegistry calls", () => {
     const { registry: startup } = createRegistryWithChannel();
-    setActivePluginRegistry(startup);
-    pinActivePluginChannelRegistry(startup);
-
     // A subsequent registry swap (e.g., config-schema load) must not evict channels.
     const replacement = createEmptyPluginRegistry();
-    setActivePluginRegistry(replacement);
-
-    expectActiveChannelRegistry(startup);
+    expectPinnedChannelRegistry(startup, replacement);
     expect(getActivePluginChannelRegistry()!.channels).toHaveLength(1);
   });
 
@@ -108,19 +149,14 @@ describe("channel registry pinning", () => {
     },
   ] as const)("$name", ({ pin, releasePinnedRegistry, expectDuringPin, expectAfterSwap }) => {
     const { startup, replacement, unrelated } = createRegistrySet();
-    setActivePluginRegistry(startup);
-    if (pin) {
-      pinActivePluginChannelRegistry(startup);
-    }
-
-    setActivePluginRegistry(replacement);
-    expectActiveChannelRegistry(expectDuringPin ? startup : replacement);
-
-    if (pin) {
-      releasePinnedPluginChannelRegistry(releasePinnedRegistry ? startup : unrelated);
-    }
-
-    expectActiveChannelRegistry(expectAfterSwap === "second" ? replacement : startup);
+    expectChannelRegistrySwap({
+      startupRegistry: startup,
+      replacementRegistry: replacement,
+      ...(pin ? { pin: true } : {}),
+      ...(pin ? { releaseRegistry: releasePinnedRegistry ? startup : unrelated } : {}),
+      expectedDuringSwap: expectDuringPin ? startup : replacement,
+      expectedAfterRelease: expectAfterSwap === "second" ? replacement : startup,
+    });
   });
 
   it("requireActivePluginChannelRegistry creates a registry when none exists", () => {
@@ -132,12 +168,9 @@ describe("channel registry pinning", () => {
 
   it("resetPluginRuntimeStateForTest clears channel pin", () => {
     const { startup, replacement: fresh } = createRegistrySet();
-    setActivePluginRegistry(startup);
-    pinActivePluginChannelRegistry(startup);
-
-    resetPluginRuntimeStateForTest();
-
-    setActivePluginRegistry(fresh);
-    expectActiveChannelRegistry(fresh);
+    expectResetClearsPinnedChannelRegistry({
+      startupRegistry: startup,
+      freshRegistry: fresh,
+    });
   });
 });

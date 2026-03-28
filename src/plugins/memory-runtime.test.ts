@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const loadOpenClawPluginsMock = vi.fn();
+const resolveRuntimePluginRegistryMock = vi.fn();
 const applyPluginAutoEnableMock = vi.fn();
 const getMemoryRuntimeMock = vi.fn();
 
@@ -9,7 +9,7 @@ vi.mock("../config/plugin-auto-enable.js", () => ({
 }));
 
 vi.mock("./loader.js", () => ({
-  loadOpenClawPlugins: (...args: unknown[]) => loadOpenClawPluginsMock(...args),
+  resolveRuntimePluginRegistry: (...args: unknown[]) => resolveRuntimePluginRegistryMock(...args),
 }));
 
 vi.mock("./memory-state.js", () => ({
@@ -20,10 +20,86 @@ let getActiveMemorySearchManager: typeof import("./memory-runtime.js").getActive
 let resolveActiveMemoryBackendConfig: typeof import("./memory-runtime.js").resolveActiveMemoryBackendConfig;
 let closeActiveMemorySearchManagers: typeof import("./memory-runtime.js").closeActiveMemorySearchManagers;
 
+function createMemoryAutoEnableFixture() {
+  const rawConfig = {
+    plugins: {},
+    channels: { memory: { enabled: true } },
+  };
+  const autoEnabledConfig = {
+    ...rawConfig,
+    plugins: {
+      entries: {
+        memory: { enabled: true },
+      },
+    },
+  };
+  return { rawConfig, autoEnabledConfig };
+}
+
+function createMemoryRuntimeFixture() {
+  return {
+    getMemorySearchManager: vi.fn(async () => ({ manager: null, error: "no index" })),
+    resolveMemoryBackendConfig: vi.fn(() => ({ backend: "builtin" as const })),
+  };
+}
+
+function expectMemoryRuntimeLoaded(autoEnabledConfig: unknown) {
+  expect(resolveRuntimePluginRegistryMock).toHaveBeenCalledWith({
+    config: autoEnabledConfig,
+  });
+}
+
+function expectMemoryAutoEnableApplied(rawConfig: unknown, autoEnabledConfig: unknown) {
+  expect(applyPluginAutoEnableMock).toHaveBeenCalledWith({
+    config: rawConfig,
+    env: process.env,
+  });
+  expectMemoryRuntimeLoaded(autoEnabledConfig);
+}
+
+function setAutoEnabledMemoryRuntime() {
+  const { rawConfig, autoEnabledConfig } = createMemoryAutoEnableFixture();
+  const runtime = createMemoryRuntimeFixture();
+  applyPluginAutoEnableMock.mockReturnValue({ config: autoEnabledConfig, changes: [] });
+  getMemoryRuntimeMock.mockReturnValueOnce(undefined).mockReturnValue(runtime);
+  return { rawConfig, autoEnabledConfig, runtime };
+}
+
+function expectNoMemoryRuntimeBootstrap() {
+  expect(applyPluginAutoEnableMock).not.toHaveBeenCalled();
+  expect(resolveRuntimePluginRegistryMock).not.toHaveBeenCalled();
+}
+
+async function expectAutoEnabledMemoryRuntimeCase(params: {
+  run: (rawConfig: unknown) => Promise<unknown>;
+  expectedResult: unknown;
+}) {
+  const { rawConfig, autoEnabledConfig } = setAutoEnabledMemoryRuntime();
+  const result = await params.run(rawConfig);
+
+  if (params.expectedResult !== undefined) {
+    expect(result).toEqual(params.expectedResult);
+  }
+  expectMemoryAutoEnableApplied(rawConfig, autoEnabledConfig);
+}
+
+async function expectCloseMemoryRuntimeCase(params: {
+  config: unknown;
+  setup: () => { closeAllMemorySearchManagers: ReturnType<typeof vi.fn> } | undefined;
+}) {
+  const runtime = params.setup();
+  await closeActiveMemorySearchManagers(params.config as never);
+
+  if (runtime) {
+    expect(runtime.closeAllMemorySearchManagers).toHaveBeenCalledTimes(1);
+  }
+  expectNoMemoryRuntimeBootstrap();
+}
+
 describe("memory runtime auto-enable loading", () => {
   beforeEach(async () => {
     vi.resetModules();
-    loadOpenClawPluginsMock.mockReset();
+    resolveRuntimePluginRegistryMock.mockReset();
     applyPluginAutoEnableMock.mockReset();
     getMemoryRuntimeMock.mockReset();
     applyPluginAutoEnableMock.mockImplementation((params: { config: unknown }) => ({
@@ -37,93 +113,53 @@ describe("memory runtime auto-enable loading", () => {
     } = await import("./memory-runtime.js"));
   });
 
-  it("loads memory runtime from the auto-enabled config snapshot", async () => {
-    const rawConfig = {
-      plugins: {},
-      channels: { memory: { enabled: true } },
-    };
-    const autoEnabledConfig = {
-      ...rawConfig,
-      plugins: {
-        entries: {
-          memory: { enabled: true },
-        },
+  it.each([
+    {
+      name: "loads memory runtime from the auto-enabled config snapshot",
+      run: async (rawConfig: unknown) =>
+        getActiveMemorySearchManager({
+          cfg: rawConfig as never,
+          agentId: "main",
+        }),
+      expectedResult: undefined,
+    },
+    {
+      name: "reuses the same auto-enabled load path for backend config resolution",
+      run: async (rawConfig: unknown) =>
+        resolveActiveMemoryBackendConfig({
+          cfg: rawConfig as never,
+          agentId: "main",
+        }),
+      expectedResult: { backend: "builtin" },
+    },
+  ] as const)("$name", async ({ run, expectedResult }) => {
+    await expectAutoEnabledMemoryRuntimeCase({ run, expectedResult });
+  });
+
+  it.each([
+    {
+      name: "does not bootstrap the memory runtime just to close managers",
+      config: {
+        plugins: {},
+        channels: { memory: { enabled: true } },
       },
-    };
-    const runtime = {
-      getMemorySearchManager: vi.fn(async () => ({ manager: null, error: "no index" })),
-      resolveMemoryBackendConfig: vi.fn(() => ({ backend: "builtin" as const })),
-    };
-    applyPluginAutoEnableMock.mockReturnValue({ config: autoEnabledConfig, changes: [] });
-    getMemoryRuntimeMock.mockReturnValueOnce(undefined).mockReturnValue(runtime);
-
-    await getActiveMemorySearchManager({
-      cfg: rawConfig as never,
-      agentId: "main",
-    });
-
-    expect(applyPluginAutoEnableMock).toHaveBeenCalledWith({
-      config: rawConfig,
-      env: process.env,
-    });
-    expect(loadOpenClawPluginsMock).toHaveBeenCalledWith({
-      config: autoEnabledConfig,
-    });
-  });
-
-  it("reuses the same auto-enabled load path for backend config resolution", () => {
-    const rawConfig = {
-      plugins: {},
-      channels: { memory: { enabled: true } },
-    };
-    const autoEnabledConfig = {
-      ...rawConfig,
-      plugins: {
-        entries: {
-          memory: { enabled: true },
-        },
+      setup: () => {
+        getMemoryRuntimeMock.mockReturnValue(undefined);
+        return undefined;
       },
-    };
-    const runtime = {
-      getMemorySearchManager: vi.fn(async () => ({ manager: null })),
-      resolveMemoryBackendConfig: vi.fn(() => ({ backend: "builtin" as const })),
-    };
-    applyPluginAutoEnableMock.mockReturnValue({ config: autoEnabledConfig, changes: [] });
-    getMemoryRuntimeMock.mockReturnValueOnce(undefined).mockReturnValue(runtime);
-
-    const result = resolveActiveMemoryBackendConfig({
-      cfg: rawConfig as never,
-      agentId: "main",
-    });
-
-    expect(result).toEqual({ backend: "builtin" });
-    expect(loadOpenClawPluginsMock).toHaveBeenCalledWith({
-      config: autoEnabledConfig,
-    });
-  });
-
-  it("does not bootstrap the memory runtime just to close managers", async () => {
-    const rawConfig = {
-      plugins: {},
-      channels: { memory: { enabled: true } },
-    };
-    getMemoryRuntimeMock.mockReturnValue(undefined);
-
-    await closeActiveMemorySearchManagers(rawConfig as never);
-
-    expect(applyPluginAutoEnableMock).not.toHaveBeenCalled();
-    expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
-  });
-
-  it("closes an already-registered memory runtime without reloading plugins", async () => {
-    const runtime = {
-      closeAllMemorySearchManagers: vi.fn(async () => {}),
-    };
-    getMemoryRuntimeMock.mockReturnValue(runtime);
-
-    await closeActiveMemorySearchManagers({} as never);
-
-    expect(runtime.closeAllMemorySearchManagers).toHaveBeenCalledTimes(1);
-    expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
+    },
+    {
+      name: "closes an already-registered memory runtime without reloading plugins",
+      config: {},
+      setup: () => {
+        const runtime = {
+          closeAllMemorySearchManagers: vi.fn(async () => {}),
+        };
+        getMemoryRuntimeMock.mockReturnValue(runtime);
+        return runtime;
+      },
+    },
+  ] as const)("$name", async ({ config, setup }) => {
+    await expectCloseMemoryRuntimeCase({ config, setup });
   });
 });

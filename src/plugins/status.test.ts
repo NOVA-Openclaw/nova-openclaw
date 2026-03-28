@@ -100,6 +100,66 @@ function expectPluginLoaderCall(params: {
   );
 }
 
+function expectAutoEnabledStatusLoad(params: { rawConfig: unknown; autoEnabledConfig: unknown }) {
+  expect(applyPluginAutoEnableMock).toHaveBeenCalledWith({
+    config: params.rawConfig,
+    env: process.env,
+  });
+  expectPluginLoaderCall({
+    config: params.autoEnabledConfig,
+  });
+}
+
+function createCompatChainFixture() {
+  const config = { plugins: { allow: ["telegram"] } };
+  const pluginIds = ["anthropic", "openai"];
+  const compatConfig = { plugins: { allow: ["telegram", ...pluginIds] } };
+  const enabledConfig = {
+    plugins: {
+      allow: ["telegram", ...pluginIds],
+      entries: {
+        anthropic: { enabled: true },
+        openai: { enabled: true },
+      },
+    },
+  };
+  return { config, pluginIds, compatConfig, enabledConfig };
+}
+
+function expectBundledCompatChainApplied(params: {
+  config: unknown;
+  pluginIds: string[];
+  compatConfig: unknown;
+  enabledConfig: unknown;
+}) {
+  expect(withBundledPluginAllowlistCompatMock).toHaveBeenCalledWith({
+    config: params.config,
+    pluginIds: params.pluginIds,
+  });
+  expect(withBundledPluginEnablementCompatMock).toHaveBeenCalledWith({
+    config: params.compatConfig,
+    pluginIds: params.pluginIds,
+  });
+  expectPluginLoaderCall({ config: params.enabledConfig });
+}
+
+function createAutoEnabledStatusConfig(
+  entries: Record<string, unknown>,
+  rawConfigOverrides?: Record<string, unknown>,
+) {
+  const rawConfig = {
+    plugins: {},
+    ...rawConfigOverrides,
+  };
+  const autoEnabledConfig = {
+    ...rawConfig,
+    plugins: {
+      entries,
+    },
+  };
+  return { rawConfig, autoEnabledConfig };
+}
+
 function expectNoCompatibilityWarnings() {
   expect(buildPluginCompatibilityNotices()).toEqual([]);
   expect(buildPluginCompatibilityWarnings()).toEqual([]);
@@ -132,6 +192,13 @@ function expectInspectShape(
   expect(inspect.shape).toBe(params.shape);
   expect(inspect.capabilityMode).toBe(params.capabilityMode);
   expectCapabilityKinds(inspect, params.capabilityKinds);
+}
+
+function expectInspectPolicy(
+  inspect: NonNullable<ReturnType<typeof buildPluginInspectReport>>,
+  expected: Record<string, unknown>,
+) {
+  expect(inspect.policy).toEqual(expected);
 }
 
 function expectBundleInspectState(
@@ -196,51 +263,36 @@ describe("buildPluginStatusReport", () => {
   });
 
   it("loads plugin status from the auto-enabled config snapshot", () => {
-    const rawConfig = {
-      plugins: {},
-      channels: { demo: { enabled: true } },
-    };
-    const autoEnabledConfig = {
-      ...rawConfig,
-      plugins: {
-        entries: {
-          demo: { enabled: true },
-        },
+    const { rawConfig, autoEnabledConfig } = createAutoEnabledStatusConfig(
+      {
+        demo: { enabled: true },
       },
-    };
+      { channels: { demo: { enabled: true } } },
+    );
     applyPluginAutoEnableMock.mockReturnValue({ config: autoEnabledConfig, changes: [] });
 
     buildPluginStatusReport({ config: rawConfig });
 
-    expect(applyPluginAutoEnableMock).toHaveBeenCalledWith({
-      config: rawConfig,
-      env: process.env,
+    expectAutoEnabledStatusLoad({
+      rawConfig,
+      autoEnabledConfig,
     });
-    expect(loadOpenClawPluginsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ config: autoEnabledConfig }),
-    );
   });
 
   it("uses the auto-enabled config snapshot for inspect policy summaries", () => {
-    const rawConfig = {
-      plugins: {},
-      channels: { demo: { enabled: true } },
-    };
-    const autoEnabledConfig = {
-      ...rawConfig,
-      plugins: {
-        entries: {
-          demo: {
-            enabled: true,
-            subagent: {
-              allowModelOverride: true,
-              allowedModels: ["openai/gpt-5.4"],
-              hasAllowedModelsConfig: true,
-            },
+    const { rawConfig, autoEnabledConfig } = createAutoEnabledStatusConfig(
+      {
+        demo: {
+          enabled: true,
+          subagent: {
+            allowModelOverride: true,
+            allowedModels: ["openai/gpt-5.4"],
+            hasAllowedModelsConfig: true,
           },
         },
       },
-    };
+      { channels: { demo: { enabled: true } } },
+    );
     applyPluginAutoEnableMock.mockReturnValue({ config: autoEnabledConfig, changes: [] });
     setSinglePluginLoadResult(
       createPluginRecord({
@@ -255,7 +307,7 @@ describe("buildPluginStatusReport", () => {
     const inspect = buildPluginInspectReport({ id: "demo", config: rawConfig });
 
     expect(inspect).not.toBeNull();
-    expect(inspect?.policy).toEqual({
+    expectInspectPolicy(inspect!, {
       allowPromptInjection: undefined,
       allowModelOverride: true,
       allowedModels: ["openai/gpt-5.4"],
@@ -264,35 +316,20 @@ describe("buildPluginStatusReport", () => {
   });
 
   it("applies the full bundled provider compat chain before loading plugins", () => {
-    const config = { plugins: { allow: ["telegram"] } };
+    const { config, pluginIds, compatConfig, enabledConfig } = createCompatChainFixture();
     loadConfigMock.mockReturnValue(config);
-    resolveBundledProviderCompatPluginIdsMock.mockReturnValue(["anthropic", "openai"]);
-    const compatConfig = { plugins: { allow: ["telegram", "anthropic", "openai"] } };
-    const enabledConfig = {
-      plugins: {
-        allow: ["telegram", "anthropic", "openai"],
-        entries: {
-          anthropic: { enabled: true },
-          openai: { enabled: true },
-        },
-      },
-    };
+    resolveBundledProviderCompatPluginIdsMock.mockReturnValue(pluginIds);
     withBundledPluginAllowlistCompatMock.mockReturnValue(compatConfig);
     withBundledPluginEnablementCompatMock.mockReturnValue(enabledConfig);
 
     buildPluginStatusReport({ config });
 
-    expect(withBundledPluginAllowlistCompatMock).toHaveBeenCalledWith({
+    expectBundledCompatChainApplied({
       config,
-      pluginIds: ["anthropic", "openai"],
+      pluginIds,
+      compatConfig,
+      enabledConfig,
     });
-    expect(withBundledPluginEnablementCompatMock).toHaveBeenCalledWith({
-      config: compatConfig,
-      pluginIds: ["anthropic", "openai"],
-    });
-    expect(loadOpenClawPluginsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ config: enabledConfig }),
-    );
   });
 
   it("normalizes bundled plugin versions to the core base release", () => {
@@ -367,7 +404,7 @@ describe("buildPluginStatusReport", () => {
     expect(inspect?.compatibility).toEqual([
       createCompatibilityNotice({ pluginId: "google", code: "legacy-before-agent-start" }),
     ]);
-    expect(inspect?.policy).toEqual({
+    expectInspectPolicy(inspect!, {
       allowPromptInjection: false,
       allowModelOverride: true,
       allowedModels: ["openai/gpt-5.4"],

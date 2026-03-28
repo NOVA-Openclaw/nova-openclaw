@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { createEmptyPluginRegistry } from "./registry.js";
-import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "./runtime.js";
 
 type MockManifestRegistry = {
   plugins: Array<Record<string, unknown>>;
@@ -13,7 +12,9 @@ function createEmptyMockManifestRegistry(): MockManifestRegistry {
 }
 
 const mocks = vi.hoisted(() => ({
-  loadOpenClawPlugins: vi.fn(() => createEmptyPluginRegistry()),
+  resolveRuntimePluginRegistry: vi.fn<
+    (params?: unknown) => ReturnType<typeof createEmptyPluginRegistry> | undefined
+  >(() => undefined),
   loadPluginManifestRegistry: vi.fn<() => MockManifestRegistry>(() =>
     createEmptyMockManifestRegistry(),
   ),
@@ -23,7 +24,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./loader.js", () => ({
-  loadOpenClawPlugins: mocks.loadOpenClawPlugins,
+  resolveRuntimePluginRegistry: mocks.resolveRuntimePluginRegistry,
 }));
 
 vi.mock("./manifest-registry.js", () => ({
@@ -40,6 +41,10 @@ let resolvePluginCapabilityProviders: typeof import("./capability-provider-runti
 
 function expectResolvedCapabilityProviderIds(providers: Array<{ id: string }>, expected: string[]) {
   expect(providers.map((provider) => provider.id)).toEqual(expected);
+}
+
+function expectNoResolvedCapabilityProviders(providers: Array<{ id: string }>) {
+  expectResolvedCapabilityProviderIds(providers, []);
 }
 
 function expectBundledCompatLoadPath(params: {
@@ -69,7 +74,7 @@ function expectBundledCompatLoadPath(params: {
     pluginIds: ["openai"],
     env: process.env,
   });
-  expect(mocks.loadOpenClawPlugins).toHaveBeenCalledWith({
+  expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith({
     config: params.enablementCompat,
   });
 }
@@ -104,33 +109,33 @@ function setBundledCapabilityFixture(contractKey: string) {
   });
 }
 
-function setActiveSpeechCapabilityRegistry(providerId: string) {
-  const active = createEmptyPluginRegistry();
-  active.speechProviders.push({
-    pluginId: providerId,
-    pluginName: "OpenAI",
-    source: "test",
-    provider: {
-      id: providerId,
-      label: "OpenAI",
-      isConfigured: () => true,
-      synthesize: async () => ({
-        audioBuffer: Buffer.from("x"),
-        outputFormat: "mp3",
-        voiceCompatible: false,
-        fileExtension: ".mp3",
-      }),
-    },
-  });
-  setActivePluginRegistry(active);
+function expectCompatChainApplied(params: {
+  key: "speechProviders" | "mediaUnderstandingProviders" | "imageGenerationProviders";
+  contractKey: string;
+  cfg: OpenClawConfig;
+  allowlistCompat: { plugins: { allow: string[] } };
+  enablementCompat: {
+    plugins: {
+      allow: string[];
+      entries: { openai: { enabled: boolean } };
+    };
+  };
+}) {
+  setBundledCapabilityFixture(params.contractKey);
+  mocks.withBundledPluginAllowlistCompat.mockReturnValue(params.allowlistCompat);
+  mocks.withBundledPluginEnablementCompat.mockReturnValue(params.enablementCompat);
+  mocks.withBundledPluginVitestCompat.mockReturnValue(params.enablementCompat);
+  expectNoResolvedCapabilityProviders(
+    resolvePluginCapabilityProviders({ key: params.key, cfg: params.cfg }),
+  );
+  expectBundledCompatLoadPath(params);
 }
 
 describe("resolvePluginCapabilityProviders", () => {
   beforeEach(async () => {
     vi.resetModules();
-    resetPluginRuntimeStateForTest();
-    mocks.loadOpenClawPlugins.mockReset();
-    mocks.loadOpenClawPlugins.mockReturnValue(createEmptyPluginRegistry());
+    mocks.resolveRuntimePluginRegistry.mockReset();
+    mocks.resolveRuntimePluginRegistry.mockReturnValue(undefined);
     mocks.loadPluginManifestRegistry.mockReset();
     mocks.loadPluginManifestRegistry.mockReturnValue(createEmptyMockManifestRegistry());
     mocks.withBundledPluginAllowlistCompat.mockReset();
@@ -143,13 +148,30 @@ describe("resolvePluginCapabilityProviders", () => {
   });
 
   it("uses the active registry when capability providers are already loaded", () => {
-    setActiveSpeechCapabilityRegistry("openai");
+    const active = createEmptyPluginRegistry();
+    active.speechProviders.push({
+      pluginId: "openai",
+      pluginName: "openai",
+      source: "test",
+      provider: {
+        id: "openai",
+        label: "openai",
+        isConfigured: () => true,
+        synthesize: async () => ({
+          audioBuffer: Buffer.from("x"),
+          outputFormat: "mp3",
+          voiceCompatible: false,
+          fileExtension: ".mp3",
+        }),
+      },
+    } as never);
+    mocks.resolveRuntimePluginRegistry.mockReturnValue(active);
 
     const providers = resolvePluginCapabilityProviders({ key: "speechProviders" });
 
     expectResolvedCapabilityProviderIds(providers, ["openai"]);
     expect(mocks.loadPluginManifestRegistry).not.toHaveBeenCalled();
-    expect(mocks.loadOpenClawPlugins).not.toHaveBeenCalled();
+    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith(undefined);
   });
 
   it.each([
@@ -158,17 +180,27 @@ describe("resolvePluginCapabilityProviders", () => {
     ["imageGenerationProviders", "imageGenerationProviders"],
   ] as const)("applies bundled compat before fallback loading for %s", (key, contractKey) => {
     const { cfg, allowlistCompat, enablementCompat } = createCompatChainConfig();
-    setBundledCapabilityFixture(contractKey);
-    mocks.withBundledPluginAllowlistCompat.mockReturnValue(allowlistCompat);
-    mocks.withBundledPluginEnablementCompat.mockReturnValue(enablementCompat);
-    mocks.withBundledPluginVitestCompat.mockReturnValue(enablementCompat);
-
-    resolvePluginCapabilityProviders({ key, cfg });
-
-    expectBundledCompatLoadPath({
+    expectCompatChainApplied({
+      key,
+      contractKey,
       cfg,
       allowlistCompat,
       enablementCompat,
+    });
+  });
+
+  it("reuses a compatible active registry even when the capability list is empty", () => {
+    const active = createEmptyPluginRegistry();
+    mocks.resolveRuntimePluginRegistry.mockReturnValue(active);
+
+    const providers = resolvePluginCapabilityProviders({
+      key: "mediaUnderstandingProviders",
+      cfg: {} as OpenClawConfig,
+    });
+
+    expectNoResolvedCapabilityProviders(providers);
+    expect(mocks.resolveRuntimePluginRegistry).toHaveBeenCalledWith({
+      config: expect.anything(),
     });
   });
 });
