@@ -5,6 +5,31 @@ import {
   expectIndependentTypingLeases,
 } from "./typing-lease.test-support.js";
 
+const TELEGRAM_TYPING_INTERVAL_MS = 2_000;
+const TELEGRAM_TYPING_DEFAULT_INTERVAL_MS = 4_000;
+
+function buildTelegramTypingParams(
+  pulse: (params: {
+    to: string;
+    accountId?: string;
+    cfg?: unknown;
+    messageThreadId?: number;
+  }) => Promise<unknown>,
+) {
+  return {
+    to: "telegram:123",
+    intervalMs: TELEGRAM_TYPING_INTERVAL_MS,
+    pulse,
+  };
+}
+
+function expectTelegramPulseCount(
+  pulse: ReturnType<typeof vi.fn<() => Promise<unknown>>>,
+  expected: number,
+) {
+  expect(pulse).toHaveBeenCalledTimes(expected);
+}
+
 describe("createTelegramTypingLease", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -13,11 +38,7 @@ describe("createTelegramTypingLease", () => {
   it("pulses immediately and keeps leases independent", async () => {
     await expectIndependentTypingLeases({
       createLease: createTelegramTypingLease,
-      buildParams: (pulse) => ({
-        to: "telegram:123",
-        intervalMs: 2_000,
-        pulse,
-      }),
+      buildParams: buildTelegramTypingParams,
     });
   });
 
@@ -37,11 +58,7 @@ describe("createTelegramTypingLease", () => {
     await expectBackgroundTypingPulseFailuresAreSwallowed({
       createLease: createTelegramTypingLease,
       pulse,
-      buildParams: (pulse) => ({
-        to: "telegram:123",
-        intervalMs: 2_000,
-        pulse,
-      }),
+      buildParams: buildTelegramTypingParams,
     });
   });
 
@@ -55,11 +72,11 @@ describe("createTelegramTypingLease", () => {
       pulse,
     });
 
-    expect(pulse).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(3_999);
-    expect(pulse).toHaveBeenCalledTimes(1);
+    expectTelegramPulseCount(pulse, 1);
+    await vi.advanceTimersByTimeAsync(TELEGRAM_TYPING_DEFAULT_INTERVAL_MS - 1);
+    expectTelegramPulseCount(pulse, 1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(pulse).toHaveBeenCalledTimes(2);
+    expectTelegramPulseCount(pulse, 2);
 
     lease.stop();
   });

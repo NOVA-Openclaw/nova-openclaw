@@ -3,23 +3,29 @@ import { describe, expect, it } from "vitest";
 import { withPathResolutionEnv } from "../test-utils/env.js";
 import { formatPluginSourceForTable, resolvePluginSourceRoots } from "./source-display.js";
 
-function createPluginSourceRoots() {
-  const stockRoot = path.resolve(
-    path.sep,
-    "opt",
-    "homebrew",
-    "lib",
-    "node_modules",
-    "openclaw",
-    "extensions",
+const PLUGIN_SOURCE_ROOTS = {
+  stock: path.resolve(path.sep, "opt", "homebrew", "lib", "node_modules", "openclaw", "extensions"),
+  global: path.resolve(path.sep, "Users", "x", ".openclaw", "extensions"),
+  workspace: path.resolve(path.sep, "Users", "x", "ws", ".openclaw", "extensions"),
+};
+
+function expectFormattedSource(params: {
+  origin: "bundled" | "workspace" | "global";
+  sourceKey: "stock" | "workspace" | "global";
+  dirName: string;
+  fileName: string;
+  expectedValue: string;
+  expectedRootKey: "stock" | "workspace" | "global";
+}) {
+  const out = formatPluginSourceForTable(
+    {
+      origin: params.origin,
+      source: path.join(PLUGIN_SOURCE_ROOTS[params.sourceKey], params.dirName, params.fileName),
+    },
+    PLUGIN_SOURCE_ROOTS,
   );
-  const globalRoot = path.resolve(path.sep, "Users", "x", ".openclaw", "extensions");
-  const workspaceRoot = path.resolve(path.sep, "Users", "x", "ws", ".openclaw", "extensions");
-  return {
-    stock: stockRoot,
-    global: globalRoot,
-    workspace: workspaceRoot,
-  };
+  expect(out.value).toBe(params.expectedValue);
+  expect(out.rootKey).toBe(params.expectedRootKey);
 }
 
 describe("formatPluginSourceForTable", () => {
@@ -54,16 +60,14 @@ describe("formatPluginSourceForTable", () => {
   ])(
     "shortens $name",
     ({ origin, sourceKey, dirName, fileName, expectedValue, expectedRootKey }) => {
-      const roots = createPluginSourceRoots();
-      const out = formatPluginSourceForTable(
-        {
-          origin,
-          source: path.join(roots[sourceKey], dirName, fileName),
-        },
-        roots,
-      );
-      expect(out.value).toBe(expectedValue);
-      expect(out.rootKey).toBe(expectedRootKey);
+      expectFormattedSource({
+        origin,
+        sourceKey,
+        dirName,
+        fileName,
+        expectedValue,
+        expectedRootKey,
+      });
     },
   );
 

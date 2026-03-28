@@ -1,5 +1,6 @@
 import { normalizeToolName } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
+import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { applyTestPluginDefaults, normalizePluginsConfig } from "./config-state.js";
 import { loadOpenClawPlugins } from "./loader.js";
@@ -60,7 +61,8 @@ export function resolvePluginTools(params: {
   // Fast path: when plugins are effectively disabled, avoid discovery/jiti entirely.
   // This matters a lot for unit tests and for tool construction hot paths.
   const env = params.env ?? process.env;
-  const effectiveConfig = applyTestPluginDefaults(params.context.config ?? {}, env);
+  const baseConfig = applyTestPluginDefaults(params.context.config ?? {}, env);
+  const effectiveConfig = applyPluginAutoEnable({ config: baseConfig, env }).config;
   const normalized = normalizePluginsConfig(effectiveConfig.plugins);
   if (!normalized.enabled) {
     return [];
@@ -68,7 +70,7 @@ export function resolvePluginTools(params: {
 
   const activeRegistry = getActivePluginRegistry();
   const registry =
-    getActivePluginRegistryKey() && activeRegistry
+    getActivePluginRegistryKey() && activeRegistry && effectiveConfig === baseConfig
       ? activeRegistry
       : loadOpenClawPlugins({
           config: effectiveConfig,
