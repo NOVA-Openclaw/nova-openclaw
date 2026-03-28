@@ -3,7 +3,8 @@ import { withBundledPluginAllowlistCompat } from "../bundled-compat.js";
 import { resolveBundledWebSearchPluginIds } from "../bundled-web-search.js";
 import { loadPluginManifestRegistry } from "../manifest-registry.js";
 import { __testing as providerTesting } from "../providers.js";
-import { providerContractCompatPluginIds, webSearchProviderContractRegistry } from "./registry.js";
+import { resolveBundledPluginWebSearchProviders } from "../web-search-providers.js";
+import { providerContractCompatPluginIds } from "./registry.js";
 import { uniqueSortedStrings } from "./testkit.js";
 
 function resolveBundledManifestProviderPluginIds() {
@@ -13,6 +14,8 @@ function resolveBundledManifestProviderPluginIds() {
       .map((plugin) => plugin.id),
   );
 }
+
+const demoAllowEntry = "demo-allowed";
 
 describe("plugin loader contract", () => {
   let providerPluginIds: string[];
@@ -30,14 +33,14 @@ describe("plugin loader contract", () => {
     compatPluginIds = providerTesting.resolveBundledProviderCompatPluginIds({
       config: {
         plugins: {
-          allow: ["openrouter"],
+          allow: [demoAllowEntry],
         },
       },
     });
     compatConfig = withBundledPluginAllowlistCompat({
       config: {
         plugins: {
-          allow: ["openrouter"],
+          allow: [demoAllowEntry],
         },
       },
       pluginIds: compatPluginIds,
@@ -48,13 +51,13 @@ describe("plugin loader contract", () => {
       env: { VITEST: "1" } as NodeJS.ProcessEnv,
     });
     webSearchPluginIds = uniqueSortedStrings(
-      webSearchProviderContractRegistry.map((entry) => entry.pluginId),
+      resolveBundledPluginWebSearchProviders({}).map((entry) => entry.pluginId),
     );
     bundledWebSearchPluginIds = uniqueSortedStrings(resolveBundledWebSearchPluginIds({}));
     webSearchAllowlistCompatConfig = withBundledPluginAllowlistCompat({
       config: {
         plugins: {
-          allow: ["openrouter"],
+          allow: [demoAllowEntry],
         },
       },
       pluginIds: webSearchPluginIds,

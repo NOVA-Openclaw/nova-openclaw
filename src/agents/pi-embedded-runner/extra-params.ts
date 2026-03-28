@@ -8,6 +8,7 @@ import {
   prepareProviderExtraParams as prepareProviderExtraParamsRuntime,
   wrapProviderStreamFn as wrapProviderStreamFnRuntime,
 } from "../../plugins/provider-runtime.js";
+import type { ProviderRuntimeModel } from "../../plugins/types.js";
 import {
   createAnthropicBetaHeadersWrapper,
   createBedrockNoCacheWrapper,
@@ -298,6 +299,7 @@ export function applyExtraParamsToAgent(
   thinkingLevel?: ThinkLevel,
   agentId?: string,
   workspaceDir?: string,
+  model?: ProviderRuntimeModel,
 ): { effectiveExtraParams: Record<string, unknown> } {
   const resolvedExtraParams = resolveExtraParams({
     cfg,
@@ -355,6 +357,10 @@ export function applyExtraParamsToAgent(
     agent.streamFn = createSiliconFlowThinkingWrapper(agent.streamFn);
   }
 
+  if (thinkingLevel === "off") {
+    agent.streamFn = createOllamaThinkingOffWrapper(agent.streamFn);
+  }
+
   agent.streamFn = createAnthropicToolPayloadCompatibilityWrapper(agent.streamFn, {
     config: cfg,
     workspaceDir,
@@ -369,6 +375,7 @@ export function applyExtraParamsToAgent(
       modelId,
       extraParams: effectiveExtraParams,
       thinkingLevel,
+      model,
       streamFn: providerStreamBase,
     },
   });
@@ -378,8 +385,8 @@ export function applyExtraParamsToAgent(
 
   if (!providerWrapperHandled && shouldApplyMoonshotPayloadCompat({ provider, modelId })) {
     // Preserve the legacy Moonshot compatibility path when no plugin wrapper
-    // actually handled the stream function. This covers tests/disabled plugins
-    // and Ollama Cloud Kimi models until they gain a dedicated runtime hook.
+    // actually handled the stream function. This mainly covers tests and
+    // disabled plugins for the native Moonshot provider.
     const thinkingType = resolveMoonshotThinkingType({
       configuredThinking: effectiveExtraParams?.thinking,
       thinkingLevel,
@@ -451,4 +458,23 @@ export function applyExtraParamsToAgent(
   }
 
   return { effectiveExtraParams };
+}
+
+function createOllamaThinkingOffWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    if (model.api !== "ollama") {
+      return underlying(model, context, options);
+    }
+    const originalOnPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload, payloadModel) => {
+        if (payload && typeof payload === "object") {
+          (payload as Record<string, unknown>).think = false;
+        }
+        return originalOnPayload?.(payload, payloadModel);
+      },
+    });
+  };
 }

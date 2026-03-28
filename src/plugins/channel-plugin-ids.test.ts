@@ -16,32 +16,48 @@ import { resolveGatewayStartupPluginIds } from "./channel-plugin-ids.js";
 
 describe("resolveGatewayStartupPluginIds", () => {
   beforeEach(() => {
-    listPotentialConfiguredChannelIds.mockReset().mockReturnValue(["discord"]);
+    listPotentialConfiguredChannelIds.mockReset().mockReturnValue(["demo-channel"]);
     loadPluginManifestRegistry.mockReset().mockReturnValue({
       plugins: [
         {
-          id: "discord",
-          channels: ["discord"],
+          id: "demo-channel",
+          channels: ["demo-channel"],
           origin: "bundled",
           enabledByDefault: undefined,
+          providers: [],
+          cliBackends: [],
         },
         {
-          id: "amazon-bedrock",
+          id: "demo-default-on-sidecar",
           channels: [],
           origin: "bundled",
           enabledByDefault: true,
+          providers: [],
+          cliBackends: [],
         },
         {
-          id: "diagnostics-otel",
+          id: "demo-provider-plugin",
           channels: [],
           origin: "bundled",
           enabledByDefault: undefined,
+          providers: ["demo-provider"],
+          cliBackends: ["demo-cli"],
         },
         {
-          id: "custom-sidecar",
+          id: "demo-bundled-sidecar",
+          channels: [],
+          origin: "bundled",
+          enabledByDefault: undefined,
+          providers: [],
+          cliBackends: [],
+        },
+        {
+          id: "demo-global-sidecar",
           channels: [],
           origin: "global",
           enabledByDefault: undefined,
+          providers: [],
+          cliBackends: [],
         },
       ],
       diagnostics: [],
@@ -52,7 +68,15 @@ describe("resolveGatewayStartupPluginIds", () => {
     const config = {
       plugins: {
         entries: {
-          "diagnostics-otel": { enabled: true },
+          "demo-bundled-sidecar": { enabled: true },
+        },
+      },
+      agents: {
+        defaults: {
+          model: { primary: "demo-cli/demo-model" },
+          models: {
+            "demo-cli/demo-model": {},
+          },
         },
       },
     } as OpenClawConfig;
@@ -63,7 +87,12 @@ describe("resolveGatewayStartupPluginIds", () => {
         workspaceDir: "/tmp",
         env: process.env,
       }),
-    ).toEqual(["discord", "diagnostics-otel", "custom-sidecar"]);
+    ).toEqual([
+      "demo-channel",
+      "demo-provider-plugin",
+      "demo-bundled-sidecar",
+      "demo-global-sidecar",
+    ]);
   });
 
   it("does not pull default-on bundled non-channel plugins into startup", () => {
@@ -75,6 +104,27 @@ describe("resolveGatewayStartupPluginIds", () => {
         workspaceDir: "/tmp",
         env: process.env,
       }),
-    ).toEqual(["discord", "custom-sidecar"]);
+    ).toEqual(["demo-channel", "demo-global-sidecar"]);
+  });
+
+  it("auto-loads bundled plugins referenced by configured provider ids", () => {
+    const config = {
+      models: {
+        providers: {
+          "demo-provider": {
+            baseUrl: "https://example.com",
+            models: [],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(
+      resolveGatewayStartupPluginIds({
+        config,
+        workspaceDir: "/tmp",
+        env: process.env,
+      }),
+    ).toEqual(["demo-channel", "demo-provider-plugin", "demo-global-sidecar"]);
   });
 });
