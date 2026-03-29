@@ -740,10 +740,6 @@
       "types": "./dist/plugin-sdk/provider-catalog-shared.d.ts",
       "default": "./dist/plugin-sdk/provider-catalog-shared.js"
     },
-    "./plugin-sdk/provider-catalog": {
-      "types": "./dist/plugin-sdk/provider-catalog.d.ts",
-      "default": "./dist/plugin-sdk/provider-catalog.js"
-    },
     "./plugin-sdk/provider-entry": {
       "types": "./dist/plugin-sdk/provider-entry.d.ts",
       "default": "./dist/plugin-sdk/provider-entry.js"
@@ -756,17 +752,9 @@
       "types": "./dist/plugin-sdk/provider-http.d.ts",
       "default": "./dist/plugin-sdk/provider-http.js"
     },
-    "./plugin-sdk/provider-google": {
-      "types": "./dist/plugin-sdk/provider-google.d.ts",
-      "default": "./dist/plugin-sdk/provider-google.js"
-    },
     "./plugin-sdk/provider-model-shared": {
       "types": "./dist/plugin-sdk/provider-model-shared.d.ts",
       "default": "./dist/plugin-sdk/provider-model-shared.js"
-    },
-    "./plugin-sdk/provider-models": {
-      "types": "./dist/plugin-sdk/provider-models.d.ts",
-      "default": "./dist/plugin-sdk/provider-models.js"
     },
     "./plugin-sdk/provider-moonshot": {
       "types": "./dist/plugin-sdk/provider-moonshot.d.ts",
@@ -1195,8 +1183,10 @@
     "@mariozechner/pi-ai": "0.63.2",
     "@mariozechner/pi-coding-agent": "0.63.2",
     "@mariozechner/pi-tui": "0.63.2",
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.0.0",
     "@modelcontextprotocol/sdk": "1.28.0",
     "@mozilla/readability": "^0.6.0",
+    "@openclaw/plugin-package-contract": "workspace:*",
     "@sinclair/typebox": "0.34.49",
     "ajv": "^8.18.0",
     "chalk": "^5.6.2",
