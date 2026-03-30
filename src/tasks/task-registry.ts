@@ -10,6 +10,15 @@ import { parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { isDeliverableMessageChannel } from "../utils/message-channel.js";
 import {
+  formatTaskBlockedFollowupMessage,
+  formatTaskStateChangeMessage,
+  formatTaskTerminalMessage,
+  isTerminalTaskStatus,
+  shouldAutoDeliverTaskStateChange,
+  shouldAutoDeliverTaskTerminalUpdate,
+  shouldSuppressDuplicateTerminalDelivery,
+} from "./task-executor-policy.js";
+import {
   getTaskRegistryHooks,
   getTaskRegistryStore,
   resetTaskRegistryRuntimeForTests,
@@ -36,6 +45,7 @@ const DEFAULT_TASK_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const tasks = new Map<string, TaskRecord>();
 const taskDeliveryStates = new Map<string, TaskDeliveryState>();
 const taskIdsByRunId = new Map<string, Set<string>>();
+const taskIdsBySessionKey = new Map<string, Set<string>>();
 const tasksWithPendingDelivery = new Set<string>();
 let listenerStarted = false;
 let listenerStop: (() => void) | null = null;
@@ -209,10 +219,65 @@ function addRunIdIndex(taskId: string, runId?: string) {
   ids.add(taskId);
 }
 
+function normalizeSessionIndexKey(sessionKey?: string): string | undefined {
+  const trimmed = sessionKey?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function getTaskSessionIndexKeys(
+  task: Pick<TaskRecord, "requesterSessionKey" | "childSessionKey">,
+) {
+  return [
+    ...new Set(
+      [
+        normalizeSessionIndexKey(task.requesterSessionKey),
+        normalizeSessionIndexKey(task.childSessionKey),
+      ].filter(Boolean) as string[],
+    ),
+  ];
+}
+
+function addSessionKeyIndex(
+  taskId: string,
+  task: Pick<TaskRecord, "requesterSessionKey" | "childSessionKey">,
+) {
+  for (const sessionKey of getTaskSessionIndexKeys(task)) {
+    let ids = taskIdsBySessionKey.get(sessionKey);
+    if (!ids) {
+      ids = new Set<string>();
+      taskIdsBySessionKey.set(sessionKey, ids);
+    }
+    ids.add(taskId);
+  }
+}
+
+function deleteSessionKeyIndex(
+  taskId: string,
+  task: Pick<TaskRecord, "requesterSessionKey" | "childSessionKey">,
+) {
+  for (const sessionKey of getTaskSessionIndexKeys(task)) {
+    const ids = taskIdsBySessionKey.get(sessionKey);
+    if (!ids) {
+      continue;
+    }
+    ids.delete(taskId);
+    if (ids.size === 0) {
+      taskIdsBySessionKey.delete(sessionKey);
+    }
+  }
+}
+
 function rebuildRunIdIndex() {
   taskIdsByRunId.clear();
   for (const [taskId, task] of tasks.entries()) {
     addRunIdIndex(taskId, task.runId);
+  }
+}
+
+function rebuildSessionKeyIndex() {
+  taskIdsBySessionKey.clear();
+  for (const [taskId, task] of tasks.entries()) {
+    addSessionKeyIndex(taskId, task);
   }
 }
 
@@ -370,6 +435,7 @@ function restoreTaskRegistryOnce() {
       taskDeliveryStates.set(taskId, state);
     }
     rebuildRunIdIndex();
+    rebuildSessionKeyIndex();
     emitTaskRegistryHookEvent(() => ({
       kind: "restored",
       tasks: snapshotTaskRecords(tasks),
@@ -384,16 +450,6 @@ export function ensureTaskRegistryReady() {
   ensureListener();
 }
 
-function isTerminalTaskStatus(status: TaskStatus): boolean {
-  return (
-    status === "succeeded" ||
-    status === "failed" ||
-    status === "timed_out" ||
-    status === "cancelled" ||
-    status === "lost"
-  );
-}
-
 function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | null {
   const current = tasks.get(taskId);
   if (!current) {
@@ -404,9 +460,18 @@ function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | nu
     const terminalAt = next.endedAt ?? next.lastEventAt ?? Date.now();
     next.cleanupAfter = terminalAt + DEFAULT_TASK_RETENTION_MS;
   }
+  const sessionIndexChanged =
+    normalizeSessionIndexKey(current.requesterSessionKey) !==
+      normalizeSessionIndexKey(next.requesterSessionKey) ||
+    normalizeSessionIndexKey(current.childSessionKey) !==
+      normalizeSessionIndexKey(next.childSessionKey);
   tasks.set(taskId, next);
   if (patch.runId && patch.runId !== current.runId) {
     rebuildRunIdIndex();
+  }
+  if (sessionIndexChanged) {
+    deleteSessionKeyIndex(taskId, current);
+    addSessionKeyIndex(taskId, next);
   }
   persistTaskUpsert(next);
   emitTaskRegistryHookEvent(() => ({
@@ -441,43 +506,6 @@ function getTaskDeliveryState(taskId: string): TaskDeliveryState | undefined {
   return state ? cloneTaskDeliveryState(state) : undefined;
 }
 
-function formatTaskTerminalEvent(task: TaskRecord): string {
-  // User-facing task notifications stay intentionally terse. Detailed runtime chatter lives
-  // in task metadata for inspection, not in the default channel ping.
-  const title =
-    task.label?.trim() ||
-    (task.runtime === "acp"
-      ? "ACP background task"
-      : task.runtime === "subagent"
-        ? "Subagent task"
-        : task.task.trim() || "Background task");
-  const runLabel = task.runId ? ` (run ${task.runId.slice(0, 8)})` : "";
-  const summary = task.terminalSummary?.trim();
-  if (task.status === "succeeded") {
-    if (task.terminalOutcome === "blocked") {
-      return summary
-        ? `Background task blocked: ${title}${runLabel}. ${summary}`
-        : `Background task blocked: ${title}${runLabel}.`;
-    }
-    return summary
-      ? `Background task done: ${title}${runLabel}. ${summary}`
-      : `Background task done: ${title}${runLabel}.`;
-  }
-  if (task.status === "timed_out") {
-    return `Background task timed out: ${title}${runLabel}.`;
-  }
-  if (task.status === "lost") {
-    return `Background task lost: ${title}${runLabel}. ${task.error ?? "Backing session disappeared."}`;
-  }
-  if (task.status === "cancelled") {
-    return `Background task cancelled: ${title}${runLabel}.`;
-  }
-  const error = task.error?.trim();
-  return error
-    ? `Background task failed: ${title}${runLabel}. ${error}`
-    : `Background task failed: ${title}${runLabel}.`;
-}
-
 function canDeliverTaskToRequesterOrigin(task: TaskRecord): boolean {
   const origin = normalizeDeliveryContext(taskDeliveryStates.get(task.taskId)?.requesterOrigin);
   const channel = origin?.channel?.trim();
@@ -503,23 +531,15 @@ function queueTaskSystemEvent(task: TaskRecord, text: string) {
 }
 
 function queueBlockedTaskFollowup(task: TaskRecord) {
-  if (task.status !== "succeeded" || task.terminalOutcome !== "blocked") {
+  const followupText = formatTaskBlockedFollowupMessage(task);
+  if (!followupText) {
     return false;
   }
   const requesterSessionKey = task.requesterSessionKey.trim();
   if (!requesterSessionKey) {
     return false;
   }
-  const title =
-    task.label?.trim() ||
-    (task.runtime === "acp"
-      ? "ACP background task"
-      : task.runtime === "subagent"
-        ? "Subagent task"
-        : task.task.trim() || "Background task");
-  const runLabel = task.runId ? ` (run ${task.runId.slice(0, 8)})` : "";
-  const summary = task.terminalSummary?.trim() || "Task is blocked and needs follow-up.";
-  enqueueSystemEvent(`Task needs follow-up: ${title}${runLabel}. ${summary}`, {
+  enqueueSystemEvent(followupText, {
     sessionKey: requesterSessionKey,
     contextKey: `task:${task.taskId}:blocked-followup`,
     deliveryContext: taskDeliveryStates.get(task.taskId)?.requesterOrigin,
@@ -531,66 +551,10 @@ function queueBlockedTaskFollowup(task: TaskRecord) {
   return true;
 }
 
-function formatTaskStateChangeEvent(task: TaskRecord, event: TaskEventRecord): string | null {
-  const title =
-    task.label?.trim() ||
-    (task.runtime === "acp"
-      ? "ACP background task"
-      : task.runtime === "subagent"
-        ? "Subagent task"
-        : task.task.trim() || "Background task");
-  if (event.kind === "running") {
-    return `Background task started: ${title}.`;
-  }
-  if (event.kind === "progress") {
-    return event.summary ? `Background task update: ${title}. ${event.summary}` : null;
-  }
-  return null;
-}
-
-function shouldAutoDeliverTaskUpdate(task: TaskRecord): boolean {
-  if (task.notifyPolicy === "silent") {
-    return false;
-  }
-  if (task.runtime === "subagent" && task.status !== "cancelled") {
-    return false;
-  }
-  if (
-    task.status !== "succeeded" &&
-    task.status !== "failed" &&
-    task.status !== "timed_out" &&
-    task.status !== "lost" &&
-    task.status !== "cancelled"
-  ) {
-    return false;
-  }
-  return task.deliveryStatus === "pending";
-}
-
-function shouldAutoDeliverTaskStateChange(task: TaskRecord): boolean {
-  return (
-    task.notifyPolicy === "state_changes" &&
-    task.deliveryStatus === "pending" &&
-    task.status !== "succeeded" &&
-    task.status !== "failed" &&
-    task.status !== "timed_out" &&
-    task.status !== "lost" &&
-    task.status !== "cancelled"
-  );
-}
-
-function shouldSuppressDuplicateTerminalDelivery(task: TaskRecord): boolean {
-  if (task.runtime !== "acp" || !task.runId?.trim()) {
-    return false;
-  }
-  const preferred = pickPreferredRunIdTask(getTasksByRunId(task.runId));
-  return Boolean(preferred && preferred.taskId !== task.taskId);
-}
-
 export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<TaskRecord | null> {
   ensureTaskRegistryReady();
   const current = tasks.get(taskId);
-  if (!current || !shouldAutoDeliverTaskUpdate(current)) {
+  if (!current || !shouldAutoDeliverTaskTerminalUpdate(current)) {
     return current ? cloneTaskRecord(current) : null;
   }
   if (tasksWithPendingDelivery.has(taskId)) {
@@ -599,10 +563,15 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
   tasksWithPendingDelivery.add(taskId);
   try {
     const latest = tasks.get(taskId);
-    if (!latest || !shouldAutoDeliverTaskUpdate(latest)) {
+    if (!latest || !shouldAutoDeliverTaskTerminalUpdate(latest)) {
       return latest ? cloneTaskRecord(latest) : null;
     }
-    if (shouldSuppressDuplicateTerminalDelivery(latest)) {
+    const preferred = latest.runId
+      ? pickPreferredRunIdTask(getTasksByRunId(latest.runId))
+      : undefined;
+    if (
+      shouldSuppressDuplicateTerminalDelivery({ task: latest, preferredTaskId: preferred?.taskId })
+    ) {
       return updateTask(taskId, {
         deliveryStatus: "not_applicable",
         lastEventAt: Date.now(),
@@ -614,7 +583,7 @@ export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<Ta
         lastEventAt: Date.now(),
       });
     }
-    const eventText = formatTaskTerminalEvent(latest);
+    const eventText = formatTaskTerminalMessage(latest);
     if (!canDeliverTaskToRequesterOrigin(latest)) {
       try {
         queueTaskSystemEvent(latest, eventText);
@@ -704,7 +673,7 @@ export async function maybeDeliverTaskStateChangeUpdate(
   if (!latestEvent || (deliveryState?.lastNotifiedEventAt ?? 0) >= latestEvent.at) {
     return cloneTaskRecord(current);
   }
-  const eventText = formatTaskStateChangeEvent(current, latestEvent);
+  const eventText = formatTaskStateChangeMessage(current, latestEvent);
   if (!eventText) {
     return cloneTaskRecord(current);
   }
@@ -997,6 +966,7 @@ export function createTaskRecord(params: {
     requesterOrigin: normalizeDeliveryContext(params.requesterOrigin),
   });
   addRunIdIndex(taskId, record.runId);
+  addSessionKeyIndex(taskId, record);
   persistTaskUpsert(record);
   emitTaskRegistryHookEvent(() => ({
     kind: "upserted",
@@ -1287,13 +1257,25 @@ export function findTaskByRunId(runId: string): TaskRecord | undefined {
 }
 
 export function findLatestTaskForSessionKey(sessionKey: string): TaskRecord | undefined {
-  const key = sessionKey.trim();
+  const task = listTasksForSessionKey(sessionKey)[0];
+  return task ? cloneTaskRecord(task) : undefined;
+}
+
+export function listTasksForSessionKey(sessionKey: string): TaskRecord[] {
+  ensureTaskRegistryReady();
+  const key = normalizeSessionIndexKey(sessionKey);
   if (!key) {
-    return undefined;
+    return [];
   }
-  return listTaskRecords().find(
-    (task) => task.childSessionKey === key || task.requesterSessionKey === key,
-  );
+  const ids = taskIdsBySessionKey.get(key);
+  if (!ids || ids.size === 0) {
+    return [];
+  }
+  return [...ids]
+    .map((taskId) => tasks.get(taskId))
+    .filter((task): task is TaskRecord => Boolean(task))
+    .toSorted((left, right) => right.createdAt - left.createdAt)
+    .map((task) => cloneTaskRecord(task));
 }
 
 export function resolveTaskForLookupToken(token: string): TaskRecord | undefined {
@@ -1310,6 +1292,7 @@ export function deleteTaskRecordById(taskId: string): boolean {
   if (!current) {
     return false;
   }
+  deleteSessionKeyIndex(taskId, current);
   tasks.delete(taskId);
   taskDeliveryStates.delete(taskId);
   rebuildRunIdIndex();
@@ -1327,6 +1310,7 @@ export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
   tasks.clear();
   taskDeliveryStates.clear();
   taskIdsByRunId.clear();
+  taskIdsBySessionKey.clear();
   tasksWithPendingDelivery.clear();
   restoreAttempted = false;
   resetTaskRegistryRuntimeForTests();
@@ -1337,5 +1321,8 @@ export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
   listenerStarted = false;
   if (opts?.persist !== false) {
     persistTaskRegistry();
+    // Close the sqlite handle after persisting the empty snapshot so Windows temp-dir
+    // cleanup can remove the state directory without hitting runs.sqlite EBUSY errors.
+    getTaskRegistryStore().close?.();
   }
 }
