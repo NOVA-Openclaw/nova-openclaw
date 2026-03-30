@@ -21,11 +21,6 @@ import {
   shouldInjectOllamaCompatNumCtx,
   wrapOllamaCompatNumCtx,
 } from "../../../plugin-sdk/ollama.js";
-import { resolveSignalReactionLevel } from "../../../plugin-sdk/signal.js";
-import {
-  resolveTelegramInlineButtonsScope,
-  resolveTelegramReactionLevel,
-} from "../../../plugin-sdk/telegram-runtime.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import { resolveToolCallArgumentsEncoding } from "../../../plugins/provider-model-compat.js";
 import { isSubagentSessionKey } from "../../../routing/session-key.js";
@@ -48,7 +43,9 @@ import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../../bootstra
 import { createCacheTrace } from "../../cache-trace.js";
 import {
   listChannelSupportedActions,
+  resolveChannelMessageToolCapabilities,
   resolveChannelMessageToolHints,
+  resolveChannelReactionGuidance,
 } from "../../channel-tools.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
@@ -61,7 +58,10 @@ import { supportsModelTools } from "../../model-tool-support.js";
 import { createOpenAIWebSocketStreamFn, releaseWsSession } from "../../openai-ws-stream.js";
 import { resolveOwnerDisplaySetting } from "../../owner-display.js";
 import { createBundleLspToolRuntime } from "../../pi-bundle-lsp-runtime.js";
-import { createBundleMcpToolRuntime } from "../../pi-bundle-mcp-tools.js";
+import {
+  getOrCreateSessionMcpRuntime,
+  materializeBundleMcpToolsForRun,
+} from "../../pi-bundle-mcp-tools.js";
 import {
   downgradeOpenAIFunctionCallReasoningPairs,
   isCloudCodeAssistFormatError,
@@ -481,10 +481,17 @@ export async function runEmbeddedAttempt(
       provider: params.provider,
     });
     const clientTools = toolsEnabled ? params.clientTools : undefined;
-    const bundleMcpRuntime = toolsEnabled
-      ? await createBundleMcpToolRuntime({
+    const bundleMcpSessionRuntime = toolsEnabled
+      ? await getOrCreateSessionMcpRuntime({
+          sessionId: params.sessionId,
+          sessionKey: params.sessionKey,
           workspaceDir: effectiveWorkspace,
           cfg: params.config,
+        })
+      : undefined;
+    const bundleMcpRuntime = bundleMcpSessionRuntime
+      ? await materializeBundleMcpToolsForRun({
+          runtime: bundleMcpSessionRuntime,
           reservedToolNames: [
             ...tools.map((tool) => tool.name),
             ...(clientTools?.map((tool) => tool.function.name) ?? []),
@@ -522,43 +529,35 @@ export async function runEmbeddedAttempt(
           accountId: params.agentAccountId,
         }) ?? [])
       : undefined;
-    if (runtimeChannel === "telegram" && params.config) {
-      const inlineButtonsScope = resolveTelegramInlineButtonsScope({
-        cfg: params.config,
-        accountId: params.agentAccountId ?? undefined,
-      });
-      if (inlineButtonsScope !== "off") {
-        if (!runtimeCapabilities) {
-          runtimeCapabilities = [];
+    const promptCapabilities =
+      runtimeChannel && params.config
+        ? resolveChannelMessageToolCapabilities({
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          })
+        : [];
+    if (promptCapabilities.length > 0) {
+      runtimeCapabilities ??= [];
+      const seenCapabilities = new Set(
+        runtimeCapabilities.map((cap) => String(cap).trim().toLowerCase()),
+      );
+      for (const capability of promptCapabilities) {
+        const normalizedCapability = capability.trim().toLowerCase();
+        if (!normalizedCapability || seenCapabilities.has(normalizedCapability)) {
+          continue;
         }
-        if (
-          !runtimeCapabilities.some((cap) => String(cap).trim().toLowerCase() === "inlinebuttons")
-        ) {
-          runtimeCapabilities.push("inlineButtons");
-        }
+        seenCapabilities.add(normalizedCapability);
+        runtimeCapabilities.push(capability);
       }
     }
     const reactionGuidance =
       runtimeChannel && params.config
-        ? (() => {
-            if (runtimeChannel === "telegram") {
-              const resolved = resolveTelegramReactionLevel({
-                cfg: params.config,
-                accountId: params.agentAccountId ?? undefined,
-              });
-              const level = resolved.agentReactionGuidance;
-              return level ? { level, channel: "Telegram" } : undefined;
-            }
-            if (runtimeChannel === "signal") {
-              const resolved = resolveSignalReactionLevel({
-                cfg: params.config,
-                accountId: params.agentAccountId ?? undefined,
-              });
-              const level = resolved.agentReactionGuidance;
-              return level ? { level, channel: "Signal" } : undefined;
-            }
-            return undefined;
-          })()
+        ? resolveChannelReactionGuidance({
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          })
         : undefined;
     const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
     const reasoningTagHint = isReasoningTagProvider(params.provider);
@@ -1099,7 +1098,9 @@ export async function runEmbeddedAttempt(
         // limitHistoryTurns can orphan tool_result blocks by removing the
         // assistant message that contained the matching tool_use.
         const limited = transcriptPolicy.repairToolUseResultPairing
-          ? sanitizeToolUseResultPairing(truncated)
+          ? sanitizeToolUseResultPairing(truncated, {
+              erroredAssistantResultPolicy: "drop",
+            })
           : truncated;
         cacheTrace?.recordStage("session:limited", { messages: limited });
         if (limited.length > 0) {
@@ -1862,7 +1863,6 @@ export async function runEmbeddedAttempt(
       });
       session?.dispose();
       releaseWsSession(params.sessionId);
-      await bundleMcpRuntime?.dispose();
       await bundleLspRuntime?.dispose();
       await sessionLock.release();
     }

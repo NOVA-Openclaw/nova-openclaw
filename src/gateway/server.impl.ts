@@ -13,9 +13,11 @@ import {
   type ConfigFileSnapshot,
   type OpenClawConfig,
   applyConfigOverrides,
+  getRuntimeConfig,
   isNixMode,
   loadConfig,
   migrateLegacyConfig,
+  registerConfigWriteListener,
   readConfigFileSnapshot,
   writeConfigFile,
 } from "../config/config.js";
@@ -293,6 +295,7 @@ async function prepareGatewayStartupConfig(params: {
     authOverride: params.authOverride,
     tailscaleOverride: params.tailscaleOverride,
     persist: true,
+    baseHash: params.configSnapshot.hash,
   });
   const runtimeStartupConfig = applyGatewayAuthOverridesForStartupPreflight(authBootstrap.cfg, {
     auth: params.authOverride,
@@ -517,7 +520,7 @@ export async function startGatewayServer(
   }
   const diagnosticsEnabled = isDiagnosticsEnabled(cfgAtStart);
   if (diagnosticsEnabled) {
-    startDiagnosticHeartbeat();
+    startDiagnosticHeartbeat(undefined, { getConfig: getRuntimeConfig });
   }
   setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(cfgAtStart) });
   setPreRestartDeferralCheck(
@@ -1409,6 +1412,7 @@ export async function startGatewayServer(
           return startGatewayConfigReloader({
             initialConfig: cfgAtStart,
             readSnapshot: readConfigFileSnapshot,
+            subscribeToWrites: registerConfigWriteListener,
             onHotReload: async (plan, nextConfig) => {
               const previousSnapshot = getActiveSecretsRuntimeSnapshot();
               const prepared = await activateRuntimeSecrets(nextConfig, {

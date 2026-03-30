@@ -191,8 +191,8 @@ function dispatchAgentRunFromGateway(params: {
   if (params.ingressOpts.sessionKey?.trim()) {
     try {
       createTaskRecord({
-        source: "background_cli",
         runtime: "cli",
+        sourceId: params.runId,
         requesterSessionKey: params.ingressOpts.sessionKey,
         requesterOrigin: normalizeDeliveryContext({
           channel: params.ingressOpts.channel,
@@ -202,7 +202,6 @@ function dispatchAgentRunFromGateway(params: {
         }),
         childSessionKey: params.ingressOpts.sessionKey,
         runId: params.runId,
-        bindingTargetKind: "session",
         task: params.ingressOpts.message,
         status: "running",
         deliveryStatus: "not_applicable",
@@ -481,7 +480,7 @@ export const agentHandlers: GatewayRequestHandlers = {
     // Inject timestamp into user-authored messages that don't already have one.
     // Channel messages (Discord, Telegram, etc.) get timestamps via envelope
     // formatting in a separate code path — they never reach this handler.
-    // See: https://github.com/moltbot/moltbot/issues/3658
+    // See: https://github.com/openclaw/openclaw/issues/3658
     if (!skipTimestampInjection) {
       message = injectTimestamp(message, timestampOptsFromConfig(cfg));
     }
