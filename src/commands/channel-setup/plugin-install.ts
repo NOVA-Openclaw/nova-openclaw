@@ -243,13 +243,16 @@ function loadChannelSetupPluginRegistry(params: {
   activate?: boolean;
 }): PluginRegistry {
   clearPluginDiscoveryCache();
-  const resolvedConfig = applyPluginAutoEnable({ config: params.cfg, env: process.env }).config;
+  const autoEnabled = applyPluginAutoEnable({ config: params.cfg, env: process.env });
+  const resolvedConfig = autoEnabled.config;
   const workspaceDir =
     params.workspaceDir ??
     resolveAgentWorkspaceDir(resolvedConfig, resolveDefaultAgentId(resolvedConfig));
   const log = createSubsystemLogger("plugins");
   return loadOpenClawPlugins({
     config: resolvedConfig,
+    activationSourceConfig: params.cfg,
+    autoEnabledReasons: autoEnabled.autoEnabledReasons,
     workspaceDir,
     cache: false,
     logger: createPluginLoaderLogger(log),
@@ -269,9 +272,11 @@ function resolveScopedChannelPluginId(params: {
   if (explicitPluginId) {
     return explicitPluginId;
   }
-  return getChannelPluginCatalogEntry(params.channel, {
-    workspaceDir: params.workspaceDir,
-  })?.pluginId ?? resolveUniqueManifestScopedChannelPluginId(params);
+  return (
+    getChannelPluginCatalogEntry(params.channel, {
+      workspaceDir: params.workspaceDir,
+    })?.pluginId ?? resolveUniqueManifestScopedChannelPluginId(params)
+  );
 }
 
 function resolveUniqueManifestScopedChannelPluginId(params: {

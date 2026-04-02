@@ -367,12 +367,15 @@ async function evaluateSystemRunPolicyPhase(
     allowlist: approvals.allowlist,
     commandText: parsed.commandText,
   });
+  const inlineEvalExecutableTrusted =
+    inlineEvalHit !== null &&
+    segmentAllowlistEntries.some((entry) => entry?.source === "allow-always");
   const policy = evaluateSystemRunPolicy({
     security,
     ask,
     analysisOk,
     allowlistSatisfied,
-    durableApprovalSatisfied,
+    durableApprovalSatisfied: durableApprovalSatisfied || inlineEvalExecutableTrusted,
     approvalDecision: parsed.approvalDecision,
     approved: parsed.approved,
     isWindows,
@@ -381,20 +384,24 @@ async function evaluateSystemRunPolicyPhase(
   });
   analysisOk = policy.analysisOk;
   allowlistSatisfied = policy.allowlistSatisfied;
-  if (!policy.allowed) {
-    await sendSystemRunDenied(opts, parsed.execution, {
-      reason: policy.eventReason,
-      message: policy.errorMessage,
-    });
-    return null;
-  }
-
-  if (inlineEvalHit && !policy.approvedByAsk) {
+  const strictInlineEvalRequiresApproval =
+    inlineEvalHit !== null &&
+    !policy.approvedByAsk &&
+    (policy.allowed ? true : policy.eventReason !== "security=deny");
+  if (strictInlineEvalRequiresApproval) {
     await sendSystemRunDenied(opts, parsed.execution, {
       reason: "approval-required",
       message:
         `SYSTEM_RUN_DENIED: approval required (` +
         `${describeInterpreterInlineEval(inlineEvalHit)} requires explicit approval in strictInlineEval mode)`,
+    });
+    return null;
+  }
+
+  if (!policy.allowed) {
+    await sendSystemRunDenied(opts, parsed.execution, {
+      reason: policy.eventReason,
+      message: policy.errorMessage,
     });
     return null;
   }
