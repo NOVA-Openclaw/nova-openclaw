@@ -5,19 +5,11 @@ import {
   detectChangedExtensionIds,
   listAvailableExtensionIds,
   listChangedExtensionIds,
-  resolveExtensionTestPlan,
-} from "../../scripts/test-extension.mjs";
+} from "../../scripts/lib/changed-extensions.mjs";
+import { resolveExtensionTestPlan } from "../../scripts/lib/extension-test-plan.mjs";
 import { bundledPluginFile, bundledPluginRoot } from "../helpers/bundled-plugin-paths.js";
 
 const scriptPath = path.join(process.cwd(), "scripts", "test-extension.mjs");
-
-function readPlan(args: string[], cwd = process.cwd()) {
-  const stdout = execFileSync(process.execPath, [scriptPath, ...args, "--dry-run", "--json"], {
-    cwd,
-    encoding: "utf8",
-  });
-  return JSON.parse(stdout) as ReturnType<typeof resolveExtensionTestPlan>;
-}
 
 function runScript(args: string[], cwd = process.cwd()) {
   return execFileSync(process.execPath, [scriptPath, ...args], {
@@ -55,7 +47,7 @@ describe("scripts/test-extension.mjs", () => {
     expect(plan.hasTests).toBe(true);
   });
 
-  it("keeps extension-root plans lean when there is no paired core test root", () => {
+  it("omits src/<extension> when no paired core root exists", () => {
     const plan = resolveExtensionTestPlan({ targetArg: "line", cwd: process.cwd() });
 
     expect(plan.roots).toContain(bundledPluginRoot("line"));
@@ -66,7 +58,7 @@ describe("scripts/test-extension.mjs", () => {
 
   it("infers the extension from the current working directory", () => {
     const cwd = path.join(process.cwd(), "extensions", "slack");
-    const plan = readPlan([], cwd);
+    const plan = resolveExtensionTestPlan({ cwd });
 
     expect(plan.extensionId).toBe("slack");
     expect(plan.extensionDir).toBe(bundledPluginRoot("slack"));
@@ -102,9 +94,9 @@ describe("scripts/test-extension.mjs", () => {
     expect(extensionIds).toEqual(listAvailableExtensionIds());
   });
 
-  it("dry-run still reports a plan for extensions without tests", () => {
+  it("resolves a plan for extensions without tests", () => {
     const extensionId = findExtensionWithoutTests();
-    const plan = readPlan([extensionId]);
+    const plan = resolveExtensionTestPlan({ cwd: process.cwd(), targetArg: extensionId });
 
     expect(plan.extensionId).toBe(extensionId);
     expect(plan.hasTests).toBe(false);

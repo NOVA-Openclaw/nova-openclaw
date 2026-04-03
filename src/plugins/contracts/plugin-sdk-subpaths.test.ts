@@ -275,6 +275,11 @@ describe("plugin-sdk subpath exports", () => {
     ]) {
       expectSourceMentions(subpath, ["chunkTextForOutbound"]);
     }
+    expectSourceMentions("approval-auth-runtime", [
+      "createResolvedApproverActionAuthAdapter",
+      "resolveApprovalApprovers",
+    ]);
+    expectSourceMentions("reply-chunking", ["chunkText", "chunkTextWithMode"]);
     expectSourceMentions("reply-history", [
       "buildPendingHistoryContextFromMap",
       "clearHistoryEntriesIfEnabled",
@@ -375,7 +380,7 @@ describe("plugin-sdk subpath exports", () => {
         /plugins\/runtime\/runtime-(?:discord|imessage|line|signal|slack|telegram|whatsapp)(?:[-.][^"']*)?\.js/u,
       exclude: [
         "src/plugins/runtime/runtime-plugin-boundary.ts",
-        "src/plugins/runtime/runtime-web-channel-boundary.ts",
+        "src/plugins/runtime/runtime-web-channel-plugin.ts",
       ],
       excludeFilesMatching: [/\.test\.ts$/u, /\.test-harness\.ts$/u],
     });

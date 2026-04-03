@@ -303,14 +303,31 @@ describe("processDiscordMessage ack reactions", () => {
 
   it("sends ack reactions for mention-gated guild messages when mentioned", async () => {
     const ctx = await createBaseContext({
+      accountId: "ops",
       shouldRequireMention: true,
       effectiveWasMentioned: true,
+      route: {
+        agentId: "main",
+        channel: "discord",
+        accountId: "ops",
+        sessionKey: "agent:main:discord:channel:c1",
+        mainSessionKey: "agent:main:main",
+      },
     });
 
     // oxlint-disable-next-line typescript/no-explicit-any
     await processDiscordMessage(ctx as any);
 
-    expect(sendMocks.reactMessageDiscord.mock.calls[0]).toEqual(["c1", "m1", "👀", { rest: {} }]);
+    expect(sendMocks.reactMessageDiscord.mock.calls[0]).toEqual([
+      "c1",
+      "m1",
+      "👀",
+      {
+        rest: {},
+        cfg: expect.objectContaining({ messages: { ackReaction: "👀" } }),
+        accountId: "ops",
+      },
+    ]);
   });
 
   it("uses preflight-resolved messageChannelId when message.channelId is missing", async () => {
@@ -332,7 +349,11 @@ describe("processDiscordMessage ack reactions", () => {
       "fallback-channel",
       "m1",
       "👀",
-      { rest: {} },
+      {
+        rest: {},
+        cfg: expect.objectContaining({ messages: { ackReaction: "👀" } }),
+        accountId: "default",
+      },
     ]);
   });
 
@@ -410,6 +431,30 @@ describe("processDiscordMessage ack reactions", () => {
     expect(emojis).toContain("🏁");
   });
 
+  it("falls back to plain ack when status reactions are disabled", async () => {
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.replyOptions?.onReasoningStream?.();
+      return createNoQueuedDispatchResult();
+    });
+
+    const ctx = await createBaseContext({
+      cfg: {
+        messages: {
+          ackReaction: "👀",
+          statusReactions: {
+            enabled: false,
+            timing: { debounceMs: 0 },
+          },
+        },
+        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
+      },
+    });
+
+    await runProcessDiscordMessage(ctx);
+
+    expect(getReactionEmojis()).toEqual(["👀"]);
+  });
+
   it("shows compacting reaction during auto-compaction and resumes thinking", async () => {
     vi.useFakeTimers();
     dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
@@ -464,7 +509,56 @@ describe("processDiscordMessage ack reactions", () => {
     // oxlint-disable-next-line typescript/no-explicit-any
     await processDiscordMessage(ctx as any);
 
-    expect(sendMocks.removeReactionDiscord).toHaveBeenCalledWith("c1", "m1", "👀", { rest: {} });
+    expect(sendMocks.removeReactionDiscord).toHaveBeenCalledWith(
+      "c1",
+      "m1",
+      "👀",
+      expect.objectContaining({
+        rest: {},
+        cfg: expect.objectContaining({
+          messages: expect.objectContaining({
+            ackReaction: "👀",
+            removeAckAfterReply: true,
+          }),
+        }),
+        accountId: "default",
+      }),
+    );
+  });
+
+  it("removes the plain ack reaction when status reactions are disabled and removeAckAfterReply is enabled", async () => {
+    const ctx = await createBaseContext({
+      cfg: {
+        messages: {
+          ackReaction: "👀",
+          removeAckAfterReply: true,
+          statusReactions: {
+            enabled: false,
+          },
+        },
+        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
+      },
+    });
+
+    await runProcessDiscordMessage(ctx);
+
+    expect(getReactionEmojis()).toEqual(["👀"]);
+    expect(sendMocks.removeReactionDiscord).toHaveBeenNthCalledWith(
+      2,
+      "c1",
+      "m1",
+      "👀",
+      expect.objectContaining({
+        rest: {},
+        cfg: expect.objectContaining({
+          messages: expect.objectContaining({
+            ackReaction: "👀",
+            removeAckAfterReply: true,
+          }),
+        }),
+        accountId: "default",
+      }),
+    );
   });
 });
 
