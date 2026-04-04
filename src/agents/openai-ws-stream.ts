@@ -49,10 +49,12 @@ import {
 } from "./openai-ws-message-conversion.js";
 import { buildOpenAIWebSocketResponseCreatePayload } from "./openai-ws-request.js";
 import { log } from "./pi-embedded-runner/logger.js";
+import { createBoundaryAwareStreamFnForModel } from "./provider-transport-stream.js";
 import {
   buildAssistantMessageWithZeroUsage,
   buildStreamErrorAssistantMessage,
 } from "./stream-message-shared.js";
+import { stripSystemPromptCacheBoundary } from "./system-prompt-cache-boundary.js";
 import { mergeTransportMetadata } from "./transport-stream-shared.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,11 +81,13 @@ const wsRegistry = new Map<string, WsSession>();
 
 type OpenAIWsStreamDeps = {
   createManager: (options?: OpenAIWebSocketManagerOptions) => OpenAIWebSocketManager;
+  createHttpFallbackStreamFn: (model: ProviderRuntimeModel) => StreamFn | undefined;
   streamSimple: typeof piAi.streamSimple;
 };
 
 const defaultOpenAIWsStreamDeps: OpenAIWsStreamDeps = {
   createManager: (options) => new OpenAIWebSocketManager(options),
+  createHttpFallbackStreamFn: (model) => createBoundaryAwareStreamFnForModel(model),
   streamSimple: (...args) => piAi.streamSimple(...args),
 };
 
@@ -590,7 +594,9 @@ export function createOpenAIWebSocketStreamFn(
               manager: session.manager,
               modelId: model.id,
               tools: convertTools(context.tools),
-              instructions: context.systemPrompt ?? undefined,
+              instructions: context.systemPrompt
+                ? stripSystemPromptCacheBoundary(context.systemPrompt)
+                : undefined,
               metadata: resolveProviderTransportTurnState(model, {
                 sessionId,
                 turnId,
@@ -913,7 +919,7 @@ export function createOpenAIWebSocketStreamFn(
 }
 
 /**
- * Fall back to HTTP (`streamSimple`) and pipe events into the existing stream.
+ * Fall back to HTTP and pipe events into the existing stream.
  * This is called when the WebSocket is broken or unavailable.
  */
 async function fallbackToHttp(
@@ -954,7 +960,10 @@ async function fallbackToHttp(
       : {}),
     ...(signal ? { signal } : {}),
   };
-  const httpStream = openAIWsStreamDeps.streamSimple(model, context, mergedOptions);
+  const httpStreamFn =
+    openAIWsStreamDeps.createHttpFallbackStreamFn(model as ProviderRuntimeModel) ??
+    openAIWsStreamDeps.streamSimple;
+  const httpStream = await httpStreamFn(model, context, mergedOptions);
   for await (const event of httpStream) {
     if (fallbackOptions?.suppressStart && event.type === "start") {
       continue;

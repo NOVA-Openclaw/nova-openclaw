@@ -16,7 +16,7 @@ For the short guide, see [Onboarding (CLI)](/start/wizard).
 
 Local mode (default) walks you through:
 
-- Model and auth setup (OpenAI Code subscription OAuth, Anthropic API key or setup token, plus MiniMax, GLM, Ollama, Moonshot, StepFun, and AI Gateway options)
+- Model and auth setup (OpenAI Code subscription OAuth, Anthropic Claude CLI or API key, plus MiniMax, GLM, Ollama, Moonshot, StepFun, and AI Gateway options)
 - Workspace location and bootstrap files
 - Gateway settings (port, bind, auth, tailscale)
 - Channels and providers (Telegram, WhatsApp, Discord, Google Chat, Mattermost plugin, Signal)
@@ -130,15 +130,14 @@ What you set:
     Reuses a local Claude CLI login on the gateway host and switches model
     selection to `claude-cli/...`.
 
+    This is the preferred interactive Anthropic path in `openclaw onboard` and
+    `openclaw configure`.
+
     - macOS: checks Keychain item "Claude Code-credentials"
     - Linux and Windows: reuses `~/.claude/.credentials.json` if present
 
     On macOS, choose "Always Allow" so launchd starts do not block.
 
-  </Accordion>
-  <Accordion title="Anthropic token (setup-token paste)">
-    Run `claude setup-token` on any machine, then paste the token.
-    You can name it; blank uses default.
   </Accordion>
   <Accordion title="OpenAI Code subscription (Codex CLI reuse)">
     If `~/.codex/auth.json` exists, the wizard can reuse it.
@@ -225,8 +224,8 @@ Model behavior:
 
 Credential and profile paths:
 
-- OAuth credentials: `~/.openclaw/credentials/oauth.json`
 - Auth profiles (API keys + OAuth): `~/.openclaw/agents/<agentId>/agent/auth-profiles.json`
+- Legacy OAuth import: `~/.openclaw/credentials/oauth.json`
 
 Credential storage mode:
 
@@ -252,8 +251,10 @@ Credential storage mode:
 
 <Note>
 Headless and server tip: complete OAuth on a machine with a browser, then copy
-`~/.openclaw/credentials/oauth.json` (or `$OPENCLAW_STATE_DIR/credentials/oauth.json`)
-to the gateway host.
+that agent's `auth-profiles.json` (for example
+`~/.openclaw/agents/<agentId>/agent/auth-profiles.json`, or the matching
+`$OPENCLAW_STATE_DIR/...` path) to the gateway host. `credentials/oauth.json`
+is only a legacy import source.
 </Note>
 
 ## Outputs and internals

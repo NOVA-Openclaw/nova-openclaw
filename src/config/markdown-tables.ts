@@ -1,3 +1,4 @@
+import { getBundledChannelContractSurfaceEntries } from "../channels/plugins/contract-surfaces.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { normalizeAccountId } from "../routing/session-key.js";
@@ -14,11 +15,28 @@ type MarkdownConfigSection = MarkdownConfigEntry & {
   accounts?: Record<string, MarkdownConfigEntry>;
 };
 
-export const DEFAULT_TABLE_MODES = new Map<string, MarkdownTableMode>([
-  ["signal", "bullets"],
-  ["whatsapp", "bullets"],
-  ["mattermost", "off"],
-]);
+type ChannelMarkdownTableSurface = {
+  defaultMarkdownTableMode?: MarkdownTableMode;
+};
+
+function buildDefaultTableModes(): Map<string, MarkdownTableMode> {
+  return new Map(
+    getBundledChannelContractSurfaceEntries()
+      .flatMap(({ pluginId, surface }) => {
+        const defaultMarkdownTableMode = (surface as ChannelMarkdownTableSurface)
+          .defaultMarkdownTableMode;
+        return defaultMarkdownTableMode ? [[pluginId, defaultMarkdownTableMode] as const] : [];
+      })
+      .toSorted(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+let cachedDefaultTableModes: Map<string, MarkdownTableMode> | null = null;
+
+function getDefaultTableModes(): Map<string, MarkdownTableMode> {
+  cachedDefaultTableModes ??= buildDefaultTableModes();
+  return cachedDefaultTableModes;
+}
 
 const isMarkdownTableMode = (value: unknown): value is MarkdownTableMode =>
   value === "off" || value === "bullets" || value === "code" || value === "block";
@@ -49,7 +67,7 @@ export function resolveMarkdownTableMode(params: {
   accountId?: string | null;
 }): MarkdownTableMode {
   const channel = normalizeChannelId(params.channel);
-  const defaultMode = channel ? (DEFAULT_TABLE_MODES.get(channel) ?? "code") : "code";
+  const defaultMode = channel ? (getDefaultTableModes().get(channel) ?? "code") : "code";
   if (!channel || !params.cfg) {
     return defaultMode;
   }

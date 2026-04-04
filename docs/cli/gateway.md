@@ -91,6 +91,20 @@ Pass `--token` or `--password` explicitly. Missing explicit credentials is an er
 openclaw gateway health --url ws://127.0.0.1:18789
 ```
 
+### `gateway usage-cost`
+
+Fetch usage-cost summaries from session logs.
+
+```bash
+openclaw gateway usage-cost
+openclaw gateway usage-cost --days 7
+openclaw gateway usage-cost --json
+```
+
+Options:
+
+- `--days <days>`: number of days to include (default `30`).
+
 ### `gateway status`
 
 `gateway status` shows the Gateway service (launchd/systemd/schtasks) plus an optional RPC probe.
@@ -182,6 +196,21 @@ openclaw gateway call status
 openclaw gateway call logs.tail --params '{"sinceMs": 60000}'
 ```
 
+Options:
+
+- `--params <json>`: JSON object string for params (default `{}`)
+- `--url <url>`
+- `--token <token>`
+- `--password <password>`
+- `--timeout <ms>`
+- `--expect-final`
+- `--json`
+
+Notes:
+
+- `--params` must be valid JSON.
+- `--expect-final` is mainly for agent-style RPCs that stream intermediate events before a final payload.
+
 ## Manage the Gateway service
 
 ```bash
@@ -191,6 +220,12 @@ openclaw gateway stop
 openclaw gateway restart
 openclaw gateway uninstall
 ```
+
+Command options:
+
+- `gateway status`: `--url`, `--token`, `--password`, `--timeout`, `--no-probe`, `--require-rpc`, `--deep`, `--json`
+- `gateway install`: `--port`, `--runtime <node|bun>`, `--token`, `--force`, `--json`
+- `gateway uninstall|start|stop|restart`: `--json`
 
 Notes:
 

@@ -259,8 +259,11 @@ export function buildOpenAIProvider(): ProviderPlugin {
       normalizeProviderId(ctx.provider) === PROVIDER_ID
         ? wrapOpenAIProviderStream(ctx)
         : wrapAzureOpenAIProviderStream(ctx),
+    matchesContextOverflowError: ({ errorMessage }) =>
+      /content_filter.*(?:prompt|input).*(?:too long|exceed)/i.test(errorMessage),
     resolveTransportTurnState: (ctx) => resolveOpenAITransportTurnState(ctx),
     resolveWebSocketSessionPolicy: (ctx) => resolveOpenAIWebSocketSessionPolicy(ctx),
+    resolveReasoningOutputMode: () => "native",
     supportsXHighThinking: ({ modelId }) => matchesExactOrPrefix(modelId, OPENAI_XHIGH_MODEL_IDS),
     isModernModelRef: ({ modelId }) => matchesExactOrPrefix(modelId, OPENAI_MODERN_MODEL_IDS),
     buildMissingAuthMessage: (ctx) => {

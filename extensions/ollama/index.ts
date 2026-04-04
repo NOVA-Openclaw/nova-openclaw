@@ -153,6 +153,7 @@ export default definePluginEntry({
         });
       },
       buildReplayPolicy: (ctx) => buildOpenAICompatibleReplayPolicy(ctx.modelApi),
+      resolveReasoningOutputMode: () => "native",
       wrapStreamFn: (ctx) => {
         return createConfiguredOllamaCompatStreamWrapper(ctx);
       },
@@ -167,6 +168,9 @@ export default definePluginEntry({
           client,
         };
       },
+      matchesContextOverflowError: ({ errorMessage }) =>
+        /\bollama\b.*(?:context length|too many tokens|context window)/i.test(errorMessage) ||
+        /\btruncating input\b.*\btoo long\b/i.test(errorMessage),
       resolveSyntheticAuth: ({ providerConfig }) => {
         const hasApiConfig =
           Boolean(providerConfig?.api?.trim()) ||
