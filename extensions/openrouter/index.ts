@@ -21,20 +21,21 @@ export default definePluginEntry({
   description: "Bundled OpenRouter provider plugin",
   async register(api) {
     const {
-      buildPassthroughGeminiSanitizingReplayPolicy,
-      composeProviderStreamWrappers,
-      createOpenRouterSystemCacheWrapper,
-      createOpenRouterWrapper,
+      buildProviderReplayFamilyHooks,
+      buildProviderStreamFamilyHooks,
       createProviderApiKeyAuthMethod,
       DEFAULT_CONTEXT_TOKENS,
       getOpenRouterModelCapabilities,
-      isProxyReasoningUnsupported,
       loadOpenRouterModelCapabilities,
       OPENROUTER_DEFAULT_MODEL_REF,
       openrouterMediaUnderstandingProvider,
       applyOpenrouterConfig,
       buildOpenrouterProvider,
     } = await import("./register.runtime.js");
+    const PASSTHROUGH_GEMINI_REPLAY_HOOKS = buildProviderReplayFamilyHooks({
+      family: "passthrough-gemini",
+    });
+    const OPENROUTER_THINKING_STREAM_HOOKS = buildProviderStreamFamilyHooks("openrouter-thinking");
 
     function buildDynamicOpenRouterModel(
       ctx: ProviderResolveDynamicModelContext,
@@ -129,7 +130,7 @@ export default definePluginEntry({
       prepareDynamicModel: async (ctx) => {
         await loadOpenRouterModelCapabilities(ctx.modelId);
       },
-      buildReplayPolicy: ({ modelId }) => buildPassthroughGeminiSanitizingReplayPolicy(modelId),
+      ...PASSTHROUGH_GEMINI_REPLAY_HOOKS,
       resolveReasoningOutputMode: () => "native",
       isModernModelRef: () => true,
       wrapStreamFn: (ctx) => {
@@ -137,17 +138,13 @@ export default definePluginEntry({
           ctx.extraParams?.provider != null && typeof ctx.extraParams.provider === "object"
             ? (ctx.extraParams.provider as Record<string, unknown>)
             : undefined;
-        const skipReasoningInjection =
-          ctx.modelId === "auto" || isProxyReasoningUnsupported(ctx.modelId);
-        const openRouterThinkingLevel = skipReasoningInjection ? undefined : ctx.thinkingLevel;
-        return composeProviderStreamWrappers(
-          ctx.streamFn,
-          providerRouting
-            ? (streamFn) => injectOpenRouterRouting(streamFn, providerRouting)
-            : undefined,
-          (streamFn) => createOpenRouterWrapper(streamFn, openRouterThinkingLevel),
-          (streamFn) => createOpenRouterSystemCacheWrapper(streamFn),
-        );
+        const routedStreamFn = providerRouting
+          ? injectOpenRouterRouting(ctx.streamFn, providerRouting)
+          : ctx.streamFn;
+        return OPENROUTER_THINKING_STREAM_HOOKS.wrapStreamFn?.({
+          ...ctx,
+          streamFn: routedStreamFn,
+        });
       },
       isCacheTtlEligible: (ctx) => isOpenRouterCacheTtlModel(ctx.modelId),
     });
