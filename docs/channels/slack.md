@@ -354,8 +354,6 @@ Notes:
 
 ## Text streaming
 
-OpenClaw supports Slack native text streaming via the Agents and AI Apps API.
-
 `channels.slack.streaming` controls live preview behavior:
 
 - `off`: disable live preview streaming.
@@ -363,15 +361,23 @@ OpenClaw supports Slack native text streaming via the Agents and AI Apps API.
 - `block`: append chunked preview updates.
 - `progress`: show progress status text while generating, then send final text.
 
-`channels.slack.nativeStreaming` controls Slack's native streaming API (`chat.startStream` / `chat.appendStream` / `chat.stopStream`) when `streaming` is `partial` (default: `true`).
+`channels.slack.nativeStreaming` controls Slack native text streaming when `streaming` is `partial` (default: `true`).
 
-Disable native Slack streaming (keep draft preview behavior):
+- A reply thread must be available for native text streaming to appear. Thread selection still follows `replyToMode`. Without one, the normal draft preview is used.
+- Media and non-text payloads fall back to normal delivery.
+- If streaming fails mid-reply, OpenClaw falls back to normal delivery for remaining payloads.
 
-```yaml
-channels:
-  slack:
-    streaming: partial
-    nativeStreaming: false
+Use draft preview instead of Slack native text streaming:
+
+```json5
+{
+  channels: {
+    slack: {
+      streaming: "partial",
+      nativeStreaming: false,
+    },
+  },
+}
 ```
 
 Legacy keys:
@@ -379,23 +385,9 @@ Legacy keys:
 - `channels.slack.streamMode` (`replace | status_final | append`) is auto-migrated to `channels.slack.streaming`.
 - boolean `channels.slack.streaming` is auto-migrated to `channels.slack.nativeStreaming`.
 
-### Requirements
-
-1. Enable **Agents and AI Apps** in your Slack app settings.
-2. Ensure the app has the `assistant:write` scope.
-3. A reply thread must be available for that message. Thread selection still follows `replyToMode`.
-
-### Behavior
-
-- First text chunk starts a stream (`chat.startStream`).
-- Later text chunks append to the same stream (`chat.appendStream`).
-- End of reply finalizes stream (`chat.stopStream`).
-- Media and non-text payloads fall back to normal delivery.
-- If streaming fails mid-reply, OpenClaw falls back to normal delivery for remaining payloads.
-
 ## Typing reaction fallback
 
-`typingReaction` adds a temporary reaction to the inbound Slack message while OpenClaw is processing a reply, then removes it when the run finishes. This is a useful fallback when Slack native assistant typing is unavailable, especially in DMs.
+`typingReaction` adds a temporary reaction to the inbound Slack message while OpenClaw is processing a reply, then removes it when the run finishes. This is most useful outside of thread replies, which use a default "is typing..." status indicator.
 
 Resolution order:
 
@@ -513,7 +505,11 @@ Notes:
 
 ## Exec approvals in Slack
 
-Exec approval prompts can route natively through Slack using interactive buttons and interactions, instead of falling back to the Web UI or terminal. Approver authorization is enforced: only users identified as approvers can approve or deny requests through Slack.
+Slack can act as a native approval client with interactive buttons and interactions, instead of falling back to the Web UI or terminal.
+
+- Exec approvals use `channels.slack.execApprovals.*` for native DM/channel routing.
+- Plugin approvals can still resolve through the same Slack-native button surface when the request already lands in Slack and the approval id kind is `plugin:`.
+- Approver authorization is still enforced: only users identified as approvers can approve or deny requests through Slack.
 
 This uses the same shared approval button surface as other channels. When `interactivity` is enabled in your Slack app settings, approval prompts render as Block Kit buttons directly in the conversation.
 
@@ -555,8 +551,10 @@ opt into origin-chat delivery:
 }
 ```
 
-Shared `approvals.exec` forwarding is separate. Use it only when approval prompts must also route
-to other chats or explicit out-of-band targets.
+Shared `approvals.exec` forwarding is separate. Use it only when exec approval prompts must also
+route to other chats or explicit out-of-band targets. Shared `approvals.plugin` forwarding is also
+separate; Slack-native buttons can still resolve plugin approvals when those requests already land
+in Slack.
 
 Same-chat `/approve` also works in Slack channels and DMs that already support commands. See [Exec approvals](/tools/exec-approvals) for the full approval forwarding model.
 
@@ -565,7 +563,6 @@ Same-chat `/approve` also works in Slack channels and DMs that already support c
 - Message edits/deletes/thread broadcasts are mapped into system events.
 - Reaction add/remove events are mapped into system events.
 - Member join/leave, channel created/renamed, and pin add/remove events are mapped into system events.
-- Assistant thread status updates (for "is typing..." indicators in threads) use `assistant.threads.setStatus` and require bot scope `assistant:write`.
 - `channel_id_changed` can migrate channel config keys when `configWrites` is enabled.
 - Channel topic/purpose metadata is treated as untrusted context and can be injected into routing context.
 - Thread starter and initial thread-history context seeding are filtered by configured sender allowlists when applicable.
