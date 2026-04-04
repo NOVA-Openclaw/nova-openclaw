@@ -45,6 +45,7 @@ function getHumanDelay(config: HumanDelayConfig | undefined): number {
 export type ReplyDispatcherOptions = {
   deliver: ReplyDispatchDeliverer;
   responsePrefix?: string;
+  transformReplyPayload?: (payload: ReplyPayload) => ReplyPayload | null;
   /** Static context for response prefix template interpolation. */
   responsePrefixContext?: ResponsePrefixContext;
   /** Dynamic context provider for response prefix template interpolation.
@@ -93,7 +94,11 @@ export type ReplyDispatcher = {
 
 type NormalizeReplyPayloadInternalOptions = Pick<
   ReplyDispatcherOptions,
-  "responsePrefix" | "responsePrefixContext" | "responsePrefixContextProvider" | "onHeartbeatStrip"
+  | "responsePrefix"
+  | "responsePrefixContext"
+  | "responsePrefixContextProvider"
+  | "onHeartbeatStrip"
+  | "transformReplyPayload"
 > & {
   onSkip?: (reason: NormalizeReplySkipReason) => void;
 };
@@ -109,6 +114,7 @@ function normalizeReplyPayloadInternal(
     responsePrefix: opts.responsePrefix,
     responsePrefixContext: prefixContext,
     onHeartbeatStrip: opts.onHeartbeatStrip,
+    transformReplyPayload: opts.transformReplyPayload,
     onSkip: opts.onSkip,
   });
 }
@@ -145,6 +151,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       responsePrefix: options.responsePrefix,
       responsePrefixContext: options.responsePrefixContext,
       responsePrefixContextProvider: options.responsePrefixContextProvider,
+      transformReplyPayload: options.transformReplyPayload,
       onHeartbeatStrip: options.onHeartbeatStrip,
       onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
     });
