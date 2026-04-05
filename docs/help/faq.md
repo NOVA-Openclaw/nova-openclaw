@@ -206,6 +206,7 @@ Quick answers plus deeper troubleshooting for real-world setups (local dev, VPS,
 
     - If the chat already supports commands and replies, same-chat `/approve` works through the shared path.
     - If a supported native channel can infer approvers safely, OpenClaw now auto-enables DM-first native approvals when `channels.<channel>.execApprovals.enabled` is unset or `"auto"`.
+    - When native approval cards/buttons are available, that native UI is the primary path; the agent should only include a manual `/approve` command if the tool result says chat approvals are unavailable or manual approval is the only path.
     - Use `approvals.exec` only when prompts must also be forwarded to other chats or explicit ops rooms.
     - Use `channels.<channel>.execApprovals.target: "channel"` or `"both"` only when you explicitly want approval prompts posted back into the originating room/topic.
     - Plugin approvals are separate again: they use same-chat `/approve` by default, optional `approvals.plugin` forwarding, and only some native channels keep plugin-approval-native handling on top.
@@ -580,11 +581,12 @@ Quick answers plus deeper troubleshooting for real-world setups (local dev, VPS,
     **local-only models** so your data stays on your device. Subscriptions (Claude
     Pro/Max or OpenAI Codex) are optional ways to authenticate those providers.
 
-    Anthropic changed third-party harness billing on **April 4, 2026 at 12:00 PM
-    PT / 8:00 PM BST**. Anthropic says Claude subscription limits no longer cover
-    OpenClaw, and Anthropic subscription auth in OpenClaw now requires **Extra
-    Usage** billed separately from the subscription. OpenAI Codex OAuth is
-    explicitly supported for external tools like OpenClaw.
+    Anthropic's public Claude Code docs still include direct Claude Code terminal
+    use in Claude plan limits. Separately, Anthropic notified OpenClaw users on
+    **April 4, 2026 at 12:00 PM PT / 8:00 PM BST** that the **OpenClaw**
+    Claude-login path counts as third-party harness usage and now requires
+    **Extra Usage** billed separately from the subscription. OpenAI Codex OAuth
+    is explicitly supported for external tools like OpenClaw.
 
     OpenClaw also supports other hosted subscription-style options including
     **Qwen Cloud Coding Plan**, **MiniMax Coding Plan**, and
@@ -601,23 +603,26 @@ Quick answers plus deeper troubleshooting for real-world setups (local dev, VPS,
     Yes, via a local **Claude CLI** login on the gateway host.
 
     Claude Pro/Max subscriptions **do not include an API key**, so Claude CLI
-    reuse is the supported subscription-style path in OpenClaw. Anthropic
-    changed third-party harness billing on **April 4, 2026 at 12:00 PM PT /
-    8:00 PM BST**: Anthropic says OpenClaw now requires **Extra Usage** billed
-    separately from the subscription for this path. If you want the clearest
-    and safest supported path for production, use an Anthropic API key.
+    reuse is the supported subscription-style path in OpenClaw. Anthropic's
+    public Claude Code docs still cover direct Claude Code terminal use under
+    your plan. Separately, Anthropic told OpenClaw users on **April 4, 2026 at
+    12:00 PM PT / 8:00 PM BST** that the **OpenClaw** Claude-login path
+    requires **Extra Usage** billed separately from the subscription. If you
+    want the clearest and safest supported path for production, use an
+    Anthropic API key.
 
   </Accordion>
 
   <Accordion title="Do you support Claude subscription auth (Claude Pro or Max)?">
     Yes. Reuse a local **Claude CLI** login on the gateway host with `openclaw models auth login --provider anthropic --method cli --set-default`.
 
-    Existing legacy Anthropic token profiles still run if they are already configured, but OpenClaw no longer offers Anthropic setup-token as a new setup path. See [Anthropic](/providers/anthropic) and [OAuth](/concepts/oauth).
+    Anthropic setup-token is also available again as a legacy/manual OpenClaw path. Anthropic's OpenClaw-specific billing notice still applies there, so use it with the expectation that Anthropic requires **Extra Usage**. See [Anthropic](/providers/anthropic) and [OAuth](/concepts/oauth).
 
-    Important: Anthropic changed third-party harness billing on **April 4, 2026
-    at 12:00 PM PT / 8:00 PM BST**. Anthropic says Claude subscription limits no
-    longer cover OpenClaw, and Anthropic now requires **Extra Usage** billed
-    separately from the subscription for Claude CLI traffic through OpenClaw.
+    Important: Anthropic's public Claude Code docs still cover direct Claude
+    Code terminal use under Claude plans. Separately, Anthropic told OpenClaw
+    users on **April 4, 2026 at 12:00 PM PT / 8:00 PM BST** that the
+    **OpenClaw** Claude-login path requires **Extra Usage** billed separately
+    from the subscription.
 
     For production or multi-user workloads, Anthropic API key auth is the
     safer, recommended choice. If you want other subscription-style hosted
@@ -637,8 +642,8 @@ for usage/billing and raise limits as needed.
     If the message is specifically:
     `Extra usage is required for long context requests`, the request is trying to use
     Anthropic's 1M context beta (`context1m: true`). That only works when your
-    credential is eligible for long-context billing (API key billing or Claude
-    CLI with Extra Usage enabled).
+    credential is eligible for long-context billing (API key billing or the
+    OpenClaw Claude-login path with Extra Usage enabled).
 
     Tip: set a **fallback model** so OpenClaw can keep replying while a provider is rate-limited.
     See [Models](/cli/models), [OAuth](/concepts/oauth), and
@@ -1029,7 +1034,7 @@ for usage/billing and raise limits as needed.
     - If the completion origin only carries a channel, OpenClaw falls back to the requester session's stored route (`lastChannel` / `lastTo` / `lastAccountId`) so direct delivery can still succeed.
     - If neither a bound route nor a usable stored route exists, direct delivery can fail and the result falls back to queued session delivery instead of posting immediately to chat.
     - Invalid or stale targets can still force queue fallback or final delivery failure.
-    - If the child's last visible assistant reply is a silent token (`NO_REPLY` / `ANNOUNCE_SKIP`), OpenClaw intentionally suppresses the announce instead of posting stale earlier progress.
+    - If the child's last visible assistant reply is the exact silent token `NO_REPLY` / `no_reply`, or exactly `ANNOUNCE_SKIP`, OpenClaw intentionally suppresses the announce instead of posting stale earlier progress.
     - If the child timed out after only tool calls, the announce can collapse that into a short partial-progress summary instead of replaying raw tool output.
 
     Debug:
@@ -1614,6 +1619,7 @@ for usage/billing and raise limits as needed.
     - Use `openclaw configure` for interactive edits.
     - Use `config.schema.lookup` first when you are not sure about an exact path or field shape; it returns a shallow schema node plus immediate child summaries for drill-down.
     - Use `config.patch` for partial RPC edits; keep `config.apply` for full-config replacement only.
+    - If you are using the owner-only `gateway` tool from an agent run, it will still reject writes to `tools.exec.ask` / `tools.exec.security` (including legacy `tools.bash.*` aliases that normalize to the same protected exec paths).
 
     Docs: [Config](/cli/config), [Configure](/cli/configure), [Doctor](/gateway/doctor).
 
@@ -1789,6 +1795,7 @@ for usage/billing and raise limits as needed.
     - `config.get`: fetch the current snapshot + hash
     - `config.patch`: safe partial update (preferred for most RPC edits)
     - `config.apply`: validate + replace the full config, then restart
+    - The owner-only `gateway` runtime tool still refuses to rewrite `tools.exec.ask` / `tools.exec.security`; legacy `tools.bash.*` aliases normalize to the same protected exec paths
 
   </Accordion>
 
