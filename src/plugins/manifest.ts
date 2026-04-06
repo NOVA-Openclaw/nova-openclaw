@@ -428,10 +428,24 @@ export type PluginPackageChannel = {
   selectionDocsOmitLabel?: boolean;
   selectionExtras?: readonly string[];
   markdownCapable?: boolean;
+  exposure?: {
+    configured?: boolean;
+    setup?: boolean;
+    docs?: boolean;
+  };
   showConfigured?: boolean;
+  showInSetup?: boolean;
   quickstartAllowFrom?: boolean;
   forceAccountBinding?: boolean;
   preferSessionLookupForAnnounceTarget?: boolean;
+  configuredState?: {
+    specifier?: string;
+    exportName?: string;
+  };
+  persistedAuthState?: {
+    specifier?: string;
+    exportName?: string;
+  };
 };
 
 export type PluginPackageInstall = {

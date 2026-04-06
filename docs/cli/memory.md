@@ -34,6 +34,8 @@ openclaw memory status --deep --index
 openclaw memory status --deep --index --verbose
 openclaw memory status --agent main
 openclaw memory index --agent main --verbose
+openclaw memory promote-explain "router vlan"
+openclaw memory rem-harness --json
 ```
 
 ## Options
@@ -90,16 +92,44 @@ Full options:
 - `--include-promoted`: include already promoted candidates in output.
 - `--json`: print JSON output.
 
+`memory promote-explain`:
+
+Explain why a specific candidate would or would not promote, with a full score breakdown.
+
+```bash
+openclaw memory promote-explain "<selector>"
+```
+
+- `<selector>`: candidate key, path fragment, or snippet fragment to match.
+- `--agent <id>`: scope to a single agent (default: the default agent).
+- `--include-promoted`: include already promoted candidates.
+- `--json`: print JSON output.
+
+`memory rem-harness`:
+
+Preview REM reflections, candidate truths, and deep promotion output without writing anything. Useful for staging and debugging the REM phase before it runs for real.
+
+```bash
+openclaw memory rem-harness [--json] [--agent <id>] [--include-promoted]
+```
+
+- `--agent <id>`: scope to a single agent (default: the default agent).
+- `--include-promoted`: include already promoted deep candidates.
+- `--json`: print JSON output.
+
+See [Dreaming](/concepts/dreaming) for the full phase model and how REM fits in.
+
 ## Dreaming (experimental)
 
 Dreaming is the background memory consolidation system with three cooperative
-phases: **light** (organize into daily note), **deep** (promote into
-`MEMORY.md`), and **REM** (reflect and find patterns in the daily note).
+phases: **light** (organize into `DREAMS.md` in inline mode), **deep**
+(promote into `MEMORY.md`), and **REM** (reflect and find patterns in
+`DREAMS.md` in inline mode).
 
 - Enable with `plugins.entries.memory-core.config.dreaming.enabled: true`.
 - Toggle from chat with `/dreaming on|off` or `/dreaming enable|disable light|deep|rem`.
 - Each phase runs on its own cron schedule, managed automatically by `memory-core`.
-- Only the deep phase writes to `MEMORY.md`. Light and REM write to the daily note only.
+- Only the deep phase writes durable memory to `MEMORY.md`. With default inline storage, Light and REM write to `DREAMS.md`.
 - Ranking uses weighted signals: recall frequency, retrieval relevance, query diversity, temporal recency, cross-day consolidation, and derived concept richness.
 - Promotion re-reads the live daily note before writing to `MEMORY.md`, so edited or deleted short-term snippets do not get promoted from stale recall-store snapshots.
 - Scheduled and manual `memory promote` runs share the same deep phase defaults unless you pass CLI threshold overrides.
