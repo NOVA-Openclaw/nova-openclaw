@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
 
 const DISABLED_BUNDLED_CHANNELS = Object.freeze({
   bluebubbles: { enabled: false },
@@ -37,6 +38,59 @@ export function buildQaGatewayConfig(params: {
   alternateModel?: string;
   fastMode?: boolean;
 }): OpenClawConfig {
+  const mockProviderBaseUrl = params.providerBaseUrl ?? "http://127.0.0.1:44080/v1";
+  const mockOpenAiProvider: ModelProviderConfig = {
+    baseUrl: mockProviderBaseUrl,
+    apiKey: "test",
+    api: "openai-responses",
+    models: [
+      {
+        id: "gpt-5.4",
+        name: "gpt-5.4",
+        api: "openai-responses",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+        },
+        contextWindow: 128_000,
+        maxTokens: 4096,
+      },
+      {
+        id: "gpt-5.4-alt",
+        name: "gpt-5.4-alt",
+        api: "openai-responses",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+        },
+        contextWindow: 128_000,
+        maxTokens: 4096,
+      },
+      {
+        id: "gpt-image-1",
+        name: "gpt-image-1",
+        api: "openai-responses",
+        reasoning: false,
+        input: ["text"],
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+        },
+        contextWindow: 128_000,
+        maxTokens: 4096,
+      },
+    ],
+  };
   const providerMode = params.providerMode ?? "mock-openai";
   const allowedPlugins =
     providerMode === "live-openai"
@@ -48,6 +102,8 @@ export function buildQaGatewayConfig(params: {
   const alternateModel =
     params.alternateModel ??
     (providerMode === "live-openai" ? "openai/gpt-5.4" : "mock-openai/gpt-5.4-alt");
+  const imageGenerationModelRef =
+    providerMode === "live-openai" ? "openai/gpt-image-1" : "mock-openai/gpt-image-1";
   const liveModelParams =
     providerMode === "live-openai"
       ? {
@@ -94,6 +150,17 @@ export function buildQaGatewayConfig(params: {
         model: {
           primary: primaryModel,
         },
+        imageGenerationModel: {
+          primary: imageGenerationModelRef,
+        },
+        memorySearch: {
+          sync: {
+            watch: true,
+            watchDebounceMs: 25,
+            onSessionStart: true,
+            onSearch: true,
+          },
+        },
         models: {
           [primaryModel]: {
             params: liveModelParams,
@@ -126,48 +193,15 @@ export function buildQaGatewayConfig(params: {
         },
       ],
     },
+    memory: {
+      backend: "builtin",
+    },
     ...(providerMode === "mock-openai"
       ? {
           models: {
             mode: "replace",
             providers: {
-              "mock-openai": {
-                baseUrl: params.providerBaseUrl,
-                apiKey: "test",
-                api: "openai-responses",
-                models: [
-                  {
-                    id: "gpt-5.4",
-                    name: "gpt-5.4",
-                    api: "openai-responses",
-                    reasoning: false,
-                    input: ["text"],
-                    cost: {
-                      input: 0,
-                      output: 0,
-                      cacheRead: 0,
-                      cacheWrite: 0,
-                    },
-                    contextWindow: 128_000,
-                    maxTokens: 4096,
-                  },
-                  {
-                    id: "gpt-5.4-alt",
-                    name: "gpt-5.4-alt",
-                    api: "openai-responses",
-                    reasoning: false,
-                    input: ["text"],
-                    cost: {
-                      input: 0,
-                      output: 0,
-                      cacheRead: 0,
-                      cacheWrite: 0,
-                    },
-                    contextWindow: 128_000,
-                    maxTokens: 4096,
-                  },
-                ],
-              },
+              "mock-openai": mockOpenAiProvider,
             },
           },
         }
