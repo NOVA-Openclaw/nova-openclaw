@@ -1,6 +1,26 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { hasInterSessionUserProvenance } from "../../../sessions/input-provenance.js";
+
+function extractTextMessageContent(content: unknown): string | undefined {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const candidate = block as { type?: unknown; text?: unknown };
+    if (candidate.type === "text" && typeof candidate.text === "string") {
+      return candidate.text;
+    }
+  }
+  return undefined;
+}
 
 export async function getRecentSessionContent(
   sessionFilePath: string,
@@ -15,16 +35,13 @@ export async function getRecentSessionContent(
       try {
         const entry = JSON.parse(line);
         if (entry.type === "message" && entry.message) {
-          const msg = entry.message;
+          const msg = entry.message as AgentMessage & { content?: unknown };
           const role = msg.role;
-          if ((role === "user" || role === "assistant") && msg.content) {
+          if ((role === "user" || role === "assistant") && "content" in msg && msg.content) {
             if (role === "user" && hasInterSessionUserProvenance(msg)) {
               continue;
             }
-            const text = Array.isArray(msg.content)
-              ? // oxlint-disable-next-line typescript/no-explicit-any
-                msg.content.find((c: any) => c.type === "text")?.text
-              : msg.content;
+            const text = extractTextMessageContent(msg.content);
             if (text && !text.startsWith("/")) {
               allMessages.push(`${role}: ${text}`);
             }
