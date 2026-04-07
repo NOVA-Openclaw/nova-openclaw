@@ -20,7 +20,12 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-status";
 import { writeDailyDreamingPhaseBlock } from "./dreaming-markdown.js";
 import { generateAndAppendDreamNarrative, type NarrativePhaseData } from "./dreaming-narrative.js";
-import { asRecord, formatErrorMessage, normalizeTrimmedString } from "./dreaming-shared.js";
+import {
+  asRecord,
+  formatErrorMessage,
+  includesSystemEventToken,
+  normalizeTrimmedString,
+} from "./dreaming-shared.js";
 import {
   readShortTermRecallEntries,
   recordDreamingPhaseSignals,
@@ -1516,12 +1521,12 @@ async function runPhaseIfTriggered(params: {
         timezone?: string;
         storage: { mode: "inline" | "separate" | "both"; separateReports: boolean };
       })
-    | (MemoryRemDreamingConfig & {
-        timezone?: string;
-        storage: { mode: "inline" | "separate" | "both"; separateReports: boolean };
-      });
+     ;
 }): Promise<{ handled: true; reason: string } | undefined> {
-  if (params.trigger !== "heartbeat" || params.cleanedBody.trim() !== params.eventText) {
+  if (
+    params.trigger !== "heartbeat" ||
+    !includesSystemEventToken(params.cleanedBody, params.eventText)
+  ) {
     return undefined;
   }
   if (!params.config.enabled) {
@@ -1547,10 +1552,7 @@ async function runPhaseIfTriggered(params: {
         await runLightDreaming({
           workspaceDir,
           cfg: params.cfg,
-          config: params.config as MemoryLightDreamingConfig & {
-            timezone?: string;
-            storage: { mode: "inline" | "separate" | "both"; separateReports: boolean };
-          },
+          config: params.config,
           logger: params.logger,
           subagent: params.subagent,
         });
@@ -1558,10 +1560,7 @@ async function runPhaseIfTriggered(params: {
         await runRemDreaming({
           workspaceDir,
           cfg: params.cfg,
-          config: params.config as MemoryRemDreamingConfig & {
-            timezone?: string;
-            storage: { mode: "inline" | "separate" | "both"; separateReports: boolean };
-          },
+          config: params.config,
           logger: params.logger,
           subagent: params.subagent,
         });

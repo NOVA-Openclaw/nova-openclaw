@@ -2017,6 +2017,11 @@ export type OpenClawPluginService = {
   stop?: (ctx: OpenClawPluginServiceContext) => void | Promise<void>;
 };
 
+export type CliBundleMcpMode =
+  | "claude-config-file"
+  | "codex-config-overrides"
+  | "gemini-system-settings";
+
 /** Plugin-owned CLI backend defaults used by the text-only CLI runner. */
 export type CliBackendPlugin = {
   /** Provider id used in model refs, for example `claude-cli/opus`. */
@@ -2024,12 +2029,36 @@ export type CliBackendPlugin = {
   /** Default backend config before user overrides from `agents.defaults.cliBackends`. */
   config: CliBackendConfig;
   /**
+   * Optional live-smoke metadata owned by the backend plugin.
+   *
+   * Keep provider-specific test wiring here instead of scattering it across
+   * Docker wrappers, docs, and gateway live tests.
+   */
+  liveTest?: {
+    defaultModelRef?: string;
+    defaultImageProbe?: boolean;
+    defaultMcpProbe?: boolean;
+    docker?: {
+      npmPackage?: string;
+      binaryName?: string;
+    };
+  };
+  /**
    * Whether OpenClaw should inject bundle MCP config for this backend.
    *
-   * Keep this opt-in. Only backends that explicitly consume an MCP config file
-   * should enable it.
+   * Keep this opt-in. Only backends that explicitly consume OpenClaw's bundle
+   * MCP bridge should enable it.
    */
   bundleMcp?: boolean;
+  /**
+   * Provider-owned bundle MCP integration strategy.
+   *
+   * Different CLIs wire MCP through different surfaces:
+   * - Claude: `--strict-mcp-config --mcp-config`
+   * - Codex: `-c mcp_servers=...`
+   * - Gemini: system-level `settings.json`
+   */
+  bundleMcpMode?: CliBundleMcpMode;
   /**
    * Optional config normalizer applied after user overrides merge.
    *

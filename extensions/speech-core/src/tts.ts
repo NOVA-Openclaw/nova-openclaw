@@ -327,7 +327,9 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
     mode: raw.mode ?? "final",
     provider:
       normalizeConfiguredSpeechProviderId(raw.provider) ??
-      (providerSource === "config" ? raw.provider?.trim().toLowerCase() || "" : ""),
+      (providerSource === "config"
+        ? (normalizeOptionalString(raw.provider)?.toLowerCase() ?? "")
+        : ""),
     providerSource,
     summaryModel: normalizeOptionalString(raw.summaryModel),
     modelOverrides: resolveModelOverridePolicy(raw.modelOverrides),
@@ -873,9 +875,7 @@ export async function textToSpeechTelephony(params: {
         logVerbose(`TTS telephony: provider ${provider} skipped (${resolvedProvider.message})`);
         continue;
       }
-      const synthesizeTelephony = resolvedProvider.provider.synthesizeTelephony as NonNullable<
-        typeof resolvedProvider.provider.synthesizeTelephony
-      >;
+      const synthesizeTelephony = resolvedProvider.provider.synthesizeTelephony;
       const synthesis = await synthesizeTelephony({
         text: params.text,
         cfg: params.cfg,

@@ -4,6 +4,7 @@ import {
 } from "openclaw/plugin-sdk/account-resolution";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { evaluateSenderGroupAccessForPolicy } from "openclaw/plugin-sdk/group-access";
+import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/text-runtime";
 import type { AllowlistMatch, ChannelGroupContext, GroupToolPolicyConfig } from "../runtime-api.js";
 import { normalizeFeishuTarget } from "./targets.js";
 import type { FeishuConfig, FeishuGroupConfig } from "./types.js";
@@ -20,7 +21,7 @@ function normalizeFeishuAllowEntry(raw: string): string {
   }
   const withoutProviderPrefix = trimmed.replace(/^feishu:/i, "");
   const normalized = normalizeFeishuTarget(withoutProviderPrefix) ?? withoutProviderPrefix;
-  return normalized.trim().toLowerCase();
+  return normalizeOptionalLowercaseString(normalized) ?? "";
 }
 
 export function resolveFeishuAllowlistMatch(params: {
@@ -69,7 +70,7 @@ export function resolveFeishuGroupConfig(params: {
     return direct;
   }
 
-  const lowered = groupId.toLowerCase();
+  const lowered = normalizeOptionalLowercaseString(groupId) ?? "";
   const matchKey = Object.keys(groups).find((key) => key.toLowerCase() === lowered);
   if (matchKey) {
     return groups[matchKey];
@@ -80,7 +81,7 @@ export function resolveFeishuGroupConfig(params: {
 export function resolveFeishuGroupToolPolicy(
   params: ChannelGroupContext,
 ): GroupToolPolicyConfig | undefined {
-  const cfg = params.cfg.channels?.feishu as FeishuConfig | undefined;
+  const cfg = params.cfg.channels?.feishu;
   if (!cfg) {
     return undefined;
   }
@@ -124,7 +125,7 @@ export function resolveFeishuReplyPolicy(params: {
     return { requireMention: false };
   }
 
-  const feishuCfg = params.cfg.channels?.feishu as FeishuConfig | undefined;
+  const feishuCfg = params.cfg.channels?.feishu;
   const resolvedCfg = resolveMergedAccountConfig<FeishuConfig>({
     channelConfig: feishuCfg,
     accounts: feishuCfg?.accounts as Record<string, Partial<FeishuConfig>> | undefined,
