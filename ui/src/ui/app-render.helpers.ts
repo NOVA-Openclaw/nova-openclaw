@@ -1,7 +1,7 @@
 import { html, nothing } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { t } from "../i18n/index.ts";
-import { refreshChat } from "./app-chat.ts";
+import { refreshChat, refreshChatAvatar } from "./app-chat.ts";
 import { syncUrlWithSessionKey } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { OpenClawApp } from "./app.ts";
@@ -48,7 +48,17 @@ function resolveSidebarChatSessionKey(state: AppViewState): string {
 function resetChatStateForSessionSwitch(state: AppViewState, sessionKey: string) {
   state.sessionKey = sessionKey;
   state.chatMessage = "";
+  state.chatAttachments = [];
+  state.chatMessages = [];
+  state.chatToolMessages = [];
+  state.chatStreamSegments = [];
+  state.chatThinkingLevel = null;
   state.chatStream = null;
+  state.lastError = null;
+  state.compactionStatus = null;
+  state.fallbackStatus = null;
+  state.chatAvatarUrl = null;
+  state.chatQueue = [];
   (state as unknown as OpenClawApp).chatStreamStartedAt = null;
   state.chatRunId = null;
   (state as unknown as OpenClawApp).resetToolStream();
@@ -114,8 +124,9 @@ function renderCronFilterIcon(hiddenCount: number) {
         <circle cx="12" cy="12" r="10"></circle>
         <polyline points="12 6 12 12 16 14"></polyline>
       </svg>
-      ${hiddenCount > 0
-        ? html`<span
+      ${
+        hiddenCount > 0
+          ? html`<span
             style="
               position: absolute;
               top: -5px;
@@ -130,7 +141,8 @@ function renderCronFilterIcon(hiddenCount: number) {
             "
             >${hiddenCount}</span
           >`
-        : ""}
+          : ""
+      }
     </span>
   `;
 }
@@ -321,11 +333,13 @@ export function renderChatControls(state: AppViewState) {
           state.sessionsHideCron = !hideCron;
         }}
         aria-pressed=${hideCron}
-        title=${hideCron
-          ? hiddenCronCount > 0
-            ? t("chat.showCronSessionsHidden", { count: String(hiddenCronCount) })
-            : t("chat.showCronSessions")
-          : t("chat.hideCronSessions")}
+        title=${
+          hideCron
+            ? hiddenCronCount > 0
+              ? t("chat.showCronSessionsHidden", { count: String(hiddenCronCount) })
+              : t("chat.showCronSessions")
+            : t("chat.hideCronSessions")
+        }
       >
         ${renderCronFilterIcon(hiddenCronCount)}
       </button>
@@ -504,21 +518,9 @@ export function renderChatMobileToggle(state: AppViewState) {
 }
 
 export function switchChatSession(state: AppViewState, nextSessionKey: string) {
-  state.sessionKey = nextSessionKey;
-  state.chatMessage = "";
-  state.chatStream = null;
-  // P1: Clear queued chat items from the previous session
-  (state as unknown as { chatQueue: unknown[] }).chatQueue = [];
-  (state as unknown as OpenClawApp).chatStreamStartedAt = null;
-  state.chatRunId = null;
-  (state as unknown as OpenClawApp).resetToolStream();
-  (state as unknown as OpenClawApp).resetChatScroll();
-  state.applySettings({
-    ...state.settings,
-    sessionKey: nextSessionKey,
-    lastActiveSessionKey: nextSessionKey,
-  });
+  resetChatStateForSessionSwitch(state, nextSessionKey);
   void state.loadAssistantIdentity();
+  void refreshChatAvatar(state);
   syncUrlWithSessionKey(
     state as unknown as Parameters<typeof syncUrlWithSessionKey>[0],
     nextSessionKey,
@@ -1120,9 +1122,9 @@ export function renderTopbarThemeModeToggle(state: AppViewState) {
         (opt) => html`
           <button
             type="button"
-            class="topbar-theme-mode__btn ${opt.id === state.themeMode
-              ? "topbar-theme-mode__btn--active"
-              : ""}"
+            class="topbar-theme-mode__btn ${
+              opt.id === state.themeMode ? "topbar-theme-mode__btn--active" : ""
+            }"
             title=${opt.label}
             aria-label="Color mode: ${opt.label}"
             aria-pressed=${opt.id === state.themeMode}

@@ -16,6 +16,7 @@ export {
   setProviderWebSearchPluginConfigValue,
   setTopLevelCredentialValue,
 } from "../agents/tools/web-search-provider-config.js";
+export { createBaseWebSearchProviderContractFields as createWebSearchProviderContractFields } from "./provider-web-search-contract-fields.js";
 export type {
   WebSearchCredentialResolutionSource,
   WebSearchProviderSetupContext,
