@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   listBundledPluginBuildEntries,
@@ -46,5 +48,42 @@ describe("bundled plugin build entries", () => {
     const artifacts = listBundledPluginPackArtifacts();
 
     expect(artifacts).toContain("dist/extensions/matrix/plugin-entry.handlers.runtime.js");
+  });
+
+  it("keeps bundled channel secret contracts on packed top-level sidecars", () => {
+    const artifacts = listBundledPluginPackArtifacts();
+    const sourceEntries = ["index.ts", "channel-entry.ts", "setup-entry.ts"];
+    const offenders: string[] = [];
+    const secretBackedPluginIds = new Set<string>();
+
+    for (const dirent of fs.readdirSync("extensions", { withFileTypes: true })) {
+      if (!dirent.isDirectory()) {
+        continue;
+      }
+
+      for (const sourceEntry of sourceEntries) {
+        const entryPath = path.join("extensions", dirent.name, sourceEntry);
+        if (!fs.existsSync(entryPath)) {
+          continue;
+        }
+        const entry = fs.readFileSync(entryPath, "utf8");
+        if (!entry.includes('exportName: "channelSecrets"')) {
+          continue;
+        }
+        secretBackedPluginIds.add(dirent.name);
+        if (entry.includes("./src/secret-contract.js")) {
+          offenders.push(entryPath);
+        }
+        expect(entry).toContain('specifier: "./secret-contract-api.js"');
+      }
+    }
+
+    expect(offenders).toEqual([]);
+
+    for (const pluginId of [...secretBackedPluginIds].toSorted()) {
+      const secretApiPath = path.join("extensions", pluginId, "secret-contract-api.ts");
+      expect(fs.readFileSync(secretApiPath, "utf8")).toContain("channelSecrets");
+      expect(artifacts).toContain(`dist/extensions/${pluginId}/secret-contract-api.js`);
+    }
   });
 });
