@@ -34,8 +34,12 @@ async function runQaCharacterEval(opts: {
   model?: string[];
   scenario?: string;
   fast?: boolean;
-  judgeModel?: string;
+  thinking?: string;
+  modelThinking?: string[];
+  judgeModel?: string[];
   judgeTimeoutMs?: number;
+  concurrency?: number;
+  judgeConcurrency?: number;
 }) {
   const runtime = await loadQaLabCliRuntime();
   await runtime.runQaCharacterEvalCommand(opts);
@@ -168,11 +172,37 @@ export function registerQaLabCli(program: Command) {
     .description("Run the character QA scenario across live models and write a judged report")
     .option("--repo-root <path>", "Repository root to target when running from a neutral cwd")
     .option("--output-dir <path>", "Character eval artifact directory")
-    .option("--model <ref>", "Provider/model ref to evaluate (repeatable)", collectString, [])
+    .option(
+      "--model <ref[,option]>",
+      "Provider/model ref to evaluate; options: thinking=<level>, fast, no-fast, fast=<bool>",
+      collectString,
+      [],
+    )
     .option("--scenario <id>", "Character scenario id", "character-vibes-gollum")
-    .option("--fast", "Enable provider fast mode for candidate runs where supported", false)
-    .option("--judge-model <ref>", "Judge provider/model ref", "openai/gpt-5.4")
+    .option("--fast", "Enable provider fast mode for all candidate runs")
+    .option(
+      "--thinking <level>",
+      "Candidate thinking default: off|minimal|low|medium|high|xhigh|adaptive",
+    )
+    .option(
+      "--model-thinking <ref=level>",
+      "Deprecated: candidate thinking override for one model ref (repeatable)",
+      collectString,
+      [],
+    )
+    .option(
+      "--judge-model <ref[,option]>",
+      "Judge provider/model ref; options: thinking=<level>, fast, no-fast, fast=<bool> (repeatable)",
+      collectString,
+      [],
+    )
     .option("--judge-timeout-ms <ms>", "Override judge wait timeout", (value: string) =>
+      Number(value),
+    )
+    .option("--concurrency <count>", "Candidate model run concurrency", (value: string) =>
+      Number(value),
+    )
+    .option("--judge-concurrency <count>", "Judge model run concurrency", (value: string) =>
       Number(value),
     )
     .action(
@@ -182,8 +212,12 @@ export function registerQaLabCli(program: Command) {
         model?: string[];
         scenario?: string;
         fast?: boolean;
-        judgeModel?: string;
+        thinking?: string;
+        modelThinking?: string[];
+        judgeModel?: string[];
         judgeTimeoutMs?: number;
+        concurrency?: number;
+        judgeConcurrency?: number;
       }) => {
         await runQaCharacterEval(opts);
       },
