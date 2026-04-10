@@ -1,0 +1,26 @@
+#!/bin/sh
+# Post-merge hook to ensure version always ends with -nova
+
+set -e
+
+# Read current version from package.json
+VERSION=$(grep -o '"version": "[^"]*"' package.json | sed 's/.*"\([0-9.]*\)"/\1/')
+
+# Check if version already ends with -nova
+case "$VERSION" in
+  *-nova*)
+    # Version already ends with -nova, nothing to do
+    exit 0
+    ;;
+esac
+
+# Append -nova to version
+sed -i 's/"version": "[0-9.]*"/"version": "'"$VERSION"-nova"'/g' package.json
+
+# Stage the change
+git add package.json
+
+# Amend the merge commit to include the version fix
+git commit --amend --no-edit --no-gpg-sign
+
+printf "Post-merge: Updated version to %s-nova\n" "$(echo $VERSION | sed 's/$/-nova/g')"
