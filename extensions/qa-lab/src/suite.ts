@@ -12,6 +12,7 @@ import {
   resolveSessionTranscriptsDirForAgent,
 } from "openclaw/plugin-sdk/memory-core";
 import { buildAgentSessionKey } from "openclaw/plugin-sdk/routing";
+import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import type { QaBusState } from "./bus-state.js";
 import { waitForCronRunCompletion } from "./cron-run-wait.js";
@@ -22,8 +23,12 @@ import {
 } from "./discovery-eval.js";
 import { extractQaToolPayload } from "./extract-tool-payload.js";
 import { startQaGatewayChild } from "./gateway-child.js";
-import { startQaLabServer } from "./lab-server.js";
-import type { QaLabLatestReport, QaLabScenarioOutcome } from "./lab-server.js";
+import type {
+  QaLabLatestReport,
+  QaLabScenarioOutcome,
+  QaLabServerHandle,
+  QaLabServerStartParams,
+} from "./lab-server.types.js";
 import { resolveQaLiveTurnTimeoutMs } from "./live-timeout.js";
 import { startQaMockOpenAiServer } from "./mock-openai-server.js";
 import {
@@ -53,7 +58,7 @@ type QaSuiteScenarioResult = {
 };
 
 type QaSuiteEnvironment = {
-  lab: Awaited<ReturnType<typeof startQaLabServer>>;
+  lab: QaLabServerHandle;
   mock: Awaited<ReturnType<typeof startQaMockOpenAiServer>> | null;
   gateway: Awaited<ReturnType<typeof startQaGatewayChild>>;
   cfg: OpenClawConfig;
@@ -61,6 +66,21 @@ type QaSuiteEnvironment = {
   providerMode: "mock-openai" | "live-frontier";
   primaryModel: string;
   alternateModel: string;
+};
+
+export type QaSuiteStartLabFn = (params?: QaLabServerStartParams) => Promise<QaLabServerHandle>;
+
+export type QaSuiteRunParams = {
+  repoRoot?: string;
+  outputDir?: string;
+  providerMode?: QaProviderMode | "live-openai";
+  primaryModel?: string;
+  alternateModel?: string;
+  fastMode?: boolean;
+  thinkingDefault?: QaThinkingLevel;
+  scenarioIds?: string[];
+  lab?: QaLabServerHandle;
+  startLab?: QaSuiteStartLabFn;
 };
 
 const _QA_IMAGE_UNDERSTANDING_PNG_BASE64 =
@@ -327,19 +347,35 @@ async function runScenario(name: string, steps: QaSuiteStep[]): Promise<QaSuiteS
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`request failed ${response.status}: ${url}`);
+  const { response, release } = await fetchWithSsrFGuard({
+    url,
+    policy: { allowPrivateNetwork: true },
+    auditContext: "qa-lab-suite-fetch-json",
+  });
+  try {
+    if (!response.ok) {
+      throw new Error(`request failed ${response.status}: ${url}`);
+    }
+    return (await response.json()) as T;
+  } finally {
+    await release();
   }
-  return (await response.json()) as T;
 }
 
 async function waitForGatewayHealthy(env: QaSuiteEnvironment, timeoutMs = 45_000) {
   await waitForCondition(
     async () => {
       try {
-        const response = await fetch(`${env.gateway.baseUrl}/readyz`);
-        return response.ok ? true : undefined;
+        const { response, release } = await fetchWithSsrFGuard({
+          url: `${env.gateway.baseUrl}/readyz`,
+          policy: { allowPrivateNetwork: true },
+          auditContext: "qa-lab-suite-wait-for-gateway-healthy",
+        });
+        try {
+          return response.ok ? true : undefined;
+        } finally {
+          await release();
+        }
       } catch {
         return undefined;
       }
@@ -1160,17 +1196,7 @@ async function runScenarioDefinition(
   });
 }
 
-export async function runQaSuite(params?: {
-  repoRoot?: string;
-  outputDir?: string;
-  providerMode?: QaProviderMode | "live-openai";
-  primaryModel?: string;
-  alternateModel?: string;
-  fastMode?: boolean;
-  thinkingDefault?: QaThinkingLevel;
-  scenarioIds?: string[];
-  lab?: Awaited<ReturnType<typeof startQaLabServer>>;
-}) {
+export async function runQaSuite(params?: QaSuiteRunParams) {
   const startedAt = new Date();
   const repoRoot = path.resolve(params?.repoRoot ?? process.cwd());
   const providerMode = normalizeQaProviderMode(params?.providerMode ?? "mock-openai");
@@ -1189,12 +1215,15 @@ export async function runQaSuite(params?: {
   const ownsLab = !params?.lab;
   const lab =
     params?.lab ??
-    (await startQaLabServer({
+    (await params?.startLab?.({
       repoRoot,
       host: "127.0.0.1",
       port: 0,
       embeddedGateway: "disabled",
     }));
+  if (!lab) {
+    throw new Error("QA suite requires lab or startLab runtime");
+  }
   const mock =
     providerMode === "mock-openai"
       ? await startQaMockOpenAiServer({

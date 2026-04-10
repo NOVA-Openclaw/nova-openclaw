@@ -6,7 +6,7 @@ import {
   type ChannelSetupWizard,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/setup";
-import { resolveZaloAccount } from "./accounts.js";
+import { resolveDefaultZaloAccountId, resolveZaloAccount } from "./accounts.js";
 
 type ZaloAccountSetupConfig = {
   enabled?: boolean;
@@ -30,9 +30,10 @@ export async function noteZaloTokenHelp(
 export async function promptZaloAllowFrom(params: {
   cfg: OpenClawConfig;
   prompter: Parameters<NonNullable<ChannelSetupDmPolicy["promptAllowFrom"]>>[0]["prompter"];
-  accountId: string;
+  accountId?: string;
 }): Promise<OpenClawConfig> {
-  const { cfg, prompter, accountId } = params;
+  const { cfg, prompter } = params;
+  const accountId = params.accountId ?? resolveDefaultZaloAccountId(cfg);
   const resolved = resolveZaloAccount({ cfg, accountId });
   const existingAllowFrom = resolved.config.allowFrom ?? [];
   const entry = await prompter.text({
