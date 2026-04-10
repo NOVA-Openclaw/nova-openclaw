@@ -161,6 +161,53 @@ describe("qa cli runtime", () => {
     );
   });
 
+  it("passes host suite concurrency through", async () => {
+    await runQaSuiteCommand({
+      repoRoot: "/tmp/openclaw-repo",
+      scenarioIds: ["channel-chat-baseline", "thread-follow-up"],
+      concurrency: 3,
+    });
+
+    expect(runQaSuiteFromRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoRoot: path.resolve("/tmp/openclaw-repo"),
+        scenarioIds: ["channel-chat-baseline", "thread-follow-up"],
+        concurrency: 3,
+      }),
+    );
+  });
+
+  it("passes host suite CLI auth mode through", async () => {
+    await runQaSuiteCommand({
+      repoRoot: "/tmp/openclaw-repo",
+      providerMode: "live-frontier",
+      primaryModel: "claude-cli/claude-sonnet-4-6",
+      alternateModel: "claude-cli/claude-sonnet-4-6",
+      cliAuthMode: "subscription",
+      scenarioIds: ["claude-cli-provider-capabilities-subscription"],
+    });
+
+    expect(runQaSuiteFromRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoRoot: path.resolve("/tmp/openclaw-repo"),
+        providerMode: "live-frontier",
+        primaryModel: "claude-cli/claude-sonnet-4-6",
+        alternateModel: "claude-cli/claude-sonnet-4-6",
+        claudeCliAuthMode: "subscription",
+        scenarioIds: ["claude-cli-provider-capabilities-subscription"],
+      }),
+    );
+  });
+
+  it("rejects unknown suite CLI auth modes", async () => {
+    await expect(
+      runQaSuiteCommand({
+        repoRoot: "/tmp/openclaw-repo",
+        cliAuthMode: "magic",
+      }),
+    ).rejects.toThrow("--cli-auth-mode must be one of auto, api-key, subscription");
+  });
+
   it("resolves character eval paths and passes model refs through", async () => {
     await runQaCharacterEvalCommand({
       repoRoot: "/tmp/openclaw-repo",
@@ -291,6 +338,7 @@ describe("qa cli runtime", () => {
       runner: "multipass",
       providerMode: "mock-openai",
       scenarioIds: ["channel-chat-baseline"],
+      concurrency: 3,
       image: "lts",
       cpus: 2,
       memory: "4G",
@@ -305,6 +353,7 @@ describe("qa cli runtime", () => {
       alternateModel: undefined,
       fastMode: undefined,
       scenarioIds: ["channel-chat-baseline"],
+      concurrency: 3,
       image: "lts",
       cpus: 2,
       memory: "4G",
