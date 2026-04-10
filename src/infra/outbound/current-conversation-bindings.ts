@@ -74,9 +74,11 @@ function loadBindingsIntoMemory(): void {
     if (!record?.bindingId || !record?.conversation?.conversationId || isBindingExpired(record)) {
       continue;
     }
-    bindingsByConversationKey.set(buildConversationKey(record.conversation), {
+    const conversation = normalizeConversationRef(record.conversation);
+    bindingsByConversationKey.set(buildConversationKey(conversation), {
       ...record,
-      conversation: normalizeConversationRef(record.conversation),
+      bindingId: buildBindingId(conversation),
+      conversation,
     });
   }
 }
