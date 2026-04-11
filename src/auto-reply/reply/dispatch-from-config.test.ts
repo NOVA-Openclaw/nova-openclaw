@@ -231,6 +231,8 @@ vi.mock("../../logging/diagnostic.js", () => ({
 vi.mock("../../config/sessions/thread-info.js", () => ({
   parseSessionThreadInfo: (sessionKey: string | undefined) =>
     threadInfoMocks.parseSessionThreadInfo(sessionKey),
+  parseSessionThreadInfoFast: (sessionKey: string | undefined) =>
+    threadInfoMocks.parseSessionThreadInfo(sessionKey),
 }));
 vi.mock("./dispatch-from-config.runtime.js", () => ({
   createInternalHookEvent: internalHookMocks.createInternalHookEvent,
@@ -343,6 +345,7 @@ vi.mock("./dispatch-acp-session.runtime.js", () => ({
 vi.mock("../../tts/tts-config.js", () => ({
   normalizeTtsAutoMode: (value: unknown) => ttsMocks.normalizeTtsAutoMode(value),
   resolveConfiguredTtsMode: (cfg: OpenClawConfig) => ttsMocks.resolveTtsConfig(cfg).mode,
+  shouldAttemptTtsPayload: () => true,
 }));
 
 const noAbortResult = { handled: false, aborted: false } as const;
@@ -447,7 +450,7 @@ function createMockAcpSessionManager() {
           meta: entry.acp,
         };
       }
-      return String(params.sessionKey).startsWith("agent:")
+      return params.sessionKey.startsWith("agent:")
         ? {
             kind: "stale" as const,
             sessionKey: params.sessionKey,

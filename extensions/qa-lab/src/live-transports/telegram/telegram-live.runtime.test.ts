@@ -1,9 +1,35 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  LIVE_TRANSPORT_BASELINE_STANDARD_SCENARIO_IDS,
+  findMissingLiveTransportStandardScenarios,
+} from "../shared/live-transport-scenarios.js";
 import { __testing } from "./telegram-live.runtime.js";
+
+const fetchWithSsrFGuardMock = vi.hoisted(() =>
+  vi.fn(async (params: { url: string; init?: RequestInit; signal?: AbortSignal }) => ({
+    response: await fetch(params.url, {
+      ...params.init,
+      signal: params.signal,
+    }),
+    release: async () => {},
+  })),
+);
+
+vi.mock("openclaw/plugin-sdk/ssrf-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/ssrf-runtime")>(
+    "openclaw/plugin-sdk/ssrf-runtime",
+  );
+  return {
+    ...actual,
+    fetchWithSsrFGuard: fetchWithSsrFGuardMock,
+  };
+});
 
 describe("telegram live qa runtime", () => {
   afterEach(() => {
+    fetchWithSsrFGuardMock.mockClear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -199,7 +225,131 @@ describe("telegram live qa runtime", () => {
     );
   });
 
+  it("includes mention gating in the Telegram live scenario catalog", () => {
+    expect(
+      __testing
+        .findScenario([
+          "telegram-help-command",
+          "telegram-commands-command",
+          "telegram-tools-compact-command",
+          "telegram-whoami-command",
+          "telegram-context-command",
+          "telegram-mentioned-message-reply",
+          "telegram-mention-gating",
+        ])
+        .map((scenario) => scenario.id),
+    ).toEqual([
+      "telegram-help-command",
+      "telegram-commands-command",
+      "telegram-tools-compact-command",
+      "telegram-whoami-command",
+      "telegram-context-command",
+      "telegram-mentioned-message-reply",
+      "telegram-mention-gating",
+    ]);
+  });
+
+  it("tracks Telegram live coverage against the shared transport contract", () => {
+    expect(__testing.TELEGRAM_QA_STANDARD_SCENARIO_IDS).toEqual([
+      "canary",
+      "help-command",
+      "mention-gating",
+    ]);
+    expect(
+      findMissingLiveTransportStandardScenarios({
+        coveredStandardScenarioIds: __testing.TELEGRAM_QA_STANDARD_SCENARIO_IDS,
+        expectedStandardScenarioIds: LIVE_TRANSPORT_BASELINE_STANDARD_SCENARIO_IDS,
+      }),
+    ).toEqual(["allowlist-block", "top-level-reply-shape", "restart-resume"]);
+  });
+
+  it("matches scenario replies by thread or exact marker", () => {
+    expect(
+      __testing.matchesTelegramScenarioReply({
+        groupId: "-100123",
+        sentMessageId: 55,
+        sutBotId: 88,
+        message: {
+          updateId: 1,
+          messageId: 10,
+          chatId: -100123,
+          senderId: 88,
+          senderIsBot: true,
+          senderUsername: "sut_bot",
+          text: "reply with TELEGRAM_QA_NOMENTION_TOKEN",
+          replyToMessageId: undefined,
+          timestamp: 1_700_000_001_000,
+          inlineButtons: [],
+          mediaKinds: [],
+        },
+        matchText: "TELEGRAM_QA_NOMENTION_TOKEN",
+      }),
+    ).toBe(true);
+    expect(
+      __testing.matchesTelegramScenarioReply({
+        groupId: "-100123",
+        sentMessageId: 55,
+        sutBotId: 88,
+        message: {
+          updateId: 2,
+          messageId: 11,
+          chatId: -100123,
+          senderId: 88,
+          senderIsBot: true,
+          senderUsername: "sut_bot",
+          text: "unrelated chatter",
+          replyToMessageId: undefined,
+          timestamp: 1_700_000_002_000,
+          inlineButtons: [],
+          mediaKinds: [],
+        },
+        matchText: "TELEGRAM_QA_NOMENTION_TOKEN",
+      }),
+    ).toBe(false);
+  });
+
+  it("validates expected Telegram reply markers", () => {
+    expect(() =>
+      __testing.assertTelegramScenarioReply({
+        expectedTextIncludes: ["🧭 Identity", "Channel: telegram"],
+        message: {
+          updateId: 1,
+          messageId: 10,
+          chatId: -100123,
+          senderId: 88,
+          senderIsBot: true,
+          senderUsername: "sut_bot",
+          text: "🧭 Identity\nChannel: telegram\nUser id: 42",
+          replyToMessageId: 55,
+          timestamp: 1_700_000_001_000,
+          inlineButtons: [],
+          mediaKinds: [],
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      __testing.assertTelegramScenarioReply({
+        expectedTextIncludes: ["Use /tools verbose for descriptions."],
+        message: {
+          updateId: 2,
+          messageId: 11,
+          chatId: -100123,
+          senderId: 88,
+          senderIsBot: true,
+          senderUsername: "sut_bot",
+          text: "exec\nbash",
+          replyToMessageId: 55,
+          timestamp: 1_700_000_002_000,
+          inlineButtons: [],
+          mediaKinds: [],
+        },
+      }),
+    ).toThrow("reply message 11 missing expected text: Use /tools verbose for descriptions.");
+  });
+
   it("adds an abort deadline to Telegram API requests", async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
     let signal: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
@@ -217,9 +367,10 @@ describe("telegram live qa runtime", () => {
     await expect(__testing.callTelegramApi("token", "getMe", undefined, 25)).resolves.toEqual({
       id: 42,
     });
-    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(timeoutSpy).toHaveBeenCalledWith(25);
+    expect(signal).toBe(controller.signal);
     expect(signal?.aborted).toBe(false);
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    controller.abort();
     expect(signal?.aborted).toBe(true);
   });
 
