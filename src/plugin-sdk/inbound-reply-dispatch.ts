@@ -3,10 +3,10 @@ import {
   dispatchReplyFromConfig,
   type DispatchFromConfigResult,
 } from "../auto-reply/reply/dispatch-from-config.js";
-import type { ReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.js";
+import type { ReplyDispatcher } from "../auto-reply/reply/reply-dispatcher.types.js";
 import type { FinalizedMsgContext } from "../auto-reply/templating.js";
 import type { GetReplyOptions } from "../auto-reply/types.js";
-import type { OpenClawConfig } from "../config/config.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 import { createNormalizedOutboundDeliverer, type OutboundReplyPayload } from "./reply-payload.js";
 
