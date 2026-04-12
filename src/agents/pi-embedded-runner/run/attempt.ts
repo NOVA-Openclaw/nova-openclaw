@@ -200,6 +200,7 @@ import {
   appendAttemptCacheTtlIfNeeded,
   composeSystemPromptWithHookContext,
   resolveAttemptSpawnWorkspaceDir,
+  shouldPersistCompletedBootstrapTurn,
   shouldUseOpenAIWebSocketTransport,
 } from "./attempt.thread-helpers.js";
 import {
@@ -1367,6 +1368,7 @@ export async function runEmbeddedAttempt(
       }
 
       let aborted = Boolean(params.abortSignal?.aborted);
+      let externalAbort = false;
       let yieldAborted = false;
       let timedOut = false;
       let idleTimedOut = false;
@@ -1584,6 +1586,7 @@ export async function runEmbeddedAttempt(
       let messagesSnapshot: AgentMessage[] = [];
       let sessionIdUsed = activeSession.sessionId;
       const onAbort = () => {
+        externalAbort = true;
         const reason = params.abortSignal ? getAbortReason(params.abortSignal) : undefined;
         const timeout = reason ? isTimeoutError(reason) : false;
         if (
@@ -1943,9 +1946,6 @@ export async function runEmbeddedAttempt(
             }
           }
         } catch (err) {
-          // Yield-triggered abort is intentional — treat as clean stop, not error.
-          // Check the abort reason to distinguish from external aborts (timeout, user cancel)
-          // that may race after yieldDetected is set.
           yieldAborted =
             yieldDetected &&
             isRunnerAbortError(err) &&
@@ -1953,8 +1953,6 @@ export async function runEmbeddedAttempt(
             err.cause === "sessions_yield";
           if (yieldAborted) {
             aborted = false;
-            // Ensure the session abort has mostly settled before proceeding, but
-            // don't deadlock the whole run if the underlying session abort hangs.
             await waitForSessionsYieldAbortSettle({
               settlePromise: yieldAbortSettled,
               runId: params.runId,
@@ -2167,12 +2165,13 @@ export async function runEmbeddedAttempt(
         }
 
         if (
-          shouldRecordCompletedBootstrapTurn &&
-          !promptError &&
-          !aborted &&
-          !yieldAborted &&
-          !timedOutDuringCompaction &&
-          !compactionOccurredThisAttempt
+          shouldPersistCompletedBootstrapTurn({
+            shouldRecordCompletedBootstrapTurn,
+            promptError,
+            aborted,
+            timedOutDuringCompaction,
+            compactionOccurredThisAttempt,
+          })
         ) {
           try {
             sessionManager.appendCustomEntry(FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE, {
@@ -2338,6 +2337,7 @@ export async function runEmbeddedAttempt(
         itemLifecycle: getItemLifecycle(),
         setTerminalLifecycleMeta,
         aborted,
+        externalAbort,
         timedOut,
         idleTimedOut,
         timedOutDuringCompaction,
