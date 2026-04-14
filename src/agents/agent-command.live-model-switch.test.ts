@@ -30,7 +30,7 @@ vi.mock("./command/attempt-execution.runtime.js", () => ({
   sessionFileHasContent: vi.fn(async () => false),
 }));
 
-vi.mock("./command/delivery.js", () => ({
+vi.mock("./command/delivery.runtime.js", () => ({
   deliverAgentCommandResult: (...args: unknown[]) => state.deliverAgentCommandResultMock(...args),
 }));
 
@@ -48,7 +48,7 @@ vi.mock("./command/run-context.js", () => ({
   }),
 }));
 
-vi.mock("./command/session-store.js", () => ({
+vi.mock("./command/session-store.runtime.js", () => ({
   updateSessionStoreAfterAgentRun: (...args: unknown[]) =>
     state.updateSessionStoreAfterAgentRunMock(...args),
 }));

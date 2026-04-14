@@ -15,7 +15,7 @@ import {
   withSharedAgentCommandTempHome,
 } from "./agent-runtime-config.test-support.js";
 
-vi.mock("../agents/command/session-store.js", () => {
+vi.mock("../agents/command/session-store.runtime.js", () => {
   return {
     updateSessionStoreAfterAgentRun: vi.fn(async () => undefined),
   };
@@ -135,7 +135,7 @@ describe("agentCommand runtime config", () => {
         telegram: {
           botToken: { source: "env", provider: "default", id: "TELEGRAM_BOT_TOKEN" },
         },
-      } as OpenClawConfig["channels"];
+      } as unknown as OpenClawConfig["channels"];
       const resolveConfigWithSecretsSpy = vi
         .spyOn(commandConfigResolutionRuntimeModule, "resolveCommandConfigWithSecrets")
         .mockResolvedValueOnce({
