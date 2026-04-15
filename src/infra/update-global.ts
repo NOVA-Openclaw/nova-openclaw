@@ -8,10 +8,12 @@ import { pathExists } from "../utils.js";
 import { NPM_UPDATE_COMPAT_SIDECAR_PATHS } from "./npm-update-compat-sidecars.js";
 import {
   collectPackageDistInventory,
+  PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
   readPackageDistInventoryIfPresent,
 } from "./package-dist-inventory.js";
 import { readPackageVersion } from "./package-json.js";
 import { applyPathPrepend } from "./path-prepend.js";
+import { parseSemver } from "./runtime-guard.js";
 
 export type GlobalInstallManager = "npm" | "pnpm" | "bun";
 
@@ -40,6 +42,7 @@ const NPM_GLOBAL_INSTALL_OMIT_OPTIONAL_FLAGS = [
   "--omit=optional",
   ...NPM_GLOBAL_INSTALL_QUIET_FLAGS,
 ] as const;
+const FIRST_PACKAGED_DIST_INVENTORY_VERSION = { major: 2026, minor: 4, patch: 15 };
 
 function normalizePackageTarget(value: string): string {
   return value.trim();
@@ -94,33 +97,107 @@ export async function collectInstalledGlobalPackageErrors(params: {
       `expected installed version ${params.expectedVersion}, found ${installedVersion ?? "<missing>"}`,
     );
   }
-  errors.push(...(await collectInstalledPackageDistErrors(params.packageRoot)));
+  errors.push(
+    ...(await collectInstalledPackageDistErrors({
+      packageRoot: params.packageRoot,
+      installedVersion,
+      expectedVersion: params.expectedVersion,
+    })),
+  );
   return errors;
 }
 
-async function collectInstalledPackageDistErrors(packageRoot: string): Promise<string[]> {
-  const inventoryFiles = await readPackageDistInventoryIfPresent(packageRoot);
+function shouldRequirePackagedDistInventory(version: string | null | undefined): boolean {
+  const parsed = parseSemver(version ?? null);
+  if (!parsed) {
+    return false;
+  }
+  if (parsed.major !== FIRST_PACKAGED_DIST_INVENTORY_VERSION.major) {
+    return parsed.major > FIRST_PACKAGED_DIST_INVENTORY_VERSION.major;
+  }
+  if (parsed.minor !== FIRST_PACKAGED_DIST_INVENTORY_VERSION.minor) {
+    return parsed.minor > FIRST_PACKAGED_DIST_INVENTORY_VERSION.minor;
+  }
+  return parsed.patch >= FIRST_PACKAGED_DIST_INVENTORY_VERSION.patch;
+}
+
+async function collectInstalledPackageDistErrors(params: {
+  packageRoot: string;
+  installedVersion: string | null;
+  expectedVersion?: string | null;
+}): Promise<string[]> {
+  const criticalPaths = await collectCriticalInstalledPackageDistPaths(params.packageRoot);
+  let inventoryFiles: string[] | null = null;
+  let inventoryError: string | null = null;
+  try {
+    inventoryFiles = await readPackageDistInventoryIfPresent(params.packageRoot);
+  } catch {
+    inventoryError = `invalid package dist inventory ${PACKAGE_DIST_INVENTORY_RELATIVE_PATH}`;
+  }
+
   if (inventoryFiles !== null) {
-    return await collectInstalledPathErrors({
-      packageRoot,
+    const actualFiles = await collectPackageDistInventory(params.packageRoot);
+    const inventoryErrors = await collectInstalledPathErrors({
+      packageRoot: params.packageRoot,
       expectedFiles: inventoryFiles,
-      actualFiles: await collectPackageDistInventory(packageRoot),
+      actualFiles,
       missingMessage: (relativePath) => `missing packaged dist file ${relativePath}`,
       unexpectedMessage: (relativePath) => `unexpected packaged dist file ${relativePath}`,
     });
+    const inventorySet = new Set(inventoryFiles);
+    const supplementalCriticalPaths = criticalPaths.filter(
+      (relativePath) => !inventorySet.has(relativePath),
+    );
+    if (supplementalCriticalPaths.length === 0) {
+      return inventoryErrors;
+    }
+    return [
+      ...inventoryErrors,
+      ...(await collectInstalledPathErrors({
+        packageRoot: params.packageRoot,
+        expectedFiles: supplementalCriticalPaths,
+        actualFiles,
+        missingMessage: (relativePath) => `missing bundled runtime sidecar ${relativePath}`,
+      })),
+    ];
   }
-  return await collectInstalledPathErrors({
-    packageRoot,
-    expectedFiles: await collectLegacyInstalledPackageDistPaths(packageRoot),
+
+  const criticalErrors = await collectInstalledPathErrors({
+    packageRoot: params.packageRoot,
+    expectedFiles: await collectLegacyInstalledPackageDistPaths(params.packageRoot),
     actualFiles: null,
     missingMessage: (relativePath) => `missing bundled runtime sidecar ${relativePath}`,
   });
+  if (inventoryError) {
+    return [inventoryError, ...criticalErrors];
+  }
+  if (
+    shouldRequirePackagedDistInventory(params.installedVersion) ||
+    shouldRequirePackagedDistInventory(params.expectedVersion)
+  ) {
+    return [
+      `missing package dist inventory ${PACKAGE_DIST_INVENTORY_RELATIVE_PATH}`,
+      ...criticalErrors,
+    ];
+  }
+  return criticalErrors;
 }
 
 async function collectLegacyInstalledPackageDistPaths(packageRoot: string): Promise<string[]> {
   const expectedFiles = new Set(NPM_UPDATE_COMPAT_SIDECAR_PATHS);
+  for (const relativePath of await collectCriticalInstalledPackageDistPaths(packageRoot)) {
+    expectedFiles.add(relativePath);
+  }
+  return [...expectedFiles].toSorted((left, right) => left.localeCompare(right));
+}
+
+async function collectCriticalInstalledPackageDistPaths(packageRoot: string): Promise<string[]> {
+  const expectedFiles = new Set<string>();
   await Promise.all(
     BUNDLED_RUNTIME_SIDECAR_PATHS.map(async (relativePath) => {
+      if (NPM_UPDATE_COMPAT_SIDECAR_PATHS.has(relativePath)) {
+        return;
+      }
       const pluginRoot = resolveBundledPluginRoot(relativePath);
       if (pluginRoot === null) {
         return;
