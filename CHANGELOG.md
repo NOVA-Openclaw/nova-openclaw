@@ -9,6 +9,8 @@ Docs: https://docs.openclaw.ai
 - Docs/showcase: add a scannable hero, complete section jump links, and a responsive video grid for community examples. (#48493) Thanks @jchopard69.
 - Agents/local models: add `agents.defaults.localModelMode: "lean"` to drop heavyweight default tools like `browser`, `cron`, and `message`, reducing prompt size for weaker local-model setups without changing the normal path. Thanks @ImLukeF.
 - QA/Matrix: split Matrix live QA into a source-linked `qa-matrix` runner and keep repo-private `qa-*` surfaces out of packaged and published builds. (#66723) Thanks @gumadeiras.
+- Control UI/Overview: add a Model Auth status card showing OAuth token health and provider rate-limit pressure at a glance, with attention callouts when OAuth tokens are expiring or expired. Backed by a new `models.authStatus` gateway method that strips credentials and caches for 60s. (#66211) Thanks @omarshahine.
+- docs-i18n: add behavior baseline fixtures (#64073). Thanks @hxy91819
 
 ### Fixes
 
@@ -43,6 +45,9 @@ Docs: https://docs.openclaw.ai
 - Telegram/native commands: keep Telegram command-sync cache process-local so gateway restarts re-register the menu instead of trusting stale on-disk sync state after Telegram cleared commands out-of-band. (#66730) Thanks @nightq.
 - Audio/self-hosted STT: restore `models.providers.*.request.allowPrivateNetwork` for audio transcription so private or LAN speech-to-text endpoints stop tripping SSRF blocks after the v2026.4.14 regression. (#66692) Thanks @jhsmith409.
 - QQBot/cron: guard against undefined `event.content` in `parseFaceTags` and `filterInternalMarkers` so cron-triggered agent turns with no content payload no longer crash with `TypeError: Cannot read properties of undefined (reading 'startsWith')`. (#66302) Thanks @xinmotlanthua.
+- CLI/plugins: stop `--dangerously-force-unsafe-install` plugin installs from falling back to hook-pack installs after security scan failures, while still preserving non-security fallback behavior for real hook packs. (#58909) Thanks @hxy91819.
+- Claude CLI/sessions: classify `No conversation found with session ID` as `session_expired` so expired CLI-backed conversations clear the stale binding and recover on the next turn. (#65028) thanks @Ivan-Fn.
+- Context Engine: gracefully fall back to the legacy engine when a third-party context engine plugin fails at resolution time (unregistered id, factory throw, or contract violation), preventing a full gateway outage on every channel. (#66930) Thanks @openperf.
 
 ## 2026.4.14
 
@@ -121,6 +126,7 @@ Docs: https://docs.openclaw.ai
 - CLI/approvals: raise the default `openclaw approvals get` gateway timeout and report config-load timeouts explicitly, so slow hosts stop showing a misleading `Config unavailable.` note when the approvals snapshot succeeds but the follow-up config RPC needs more time. (#66239) Thanks @neeravmakwana.
 - Media/store: honor configured agent media limits when saving generated media and persisting outbound reply media, so the store no longer hard-stops those flows at 5 MB before the configured limit applies. (#66229) Thanks @neeravmakwana and @vincentkoc.
 - Plugins/setup-entry: preserve separate setup-entry secrets exports when loading bundled setup-runtime channels, so setup-mode flows keep the channel secret contract for split plugin + secrets entrypoints. (#66261) Thanks @hxy91819.
+- CLI/update: prune stale packaged `dist` chunks after npm upgrades, verify installed package inventory, and keep downgrade/update verification working across older releases. (#66959) Thanks @obviyus.
 
 ## 2026.4.12
 
@@ -1041,6 +1047,8 @@ Docs: https://docs.openclaw.ai
 - ACPX/runtime: repair `queue owner unavailable` session recovery by replacing dead named sessions and resuming the backend session when ACPX exposes a stable session id, so the first ACP prompt no longer inherits a dead handle. (#58669) Thanks @neeravmakwana
 - ACPX/runtime: retry dead-session queue-owner repair without `--resume-session` when the reported ACPX session id is stale, so recovery still creates a fresh named session instead of failing session init. Thanks @obviyus.
 - Tools/web_search (Kimi): replay native Moonshot `$web_search` arguments verbatim, disable thinking for `kimi-k2.5`, and add Moonshot region/model setup prompts so bundled Kimi web search works again. (#59356) Thanks @Innocent-children.
+- Auth/OpenAI Codex: persist plugin-refreshed OAuth credentials to `auth-profiles.json` before returning them, so rotated Codex refresh tokens survive restart and stop falling into `refresh_token_reused` loops. (#53082)
+- Discord/gateway: hand reconnect ownership back to Carbon, keep runtime status aligned with close/reconnect state, and force-stop sockets that open without reaching READY so Discord monitors recover promptly instead of waiting on stale health timeouts. (#59019) Thanks @obviyus
 
 ## 2026.3.31
 
