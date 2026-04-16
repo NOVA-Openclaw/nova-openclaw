@@ -1034,12 +1034,14 @@ export async function maybeApplyTtsToPayload(params: {
     return params.payload;
   }
   const config = resolveTtsConfig(params.cfg);
+  const activeProvider = getTtsProvider(config, prefsPath);
 
   const reply = resolveSendableOutboundReplyParts(params.payload);
   const text = reply.text;
   const directives = parseTtsDirectives(text, config.modelOverrides, {
     cfg: params.cfg,
     providerConfigs: config.providerConfigs,
+    preferredProviderId: activeProvider,
   });
   if (directives.warnings.length > 0) {
     logVerbose(`TTS: ignored directive overrides (${directives.warnings.join("; ")})`);
@@ -1047,9 +1049,8 @@ export async function maybeApplyTtsToPayload(params: {
 
   if (isVerbose()) {
     const effectiveProvider = directives.overrides?.provider
-      ? (canonicalizeSpeechProviderId(directives.overrides.provider, params.cfg) ??
-        getTtsProvider(config, prefsPath))
-      : getTtsProvider(config, prefsPath);
+      ? (canonicalizeSpeechProviderId(directives.overrides.provider, params.cfg) ?? activeProvider)
+      : activeProvider;
     logVerbose(
       `TTS: auto mode enabled (${autoMode}), channel=${params.channel}, selected provider=${effectiveProvider}, config.provider=${config.provider}, config.providerSource=${config.providerSource}`,
     );
