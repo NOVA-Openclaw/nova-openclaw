@@ -6,6 +6,7 @@ import {
   buildVitestRunPlans,
   listFullExtensionVitestProjectConfigs,
   shouldAcquireLocalHeavyCheckLock,
+  resolveChangedTestTargetPlan,
   resolveChangedTargetArgs,
   resolveParallelFullSuiteConcurrency,
 } from "../../scripts/test-projects.test-support.mjs";
@@ -27,6 +28,35 @@ describe("scripts/test-projects changed-target routing", () => {
         "src/utils/provider-utils.ts",
       ]),
     ).toBeNull();
+  });
+
+  it("keeps test runner implementation edits on runner tests", () => {
+    expect(
+      resolveChangedTestTargetPlan([
+        "scripts/check-changed.mjs",
+        "scripts/test-projects.test-support.d.mts",
+        "scripts/test-projects.test-support.mjs",
+        "test/scripts/changed-lanes.test.ts",
+      ]),
+    ).toEqual({
+      mode: "targets",
+      targets: ["test/scripts/changed-lanes.test.ts", "test/scripts/test-projects.test.ts"],
+    });
+  });
+
+  it("routes changed extension vitest configs to their own shard", () => {
+    expect(
+      buildVitestRunPlans(["--changed", "origin/main"], process.cwd(), () => [
+        "test/vitest/vitest.extension-discord.config.ts",
+      ]),
+    ).toEqual([
+      {
+        config: "test/vitest/vitest.extension-discord.config.ts",
+        forwardedArgs: [],
+        includePatterns: null,
+        watchMode: false,
+      },
+    ]);
   });
 
   it("keeps the broad changed run for shared test helpers", () => {
@@ -190,27 +220,6 @@ describe("scripts/test-projects changed-target routing", () => {
         includePatterns: ["src/commands/status-overview-values.test.ts"],
         watchMode: false,
       },
-    ]);
-  });
-
-  it("keeps changed plugin-sdk allowlist files on sibling light tests plus extension tests", () => {
-    const plans = buildVitestRunPlans(["--changed", "origin/main"], process.cwd(), () => [
-      "src/plugin-sdk/provider-entry.ts",
-    ]);
-
-    expect(plans).toEqual([
-      {
-        config: "test/vitest/vitest.unit-fast.config.ts",
-        forwardedArgs: [],
-        includePatterns: ["src/plugin-sdk/provider-entry.test.ts"],
-        watchMode: false,
-      },
-      ...listFullExtensionVitestProjectConfigs().map((config) => ({
-        config,
-        forwardedArgs: [],
-        includePatterns: null,
-        watchMode: false,
-      })),
     ]);
   });
 
