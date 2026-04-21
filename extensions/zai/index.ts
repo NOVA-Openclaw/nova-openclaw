@@ -44,7 +44,7 @@ function resolveGlm5ForwardCompatModel(
   const existing = ctx.modelRegistry.find(
     PROVIDER_ID,
     trimmedModelId,
-  ) as ProviderRuntimeModel | null;
+  );
   if (existing) {
     return existing;
   }
@@ -53,7 +53,7 @@ function resolveGlm5ForwardCompatModel(
   const template = ctx.modelRegistry.find(
     PROVIDER_ID,
     GLM5_TEMPLATE_MODEL_ID,
-  ) as ProviderRuntimeModel | null;
+  );
   return normalizeModelCompat({
     ...template,
     id: def.id,
@@ -280,7 +280,13 @@ export default definePluginEntry({
       ...OPENAI_COMPATIBLE_REPLAY_HOOKS,
       prepareExtraParams: (ctx) => defaultToolStreamExtraParams(ctx.extraParams),
       ...TOOL_STREAM_DEFAULT_ON_HOOKS,
-      isBinaryThinking: () => true,
+      resolveThinkingProfile: () => ({
+        levels: [
+          { id: "off", label: "off" },
+          { id: "low", label: "on" },
+        ],
+        defaultLevel: "off",
+      }),
       isModernModelRef: ({ modelId }) => {
         const lower = normalizeLowercaseStringOrEmpty(modelId);
         return (

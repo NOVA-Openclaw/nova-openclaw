@@ -554,7 +554,11 @@ async function deliverOutboundPayloadsCore(
   params: DeliverOutboundPayloadsCoreParams,
 ): Promise<OutboundDeliveryResult[]> {
   const { cfg, channel, to, payloads } = params;
-  const outboundPayloadPlan = createOutboundPayloadPlan(payloads);
+  const outboundPayloadPlan = createOutboundPayloadPlan(payloads, {
+    cfg,
+    sessionKey: params.session?.policyKey ?? params.session?.key,
+    surface: channel,
+  });
   const accountId = params.accountId;
   const deps = params.deps;
   const abortSignal = params.abortSignal;
