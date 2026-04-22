@@ -568,6 +568,8 @@ async function applyMessageSendingHook(params: {
   to: string;
   channel: Exclude<OutboundChannel, "none">;
   accountId?: string;
+  replyToId?: string | null;
+  threadId?: string | number | null;
 }): Promise<{
   cancelled: boolean;
   payload: ReplyPayload;
@@ -585,6 +587,8 @@ async function applyMessageSendingHook(params: {
       {
         to: params.to,
         content: params.payloadSummary.text,
+        replyToId: params.payload.replyToId ?? params.replyToId ?? undefined,
+        threadId: params.threadId ?? undefined,
         metadata: {
           channel: params.channel,
           accountId: params.accountId,
@@ -594,6 +598,7 @@ async function applyMessageSendingHook(params: {
       {
         channelId: params.channel,
         accountId: params.accountId ?? undefined,
+        conversationId: params.to,
       },
     );
     if (sendingResult?.cancel) {
@@ -828,6 +833,8 @@ async function deliverOutboundPayloadsCore(
         to,
         channel,
         accountId,
+        replyToId: params.replyToId,
+        threadId: params.threadId,
       });
       if (hookResult.cancelled) {
         continue;
