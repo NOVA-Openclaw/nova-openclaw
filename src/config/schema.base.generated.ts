@@ -3606,6 +3606,10 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                       type: "string",
                       const: "claude-stream-json",
                     },
+                    liveSession: {
+                      type: "string",
+                      const: "claude-stdio",
+                    },
                     input: {
                       anyOf: [
                         {
@@ -4687,6 +4691,12 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                     title: "Compaction Memory Flush",
                     description:
                       "Pre-compaction memory flush settings that run an agentic memory write before heavy compaction. Keep enabled for long sessions so salient context is persisted before aggressive trimming.",
+                  },
+                  truncateAfterCompaction: {
+                    type: "boolean",
+                    title: "Truncate After Compaction",
+                    description:
+                      "When enabled, rewrites the session JSONL file after compaction to remove entries that were summarized. Prevents unbounded file growth in long-running sessions with many compaction cycles. Default: false.",
                   },
                   notifyUser: {
                     type: "boolean",
