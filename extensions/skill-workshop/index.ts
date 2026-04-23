@@ -1,3 +1,4 @@
+import { resolvePluginConfigObject } from "openclaw/plugin-sdk/config-runtime";
 import { definePluginEntry, resolveDefaultAgentId } from "./api.js";
 import { resolveConfig } from "./src/config.js";
 import { buildWorkshopGuidance } from "./src/prompt.js";
@@ -5,12 +6,6 @@ import { countToolCalls, reviewTranscriptForProposal } from "./src/reviewer.js";
 import { createProposalFromMessages } from "./src/signals.js";
 import { createSkillWorkshopTool } from "./src/tool.js";
 import { applyOrStoreProposal, createStoreForContext } from "./src/workshop.js";
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
 
 export default definePluginEntry({
   id: "skill-workshop",
@@ -23,11 +18,11 @@ export default definePluginEntry({
       return;
     }
     const resolveCurrentConfig = () => {
-      const runtimeConfig = api.runtime.config?.loadConfig?.();
-      const runtimePlugins = asRecord(asRecord(runtimeConfig)?.plugins);
-      const runtimeEntries = asRecord(runtimePlugins?.entries);
+      const runtimeConfigAvailable = typeof api.runtime.config?.loadConfig === "function";
+      const runtimeConfig = runtimeConfigAvailable ? api.runtime.config.loadConfig() : undefined;
       const runtimePluginConfig =
-        asRecord(runtimeEntries?.["skill-workshop"])?.config ?? api.pluginConfig;
+        resolvePluginConfigObject(runtimeConfig, "skill-workshop") ??
+        (!runtimeConfigAvailable ? api.pluginConfig : undefined);
       return resolveConfig(runtimePluginConfig);
     };
 

@@ -664,11 +664,14 @@ export function registerShortTermPromotionDreaming(api: OpenClawPluginApi): void
   }): Promise<ShortTermPromotionDreamingConfig> => {
     const startupCfg =
       params.reason === "startup" ? (params.startupConfig ?? api.config) : resolveCurrentConfig();
+    const pluginConfig =
+      params.reason === "runtime"
+        ? resolveMemoryCorePluginConfig(startupCfg)
+        : (resolveMemoryCorePluginConfig(startupCfg) ??
+          resolveMemoryCorePluginConfig(api.config) ??
+          api.pluginConfig);
     const config = resolveShortTermPromotionDreamingConfig({
-      pluginConfig:
-        resolveMemoryCorePluginConfig(startupCfg) ??
-        resolveMemoryCorePluginConfig(api.config) ??
-        api.pluginConfig,
+      pluginConfig,
       cfg: startupCfg,
     });
     if (params.reason === "startup") {
@@ -736,6 +739,7 @@ export function registerShortTermPromotionDreaming(api: OpenClawPluginApi): void
       if (ctx.trigger !== "heartbeat") {
         return undefined;
       }
+      const currentConfig = resolveCurrentConfig();
       const config = await reconcileManagedDreamingCron({
         reason: "runtime",
       });
@@ -749,7 +753,7 @@ export function registerShortTermPromotionDreaming(api: OpenClawPluginApi): void
         cleanedBody: event.cleanedBody,
         trigger: ctx.trigger,
         workspaceDir: ctx.workspaceDir,
-        cfg: api.config,
+        cfg: currentConfig,
         config,
         logger: api.logger,
         subagent: config.enabled ? api.runtime?.subagent : undefined,

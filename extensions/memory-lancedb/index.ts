@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type * as LanceDB from "@lancedb/lancedb";
 import { Type } from "@sinclair/typebox";
 import OpenAI from "openai";
+import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/config-runtime";
 import { ensureGlobalUndiciEnvProxyDispatcher } from "openclaw/plugin-sdk/runtime-env";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import { definePluginEntry, type OpenClawPluginApi } from "./api.js";
@@ -71,7 +72,10 @@ class MemoryDB {
       return this.initPromise;
     }
 
-    this.initPromise = this.doInitialize();
+    this.initPromise = this.doInitialize().catch((error) => {
+      this.initPromise = null;
+      throw error;
+    });
     return this.initPromise;
   }
 
@@ -302,17 +306,19 @@ export default definePluginEntry({
     const dbPath = cfg.dbPath!;
     const resolvedDbPath = dbPath.includes("://") ? dbPath : api.resolvePath(dbPath);
     const { model, dimensions, apiKey, baseUrl } = cfg.embedding;
+    const disabledHookCfg = { ...cfg, autoCapture: false, autoRecall: false };
 
     const vectorDim = dimensions ?? vectorDimsForModel(model);
     const db = new MemoryDB(resolvedDbPath, vectorDim, cfg.storageOptions);
     const embeddings = new Embeddings(apiKey, model, baseUrl, dimensions);
     const resolveCurrentHookConfig = () => {
-      const runtimeConfig = api.runtime.config?.loadConfig?.();
-      const runtimePlugins = asRecord(asRecord(runtimeConfig)?.plugins);
-      const runtimeEntries = asRecord(runtimePlugins?.entries);
-      const runtimePluginConfig = asRecord(runtimeEntries?.["memory-lancedb"])?.config;
+      const runtimePluginConfig = resolveLivePluginConfigObject(
+        api.runtime.config?.loadConfig,
+        "memory-lancedb",
+        api.pluginConfig as Record<string, unknown>,
+      );
       if (!runtimePluginConfig) {
-        return cfg;
+        return disabledHookCfg;
       }
       return memoryConfigSchema.parse({
         embedding: {
