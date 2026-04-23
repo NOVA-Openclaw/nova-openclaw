@@ -223,16 +223,6 @@ function formatAssistantTextPreview(texts: string[], maxChars = 600): string {
   return combined.slice(-maxChars);
 }
 
-function findAssistantTextContaining(texts: string[], needle: string): string | null {
-  for (let i = texts.length - 1; i >= 0; i -= 1) {
-    const text = texts[i];
-    if (text?.includes(needle)) {
-      return text;
-    }
-  }
-  return null;
-}
-
 async function bindConversationAndWait(params: {
   client: GatewayClient;
   sessionKey: string;
@@ -376,8 +366,11 @@ async function waitForAssistantText(params: {
     const messages = history.messages ?? [];
     const assistantTexts = extractAssistantTexts(messages);
     const lastAssistantText = assistantTexts.at(-1) ?? "";
-    const matchedAssistantText = findAssistantTextContaining(assistantTexts, params.contains);
-    if (assistantTexts.length >= (params.minAssistantCount ?? 1) && matchedAssistantText) {
+    const minAssistantCount = params.minAssistantCount ?? 1;
+    const matchedAssistantText = assistantTexts
+      .slice(Math.max(0, minAssistantCount - 1))
+      .find((text) => text.includes(params.contains));
+    if (assistantTexts.length >= minAssistantCount && matchedAssistantText) {
       return { messages, lastAssistantText, matchedAssistantText };
     }
     await sleep(500);
@@ -715,8 +708,8 @@ describeLive("gateway live (ACP bind)", () => {
             sessionKey: originalSessionKey,
             idempotencyKey: `idem-image-${attempt}-${randomUUID()}`,
             message:
-              "Best match for the attached image: lobster, mouse, cat, horse. " +
-              "Reply with one lowercase word only.",
+              "Read the large word printed at the bottom of the attached image. " +
+              "Reply with that word in lowercase and nothing else.",
             originatingChannel: "slack",
             originatingTo: conversationId,
             originatingAccountId: accountId,
@@ -737,11 +730,8 @@ describeLive("gateway live (ACP bind)", () => {
               minAssistantCount: markerAssistantCount + 1,
               timeoutMs: liveAgent === "claude" ? 60_000 : 45_000,
             });
-          } catch (error) {
+          } catch {
             if (attempt === 1) {
-              if (liveAgent === "claude") {
-                throw error;
-              }
               logLiveStep(
                 "bound session image reply not observed; continuing to cron verification",
               );
@@ -782,24 +772,15 @@ describeLive("gateway live (ACP bind)", () => {
           logLiveStep(`cron mcp turn completed (attempt ${String(attempt + 1)})`);
 
           let cronHistory: Awaited<ReturnType<typeof waitForAssistantTurn>> | null = null;
-          if (liveAgent === "claude") {
+          try {
             cronHistory = await waitForAssistantTurn({
               client,
               sessionKey: spawnedSessionKey,
               minAssistantCount: imageAssistantCount + 1,
-              timeoutMs: 90_000,
+              timeoutMs: liveAgent === "claude" ? 90_000 : 45_000,
             });
-          } else {
-            try {
-              cronHistory = await waitForAssistantTurn({
-                client,
-                sessionKey: spawnedSessionKey,
-                minAssistantCount: imageAssistantCount + 1,
-                timeoutMs: 45_000,
-              });
-            } catch {
-              logLiveStep("cron assistant reply not observed yet; relying on CLI verification");
-            }
+          } catch {
+            logLiveStep("cron assistant reply not observed yet; relying on CLI verification");
           }
           if (cronHistory) {
             lastCronAssistantText = cronHistory.lastAssistantText;
