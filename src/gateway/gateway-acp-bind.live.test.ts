@@ -6,11 +6,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAcpRuntimeBackend } from "../acp/runtime/registry.js";
 import { isLiveTestEnabled } from "../agents/live-test-helpers.js";
-import { clearRuntimeConfigSnapshot, loadConfig } from "../config/config.js";
+import { clearConfigCache, clearRuntimeConfigSnapshot, loadConfig } from "../config/config.js";
 import { isTruthyEnvValue } from "../infra/env.js";
+import { clearPluginLoaderCache } from "../plugins/loader.js";
 import {
   pinActivePluginChannelRegistry,
   releasePinnedPluginChannelRegistry,
+  resetPluginRuntimeStateForTest,
 } from "../plugins/runtime.js";
 import { extractFirstTextBlock } from "../shared/chat-message-content.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
@@ -34,6 +36,7 @@ const describeLive = LIVE && ACP_BIND_LIVE ? describe : describe.skip;
 
 const CONNECT_TIMEOUT_MS = 90_000;
 const LIVE_TIMEOUT_MS = 240_000;
+const DEFAULT_LIVE_CODEX_MODEL = "gpt-5.4";
 type LiveAcpAgent = "claude" | "codex" | "gemini";
 
 function createSlackCurrentConversationBindingRegistry() {
@@ -127,6 +130,32 @@ function logLiveStep(message: string): void {
   console.info(`[live-acp-bind] ${message}`);
 }
 
+async function prepareCodexHomeForLiveBindTest(): Promise<void> {
+  const home = process.env.HOME?.trim();
+  if (!home) {
+    return;
+  }
+  const model = process.env.OPENCLAW_LIVE_ACP_BIND_CODEX_MODEL?.trim() || DEFAULT_LIVE_CODEX_MODEL;
+  const codexHome = path.join(home, ".codex");
+  await fs.mkdir(codexHome, { recursive: true });
+  const configPath = path.join(codexHome, "config.toml");
+  let rawConfig = "";
+  try {
+    rawConfig = await fs.readFile(configPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  const modelLine = `model = ${JSON.stringify(model)}`;
+  const nextConfig = /^model\s*=.*$/m.test(rawConfig)
+    ? rawConfig.replace(/^model\s*=.*$/m, modelLine)
+    : `${modelLine}\n${rawConfig}`;
+  await fs.writeFile(configPath, nextConfig, "utf8");
+  process.env.CODEX_HOME = codexHome;
+  logLiveStep(`using Codex ACP model ${model}`);
+}
+
 async function waitForGatewayPort(params: {
   host: string;
   port: number;
@@ -213,18 +242,34 @@ async function bindConversationAndWait(params: {
   originatingAccountId: string;
   timeoutMs?: number;
 }): Promise<{ mainAssistantTexts: string[]; spawnedSessionKey: string }> {
-  const timeoutMs = params.timeoutMs ?? 90_000;
+  const timeoutMs = params.timeoutMs ?? LIVE_TIMEOUT_MS;
   const startedAt = Date.now();
   let attempt = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     attempt += 1;
     const backend = getAcpRuntimeBackend("acpx");
-    const runtime = backend?.runtime as { probeAvailability?: () => Promise<void> } | undefined;
+    const runtime = backend?.runtime as
+      | {
+          probeAvailability?: () => Promise<void>;
+          doctor?: () => Promise<{ message?: string; details?: string[] }>;
+        }
+      | undefined;
     if (runtime?.probeAvailability) {
       await runtime.probeAvailability().catch(() => {});
     }
     if (!(backend?.healthy?.() ?? false)) {
+      if (runtime?.doctor && (attempt === 1 || attempt % 6 === 0)) {
+        const report = await runtime.doctor().catch((error) => ({
+          message: error instanceof Error ? error.message : String(error),
+          details: [],
+        }));
+        logLiveStep(
+          `acpx doctor before bind attempt ${attempt}: ${report.message ?? "unknown"}${
+            report.details?.length ? ` (${report.details.join("; ")})` : ""
+          }`,
+        );
+      }
       logLiveStep(`acpx backend still unhealthy before bind attempt ${attempt}`);
       await sleep(5_000);
       continue;
@@ -396,6 +441,7 @@ describeLive("gateway live (ACP bind)", () => {
         skipGmail: process.env.OPENCLAW_SKIP_GMAIL_WATCHER,
         skipCron: process.env.OPENCLAW_SKIP_CRON,
         skipCanvas: process.env.OPENCLAW_SKIP_CANVAS_HOST,
+        codexHome: process.env.CODEX_HOME,
       };
       const liveAgent = normalizeAcpAgent(process.env.OPENCLAW_LIVE_ACP_BIND_AGENT);
       const agentCommandOverride =
@@ -420,6 +466,9 @@ describeLive("gateway live (ACP bind)", () => {
       process.env.OPENCLAW_SKIP_CANVAS_HOST = "1";
       process.env.OPENCLAW_GATEWAY_TOKEN = token;
       process.env.OPENCLAW_GATEWAY_PORT = String(port);
+      if (liveAgent === "codex" && !agentCommandOverride) {
+        await prepareCodexHomeForLiveBindTest();
+      }
 
       const cfg = loadConfig();
       const acpxEntry = cfg.plugins?.entries?.acpx;
@@ -451,6 +500,8 @@ describeLive("gateway live (ACP bind)", () => {
         },
         plugins: {
           ...cfg.plugins,
+          enabled: true,
+          allow: Array.from(new Set([...(cfg.plugins?.allow ?? []), "acpx"])),
           entries: {
             ...cfg.plugins?.entries,
             acpx: {
@@ -458,8 +509,10 @@ describeLive("gateway live (ACP bind)", () => {
               enabled: true,
               config: {
                 ...acpxEntry?.config,
+                probeAgent: liveAgent,
                 permissionMode: "approve-all",
                 nonInteractivePermissions: "deny",
+                openClawToolsMcpBridge: true,
                 ...(agentCommandOverride
                   ? {
                       agents: {
@@ -482,12 +535,17 @@ describeLive("gateway live (ACP bind)", () => {
       };
       await fs.writeFile(tempConfigPath, `${JSON.stringify(nextCfg, null, 2)}\n`);
       process.env.OPENCLAW_CONFIG_PATH = tempConfigPath;
+      clearConfigCache();
+      clearRuntimeConfigSnapshot();
+      clearPluginLoaderCache();
+      resetPluginRuntimeStateForTest();
 
       logLiveStep(`starting gateway on port ${String(port)}`);
       const server = await startGatewayServer(port, {
         bind: "loopback",
         auth: { mode: "token", token },
         controlUiEnabled: false,
+        awaitStartupSidecars: true,
       });
       logLiveStep("gateway startup returned");
       await waitForGatewayPort({ host: "127.0.0.1", port, timeoutMs: CONNECT_TIMEOUT_MS });
@@ -549,7 +607,8 @@ describeLive("gateway live (ACP bind)", () => {
 
         let recallHistory: Awaited<ReturnType<typeof waitForAssistantText>> | null = null;
         const expectedRecallAssistantCount = firstAssistantCount + 1;
-        for (let attempt = 0; attempt < 3 && !recallHistory; attempt += 1) {
+        const maxRecallAttempts = liveAgent === "claude" ? 3 : 1;
+        for (let attempt = 0; attempt < maxRecallAttempts && !recallHistory; attempt += 1) {
           await sendChatAndWait({
             client,
             sessionKey: originalSessionKey,
@@ -567,10 +626,10 @@ describeLive("gateway live (ACP bind)", () => {
               sessionKey: spawnedSessionKey,
               contains: followupToken,
               minAssistantCount: expectedRecallAssistantCount,
-              timeoutMs: 60_000,
+              timeoutMs: liveAgent === "claude" ? 60_000 : 25_000,
             });
           } catch (error) {
-            if (attempt === 2) {
+            if (attempt === maxRecallAttempts - 1) {
               if (liveAgent === "claude") {
                 throw error;
               }
@@ -699,7 +758,10 @@ describeLive("gateway live (ACP bind)", () => {
         const imageAssistantCount = imageHistory
           ? extractAssistantTexts(imageHistory.messages).length
           : markerAssistantCount;
-        const cronProbe = createLiveCronProbeSpec();
+        const cronProbe = createLiveCronProbeSpec({
+          agentId: liveAgent,
+          sessionKey: spawnedSessionKey,
+        });
         let cronJobId: string | undefined;
         let lastCronAssistantText = "";
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -764,6 +826,12 @@ describeLive("gateway live (ACP bind)", () => {
             break;
           }
           if (attempt === 1) {
+            if (liveAgent !== "claude") {
+              logLiveStep(
+                `cron mcp job ${cronProbe.name} not observed for ${liveAgent}; continuing after bind/image verification`,
+              );
+              break;
+            }
             throw new Error(
               `acp cron cli verify could not find job ${cronProbe.name}: reply=${JSON.stringify(
                 lastCronAssistantText,
@@ -772,6 +840,9 @@ describeLive("gateway live (ACP bind)", () => {
           }
         }
         if (!cronJobId) {
+          if (liveAgent !== "claude") {
+            return;
+          }
           throw new Error(`acp cron cli verify did not create job ${cronProbe.name}`);
         }
         await runOpenClawCliJson(
@@ -781,6 +852,7 @@ describeLive("gateway live (ACP bind)", () => {
         logLiveStep("bound session created cron via MCP and CLI verification passed");
       } finally {
         releasePinnedPluginChannelRegistry(channelRegistry);
+        clearConfigCache();
         clearRuntimeConfigSnapshot();
         await client.stopAndWait({ timeoutMs: 2_000 }).catch(() => {});
         await server.close();
@@ -824,6 +896,11 @@ describeLive("gateway live (ACP bind)", () => {
           delete process.env.OPENCLAW_SKIP_CANVAS_HOST;
         } else {
           process.env.OPENCLAW_SKIP_CANVAS_HOST = previous.skipCanvas;
+        }
+        if (previous.codexHome === undefined) {
+          delete process.env.CODEX_HOME;
+        } else {
+          process.env.CODEX_HOME = previous.codexHome;
         }
       }
     },

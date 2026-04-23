@@ -40,7 +40,7 @@ const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const LITELLM_PRICING_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const CACHE_TTL_MS = 24 * 60 * 60_000;
-const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_TIMEOUT_MS = 30_000;
 const MAX_PRICING_CATALOG_BYTES = 5 * 1024 * 1024;
 const PROVIDER_ALIAS_TO_OPENROUTER: Record<string, string> = {
   "google-gemini-cli": "google",
@@ -96,6 +96,31 @@ function parseNumberString(value: unknown): number | null {
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatTimeoutSeconds(timeoutMs: number): string {
+  const seconds = timeoutMs / 1000;
+  return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
+}
+
+function readErrorName(error: unknown): string | undefined {
+  return error && typeof error === "object" && "name" in error
+    ? String((error as { name?: unknown }).name)
+    : undefined;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (readErrorName(error) === "TimeoutError") {
+    return true;
+  }
+  return /\bTimeoutError\b/u.test(String(error));
+}
+
+function formatPricingFetchFailure(source: "LiteLLM" | "OpenRouter", error: unknown): string {
+  if (isTimeoutError(error)) {
+    return `${source} pricing fetch failed (timeout ${formatTimeoutSeconds(FETCH_TIMEOUT_MS)}): ${String(error)}`;
+  }
+  return `${source} pricing fetch failed: ${String(error)}`;
 }
 
 function toPricePerMillion(value: number | null): number {
@@ -535,12 +560,12 @@ export async function refreshGatewayModelPricingCache(params: {
     let litellmFailed = false;
     const [catalogById, litellmCatalog] = await Promise.all([
       fetchOpenRouterPricingCatalog(fetchImpl).catch((error: unknown) => {
-        log.warn(`OpenRouter pricing fetch failed: ${String(error)}`);
+        log.warn(formatPricingFetchFailure("OpenRouter", error));
         openRouterFailed = true;
         return new Map<string, OpenRouterPricingEntry>();
       }),
       fetchLiteLLMPricingCatalog(fetchImpl).catch((error: unknown) => {
-        log.warn(`LiteLLM pricing fetch failed: ${String(error)}`);
+        log.warn(formatPricingFetchFailure("LiteLLM", error));
         litellmFailed = true;
         return new Map<string, CachedModelPricing>() as LiteLLMPricingCatalog;
       }),
@@ -630,10 +655,17 @@ export function startGatewayModelPricingRefresh(params: {
   config: OpenClawConfig;
   fetchImpl?: typeof fetch;
 }): () => void {
-  void refreshGatewayModelPricingCache(params).catch((error: unknown) => {
-    log.warn(`pricing bootstrap failed: ${String(error)}`);
+  let stopped = false;
+  queueMicrotask(() => {
+    if (stopped) {
+      return;
+    }
+    void refreshGatewayModelPricingCache(params).catch((error: unknown) => {
+      log.warn(`pricing bootstrap failed: ${String(error)}`);
+    });
   });
   return () => {
+    stopped = true;
     clearRefreshTimer();
   };
 }

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { modelKey } from "../agents/model-selection.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { resetLogger, setLoggerOverride } from "../logging/logger.js";
+import { loggingState } from "../logging/state.js";
 import type { normalizeProviderModelIdWithPlugin } from "../plugins/provider-runtime.js";
 import { withFetchPreconnect } from "../test-utils/fetch-mock.js";
 
@@ -17,6 +19,7 @@ import {
   collectConfiguredModelPricingRefs,
   getCachedGatewayModelPricing,
   refreshGatewayModelPricingCache,
+  startGatewayModelPricingRefresh,
 } from "./model-pricing-cache.js";
 
 describe("model-pricing-cache", () => {
@@ -26,6 +29,8 @@ describe("model-pricing-cache", () => {
 
   afterEach(() => {
     __resetGatewayModelPricingCacheForTest();
+    loggingState.rawConsole = null;
+    resetLogger();
   });
 
   it("collects configured model refs across defaults, aliases, overrides, and media tools", () => {
@@ -513,6 +518,78 @@ describe("model-pricing-cache", () => {
       cacheRead: 0,
       cacheWrite: 0,
     });
+  });
+
+  it("defers bootstrap refresh work until after the starter returns", async () => {
+    const config = {
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-opus-4-6" },
+        },
+      },
+    } as unknown as OpenClawConfig;
+    const fetchImpl = withFetchPreconnect(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("openrouter.ai")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const stop = startGatewayModelPricingRefresh({ config, fetchImpl });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await vi.dynamicImportSettled();
+    expect(fetchImpl).toHaveBeenCalled();
+    stop();
+  });
+
+  it("logs configured timeout seconds when pricing fetches time out", async () => {
+    const warnings: string[] = [];
+    loggingState.rawConsole = {
+      log: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn((message: string) => warnings.push(message)),
+      error: vi.fn(),
+    };
+    setLoggerOverride({ level: "silent", consoleLevel: "warn" });
+
+    const config = {
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-opus-4-6" },
+        },
+      },
+    } as unknown as OpenClawConfig;
+    const timeoutError = new DOMException(
+      "The operation was aborted due to timeout",
+      "TimeoutError",
+    );
+    const fetchImpl = withFetchPreconnect(async () => {
+      throw timeoutError;
+    });
+
+    await refreshGatewayModelPricingCache({ config, fetchImpl });
+
+    expect(warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "OpenRouter pricing fetch failed (timeout 30s): TimeoutError: The operation was aborted due to timeout",
+        ),
+        expect.stringContaining(
+          "LiteLLM pricing fetch failed (timeout 30s): TimeoutError: The operation was aborted due to timeout",
+        ),
+      ]),
+    );
   });
 
   it("treats oversized LiteLLM catalog responses as source failures", async () => {
