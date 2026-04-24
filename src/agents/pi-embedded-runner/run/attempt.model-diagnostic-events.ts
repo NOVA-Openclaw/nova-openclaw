@@ -10,6 +10,8 @@ import {
   type DiagnosticTraceContext,
 } from "../../../infra/diagnostic-trace-context.js";
 
+export { diagnosticErrorCategory };
+
 type ModelCallDiagnosticContext = {
   runId: string;
   sessionKey?: string;
@@ -74,7 +76,7 @@ function baseModelCallEvent(
 }
 
 async function safeReturnIterator(iterator: AsyncIterator<unknown>): Promise<void> {
-  let returnResult: PromiseLike<unknown> | unknown;
+  let returnResult: unknown;
   try {
     returnResult = iterator.return?.();
   } catch {

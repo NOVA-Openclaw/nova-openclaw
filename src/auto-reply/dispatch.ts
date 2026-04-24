@@ -1,5 +1,7 @@
+import { normalizeChatType } from "../channels/chat-type.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { triggerMessageReceived } from "../hooks/message-hooks.js";
+import type { SilentReplyConversationType } from "../shared/silent-reply-policy.js";
 import { withReplyDispatcher } from "./dispatch-dispatcher.js";
 import { dispatchReplyFromConfig } from "./reply/dispatch-from-config.js";
 import type { DispatchFromConfigResult } from "./reply/dispatch-from-config.types.js";
@@ -24,10 +26,22 @@ function resolveDispatcherSilentReplyContext(
     finalized.CommandSource === "native"
       ? (finalized.CommandTargetSessionKey ?? finalized.SessionKey)
       : finalized.SessionKey;
+  const chatType = normalizeChatType(finalized.ChatType);
+  const conversationType: SilentReplyConversationType | undefined =
+    finalized.CommandSource === "native" &&
+    finalized.CommandTargetSessionKey &&
+    finalized.CommandTargetSessionKey !== finalized.SessionKey
+      ? undefined
+      : chatType === "direct"
+        ? "direct"
+        : chatType === "group" || chatType === "channel"
+          ? "group"
+          : undefined;
   return {
     cfg,
     sessionKey: policySessionKey,
     surface: finalized.Surface ?? finalized.Provider,
+    conversationType,
   };
 }
 

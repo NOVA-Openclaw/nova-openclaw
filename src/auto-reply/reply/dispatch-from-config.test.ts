@@ -1084,6 +1084,7 @@ describe("dispatchReplyFromConfig", () => {
     expect(mocks.routeReply).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "imessage",
+        policyConversationType: "direct",
         to: "imessage:+15550001111",
       }),
     );

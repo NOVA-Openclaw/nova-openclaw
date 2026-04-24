@@ -731,6 +731,7 @@ async function deliverOutboundPayloadsCore(
     cfg,
     sessionKey: params.session?.policyKey ?? params.session?.key,
     surface: channel,
+    conversationType: params.session?.conversationType,
   });
   const accountId = params.accountId;
   const deps = params.deps;
