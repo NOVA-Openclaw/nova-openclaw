@@ -29,6 +29,24 @@ describe("test-install-sh-docker", () => {
     );
   });
 
+  it("uses npm latest as the update baseline and resolves it to the concrete packed version", () => {
+    const script = readFileSync(SCRIPT_PATH, "utf8");
+    const runner = readFileSync(SMOKE_RUNNER_PATH, "utf8");
+    const workflow = readFileSync(INSTALL_SMOKE_WORKFLOW_PATH, "utf8");
+
+    expect(script).toContain(
+      'UPDATE_BASELINE_VERSION="${OPENCLAW_INSTALL_SMOKE_UPDATE_BASELINE:-latest}"',
+    );
+    expect(script).toContain('quiet_npm pack "${PACKAGE_NAME}@${UPDATE_BASELINE_VERSION}"');
+    expect(script).toContain('UPDATE_BASELINE_VERSION="$(');
+    expect(runner).toContain(
+      'UPDATE_BASELINE_VERSION="${OPENCLAW_INSTALL_UPDATE_BASELINE:-latest}"',
+    );
+    expect(runner).toContain("resolve_update_baseline_version");
+    expect(runner).toContain('quiet_npm view "${PACKAGE_NAME}@${UPDATE_BASELINE_VERSION}" version');
+    expect(workflow).toContain("OPENCLAW_INSTALL_SMOKE_UPDATE_BASELINE: latest");
+  });
+
   it("can reuse dist from the already-built root Docker smoke image", () => {
     const script = readFileSync(SCRIPT_PATH, "utf8");
 
@@ -93,6 +111,14 @@ describe("install-sh smoke runner", () => {
     expect(script).toContain('NPM_CACHE_DIR="${OPENCLAW_INSTALL_SMOKE_NPM_CACHE_DIR:-}"');
     expect(script).toContain("-e npm_config_cache=/npm-cache");
     expect(script).toContain('"${NPM_CACHE_DOCKER_ARGS[@]}"');
+    expect(script).toContain("remove_owned_npm_cache");
+    expect(script).toContain('sudo -n rm -rf "$NPM_CACHE_DIR"');
+    expect(script).not.toMatch(
+      /Run installer non-root test:[\s\S]*"\$\{NPM_CACHE_DOCKER_ARGS\[@\]\}"/,
+    );
+    expect(script).not.toMatch(
+      /Run CLI installer non-root test[\s\S]*"\$\{NPM_CACHE_DOCKER_ARGS\[@\]\}"/,
+    );
     expect(script).toContain("==> Run direct npm global smoke");
     expect(script).toContain("OPENCLAW_INSTALL_SMOKE_MODE=npm-global");
     expect(runner).toContain("run_npm_global_smoke");
@@ -124,5 +150,6 @@ describe("bun global install smoke", () => {
     expect(workflow).toContain("format('{0}-manual-{1}', github.workflow, github.run_id)");
     expect(workflow).toContain("OPENCLAW_CI_FORCE_INSTALL_SMOKE");
     expect(workflow).toContain('if [ "$force_install_smoke" = "true" ]; then');
+    expect(workflow).toContain('OPENCLAW_INSTALL_SMOKE_SKIP_NPM_GLOBAL: "1"');
   });
 });

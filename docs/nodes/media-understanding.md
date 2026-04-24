@@ -3,7 +3,7 @@ summary: "Inbound image/audio/video understanding (optional) with provider + CLI
 read_when:
   - Designing or refactoring media understanding
   - Tuning inbound audio/video/image preprocessing
-title: "Media Understanding"
+title: "Media understanding"
 ---
 
 # Media Understanding - Inbound (2026-01-17)
@@ -422,7 +422,7 @@ File-attachment extraction behavior:
 When media understanding runs, `/status` includes a short summary line:
 
 ```
-📎 Media: image ok (openai/gpt-5.5) · audio skipped (maxBytes)
+📎 Media: image ok (openai/gpt-5.4) · audio skipped (maxBytes)
 ```
 
 This shows per‑capability outcomes and the chosen provider/model when applicable.
