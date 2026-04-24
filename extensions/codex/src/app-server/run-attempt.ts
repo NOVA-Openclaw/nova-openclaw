@@ -33,6 +33,10 @@ import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
 import { handleCodexAppServerElicitationRequest } from "./elicitation-bridge.js";
 import { CodexAppServerEventProjector } from "./event-projector.js";
 import {
+  assertCodexTurnStartResponse,
+  readCodexDynamicToolCallParams,
+} from "./protocol-validators.js";
+import {
   isJsonObject,
   type CodexServerNotification,
   type CodexDynamicToolCallParams,
@@ -54,8 +58,22 @@ import {
   recordCodexTrajectoryContext,
 } from "./trajectory.js";
 import { mirrorCodexAppServerTranscript } from "./transcript-mirror.js";
+import { createCodexUserInputBridge } from "./user-input-bridge.js";
+import { filterToolsForVisionInputs } from "./vision-tools.js";
 
 let clientFactory = defaultCodexAppServerClientFactory;
+
+function emitCodexAppServerEvent(
+  params: EmbeddedRunAttemptParams,
+  event: Parameters<NonNullable<EmbeddedRunAttemptParams["onAgentEvent"]>>[0],
+): void {
+  try {
+    params.onAgentEvent?.(event);
+  } catch {
+    // Event consumers are observational; they must not abort or strand the
+    // canonical app-server turn lifecycle.
+  }
+}
 
 export async function runCodexAppServerAttempt(
   params: EmbeddedRunAttemptParams,
@@ -146,6 +164,10 @@ export async function runCodexAppServerAttempt(
   let thread: CodexAppServerThreadBinding;
   let trajectoryEndRecorded = false;
   try {
+    emitCodexAppServerEvent(params, {
+      stream: "codex_app_server.lifecycle",
+      data: { phase: "startup" },
+    });
     ({ client, thread } = await withCodexStartupTimeout({
       timeoutMs: params.timeoutMs,
       timeoutFloorMs: options.startupTimeoutFloorMs,
@@ -163,6 +185,10 @@ export async function runCodexAppServerAttempt(
         return { client: startupClient, thread: startupThread };
       },
     }));
+    emitCodexAppServerEvent(params, {
+      stream: "codex_app_server.lifecycle",
+      data: { phase: "thread_ready", threadId: thread.threadId },
+    });
   } catch (error) {
     clearSharedCodexAppServerClient();
     params.abortSignal?.removeEventListener("abort", abortFromUpstream);
@@ -186,6 +212,7 @@ export async function runCodexAppServerAttempt(
   let projector: CodexAppServerEventProjector | undefined;
   let turnId: string | undefined;
   const pendingNotifications: CodexServerNotification[] = [];
+  let userInputBridge: ReturnType<typeof createCodexUserInputBridge> | undefined;
   let completed = false;
   let timedOut = false;
   let resolveCompletion: (() => void) | undefined;
@@ -195,6 +222,7 @@ export async function runCodexAppServerAttempt(
   let notificationQueue: Promise<void> = Promise.resolve();
 
   const handleNotification = async (notification: CodexServerNotification) => {
+    userInputBridge?.handleNotification(notification);
     if (!projector || !turnId) {
       pendingNotifications.push(notification);
       return;
@@ -239,6 +267,12 @@ export async function runCodexAppServerAttempt(
         threadId: thread.threadId,
         turnId,
         signal: runAbortController.signal,
+      });
+    }
+    if (request.method === "item/tool/requestUserInput") {
+      return userInputBridge?.handleRequest({
+        id: request.id,
+        params: request.params,
       });
     }
     if (request.method !== "item/tool/call") {
@@ -301,17 +335,27 @@ export async function runCodexAppServerAttempt(
       event: llmInputEvent,
       ctx: hookContext,
     });
-    turn = await client.request<CodexTurnStartResponse>(
-      "turn/start",
-      buildTurnStartParams(params, {
-        threadId: thread.threadId,
-        cwd: effectiveWorkspace,
-        appServer,
-        promptText: promptBuild.prompt,
-      }),
-      { timeoutMs: params.timeoutMs, signal: runAbortController.signal },
+    emitCodexAppServerEvent(params, {
+      stream: "codex_app_server.lifecycle",
+      data: { phase: "turn_starting", threadId: thread.threadId },
+    });
+    turn = assertCodexTurnStartResponse(
+      await client.request(
+        "turn/start",
+        buildTurnStartParams(params, {
+          threadId: thread.threadId,
+          cwd: effectiveWorkspace,
+          appServer,
+          promptText: promptBuild.prompt,
+        }),
+        { timeoutMs: params.timeoutMs, signal: runAbortController.signal },
+      ),
     );
   } catch (error) {
+    emitCodexAppServerEvent(params, {
+      stream: "codex_app_server.lifecycle",
+      data: { phase: "turn_start_failed", error: formatErrorMessage(error) },
+    });
     trajectoryRecorder?.recordEvent("session.ended", {
       status: "error",
       threadId: thread.threadId,
@@ -346,14 +390,20 @@ export async function runCodexAppServerAttempt(
     throw error;
   }
   turnId = turn.turn.id;
+  const activeTurnId = turn.turn.id;
+  userInputBridge = createCodexUserInputBridge({
+    paramsForRun: params,
+    threadId: thread.threadId,
+    turnId: activeTurnId,
+    signal: runAbortController.signal,
+  });
   trajectoryRecorder?.recordEvent("prompt.submitted", {
     threadId: thread.threadId,
-    turnId,
+    turnId: activeTurnId,
     prompt: promptBuild.prompt,
     imagesCount: params.images?.length ?? 0,
   });
-  projector = new CodexAppServerEventProjector(params, thread.threadId, turnId);
-  const activeTurnId = turnId;
+  projector = new CodexAppServerEventProjector(params, thread.threadId, activeTurnId);
   const activeProjector = projector;
   for (const notification of pendingNotifications.splice(0)) {
     await enqueueNotification(notification);
@@ -372,10 +422,13 @@ export async function runCodexAppServerAttempt(
   const handle = {
     kind: "embedded" as const,
     queueMessage: async (text: string) => {
+      if (userInputBridge?.handleQueuedMessage(text)) {
+        return;
+      }
       await client.request("turn/steer", {
         threadId: thread.threadId,
         expectedTurnId: activeTurnId,
-        input: [{ type: "text", text }],
+        input: [{ type: "text", text, text_elements: [] }],
       });
     },
     isStreaming: () => !completed,
@@ -476,6 +529,7 @@ export async function runCodexAppServerAttempt(
       });
     }
     await trajectoryRecorder?.flush();
+    userInputBridge?.cancelPending();
     clearTimeout(timeout);
     notificationCleanup();
     requestCleanup();
@@ -568,7 +622,7 @@ async function buildDynamicTools(input: DynamicToolBuildParams) {
     disableMessageTool: params.disableMessageTool,
     onYield: (message) => {
       input.onYieldDetected();
-      params.onAgentEvent?.({
+      emitCodexAppServerEvent(params, {
         stream: "codex_app_server.tool",
         data: { name: "sessions_yield", message },
       });
@@ -593,19 +647,6 @@ async function buildDynamicTools(input: DynamicToolBuildParams) {
     modelApi: params.model.api,
     model: params.model,
   });
-}
-
-function filterToolsForVisionInputs<T extends { name?: string }>(
-  tools: T[],
-  params: {
-    modelHasVision: boolean;
-    hasInboundImages: boolean;
-  },
-): T[] {
-  if (!params.modelHasVision || !params.hasInboundImages) {
-    return tools;
-  }
-  return tools.filter((tool) => tool.name !== "image");
 }
 
 async function withCodexStartupTimeout<T>(params: {
@@ -650,23 +691,7 @@ async function withCodexStartupTimeout<T>(params: {
 function readDynamicToolCallParams(
   value: JsonValue | undefined,
 ): CodexDynamicToolCallParams | undefined {
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-  const threadId = readString(value, "threadId");
-  const turnId = readString(value, "turnId");
-  const callId = readString(value, "callId");
-  const tool = readString(value, "tool");
-  if (!threadId || !turnId || !callId || !tool) {
-    return undefined;
-  }
-  return {
-    threadId,
-    turnId,
-    callId,
-    tool,
-    arguments: value.arguments,
-  };
+  return readCodexDynamicToolCallParams(value);
 }
 
 function isTurnNotification(
