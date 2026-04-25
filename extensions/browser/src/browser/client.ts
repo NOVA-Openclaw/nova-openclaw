@@ -200,13 +200,13 @@ export async function browserTabs(
 export async function browserOpenTab(
   baseUrl: string | undefined,
   url: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; label?: string },
 ): Promise<BrowserTab> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserTab>(withBaseUrl(baseUrl, `/tabs/open${q}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, ...(opts?.label ? { label: opts.label } : {}) }),
     timeoutMs: 15000,
   });
 }
@@ -271,6 +271,7 @@ export async function browserSnapshot(
     selector?: string;
     frame?: string;
     labels?: boolean;
+    urls?: boolean;
     mode?: "efficient";
     profile?: string;
   },
@@ -308,6 +309,9 @@ export async function browserSnapshot(
   }
   if (opts.labels === true) {
     q.set("labels", "1");
+  }
+  if (opts.urls === true) {
+    q.set("urls", "1");
   }
   if (opts.mode) {
     q.set("mode", opts.mode);

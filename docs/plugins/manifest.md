@@ -168,6 +168,8 @@ or npm install metadata. Those belong in your plugin code and `package.json`.
 
 Each `providerAuthChoices` entry describes one onboarding or auth choice.
 OpenClaw reads this before provider runtime loads.
+Provider setup flow prefers these manifest choices, then falls back to runtime
+wizard metadata and install-catalog choices for compatibility.
 
 | Field                 | Required | Type                                            | What it means                                                                                            |
 | --------------------- | -------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -333,11 +335,18 @@ adapter during the deprecation window, but non-bundled plugins that still use it
 receive a manifest diagnostic. New plugins should put setup/status env metadata
 on `setup.providers[].envVars`.
 
+OpenClaw can also derive simple setup choices from `setup.providers[].authMethods`
+when no setup entry is available, or when `setup.requiresRuntime: false`
+declares setup runtime unnecessary. Explicit `providerAuthChoices` entries stay
+preferred for custom labels, CLI flags, onboarding scope, and assistant metadata.
+
 Set `requiresRuntime: false` only when those descriptors are sufficient for the
 setup surface. OpenClaw treats explicit `false` as a descriptor-only contract
-and will not execute `setup-api` for setup lookup. Omitted `requiresRuntime`
-keeps legacy fallback behavior so existing plugins that added descriptors
-without the flag do not break.
+and will not execute `setup-api` or `openclaw.setupEntry` for setup lookup. If
+a descriptor-only plugin still ships one of those setup runtime entries,
+OpenClaw reports an additive diagnostic and continues ignoring it. Omitted
+`requiresRuntime` keeps legacy fallback behavior so existing plugins that added
+descriptors without the flag do not break.
 
 Because setup lookup can execute plugin-owned `setup-api` code, normalized
 `setup.providers[].id` and `setup.cliBackends[]` values must stay unique across
@@ -402,7 +411,7 @@ read without importing the plugin runtime.
 ```json
 {
   "contracts": {
-    "agentToolResultMiddleware": ["pi", "codex-app-server"],
+    "agentToolResultMiddleware": ["pi", "codex"],
     "externalAuthProviders": ["acme-ai"],
     "speechProviders": ["openai"],
     "realtimeTranscriptionProviders": ["openai"],
@@ -420,26 +429,28 @@ read without importing the plugin runtime.
 
 Each list is optional:
 
-| Field                            | Type       | What it means                                                    |
-| -------------------------------- | ---------- | ---------------------------------------------------------------- |
-| `embeddedExtensionFactories`     | `string[]` | Deprecated embedded extension factory ids.                       |
-| `agentToolResultMiddleware`      | `string[]` | Harness ids this plugin may register tool-result middleware for. |
-| `externalAuthProviders`          | `string[]` | Provider ids whose external auth profile hook this plugin owns.  |
-| `speechProviders`                | `string[]` | Speech provider ids this plugin owns.                            |
-| `realtimeTranscriptionProviders` | `string[]` | Realtime-transcription provider ids this plugin owns.            |
-| `realtimeVoiceProviders`         | `string[]` | Realtime-voice provider ids this plugin owns.                    |
-| `memoryEmbeddingProviders`       | `string[]` | Memory embedding provider ids this plugin owns.                  |
-| `mediaUnderstandingProviders`    | `string[]` | Media-understanding provider ids this plugin owns.               |
-| `imageGenerationProviders`       | `string[]` | Image-generation provider ids this plugin owns.                  |
-| `videoGenerationProviders`       | `string[]` | Video-generation provider ids this plugin owns.                  |
-| `webFetchProviders`              | `string[]` | Web-fetch provider ids this plugin owns.                         |
-| `webSearchProviders`             | `string[]` | Web-search provider ids this plugin owns.                        |
-| `tools`                          | `string[]` | Agent tool names this plugin owns for bundled contract checks.   |
+| Field                            | Type       | What it means                                                         |
+| -------------------------------- | ---------- | --------------------------------------------------------------------- |
+| `embeddedExtensionFactories`     | `string[]` | Deprecated embedded extension factory ids.                            |
+| `agentToolResultMiddleware`      | `string[]` | Runtime ids a bundled plugin may register tool-result middleware for. |
+| `externalAuthProviders`          | `string[]` | Provider ids whose external auth profile hook this plugin owns.       |
+| `speechProviders`                | `string[]` | Speech provider ids this plugin owns.                                 |
+| `realtimeTranscriptionProviders` | `string[]` | Realtime-transcription provider ids this plugin owns.                 |
+| `realtimeVoiceProviders`         | `string[]` | Realtime-voice provider ids this plugin owns.                         |
+| `memoryEmbeddingProviders`       | `string[]` | Memory embedding provider ids this plugin owns.                       |
+| `mediaUnderstandingProviders`    | `string[]` | Media-understanding provider ids this plugin owns.                    |
+| `imageGenerationProviders`       | `string[]` | Image-generation provider ids this plugin owns.                       |
+| `videoGenerationProviders`       | `string[]` | Video-generation provider ids this plugin owns.                       |
+| `webFetchProviders`              | `string[]` | Web-fetch provider ids this plugin owns.                              |
+| `webSearchProviders`             | `string[]` | Web-search provider ids this plugin owns.                             |
+| `tools`                          | `string[]` | Agent tool names this plugin owns for bundled contract checks.        |
 
 `contracts.embeddedExtensionFactories` is retained for bundled compatibility
-code that still needs direct Pi embedded-runner events. New tool-result
-transforms should declare `contracts.agentToolResultMiddleware` and register
-with `api.registerAgentToolResultMiddleware(...)` instead.
+code that still needs direct Pi embedded-runner events. New bundled
+tool-result transforms should declare `contracts.agentToolResultMiddleware`
+and register with `api.registerAgentToolResultMiddleware(...)` instead.
+External plugins cannot register tool-result middleware because the seam can
+rewrite high-trust tool output before the model sees it.
 
 Provider plugins that implement `resolveExternalAuthProfiles` should declare
 `contracts.externalAuthProviders`. Plugins without the declaration still run
@@ -492,7 +503,9 @@ Each provider entry can include:
 ## channelConfigs reference
 
 Use `channelConfigs` when a channel plugin needs cheap config metadata before
-runtime loads.
+runtime loads. Read-only channel setup/status discovery can use this metadata
+directly for configured external channels when no setup entry is available, or
+when `setup.requiresRuntime: false` declares setup runtime unnecessary.
 
 ```json
 {

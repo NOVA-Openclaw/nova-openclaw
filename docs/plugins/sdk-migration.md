@@ -91,8 +91,9 @@ releases.
 
 <Steps>
   <Step title="Migrate Pi tool-result extensions to middleware">
-    Replace Pi-only `api.registerEmbeddedExtensionFactory(...)` tool-result
-    handlers with harness-neutral middleware.
+    Bundled plugins should replace Pi-only
+    `api.registerEmbeddedExtensionFactory(...)` tool-result handlers with
+    runtime-neutral middleware.
 
     ```typescript
     // Before: Pi-only compatibility hook
@@ -102,11 +103,11 @@ releases.
       });
     });
 
-    // After: Pi and Codex app-server dynamic tools
+    // After: Pi and Codex runtime dynamic tools
     api.registerAgentToolResultMiddleware(async (event) => {
       return compactToolResult(event);
     }, {
-      harnesses: ["pi", "codex-app-server"],
+      runtimes: ["pi", "codex"],
     });
     ```
 
@@ -115,13 +116,15 @@ releases.
     ```json
     {
       "contracts": {
-        "agentToolResultMiddleware": ["pi", "codex-app-server"]
+        "agentToolResultMiddleware": ["pi", "codex"]
       }
     }
     ```
 
     Keep `contracts.embeddedExtensionFactories` only for bundled compatibility
-    code that still needs direct Pi embedded-runner events.
+    code that still needs direct Pi embedded-runner events. External plugins
+    cannot register tool-result middleware because it can rewrite high-trust
+    tool output before the model sees it.
 
   </Step>
 
@@ -623,7 +626,7 @@ canonical replacement.
     Covered in "How to migrate → Migrate Pi tool-result extensions to
     middleware" above. Included here for completeness: the Pi-only
     `api.registerEmbeddedExtensionFactory(...)` path is deprecated in favor of
-    `api.registerAgentToolResultMiddleware(...)` with an explicit harness
+    `api.registerAgentToolResultMiddleware(...)` with an explicit runtime
     list in `contracts.agentToolResultMiddleware`.
   </Accordion>
 

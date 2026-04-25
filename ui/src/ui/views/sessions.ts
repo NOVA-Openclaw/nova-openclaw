@@ -5,8 +5,10 @@ import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
 import { normalizeLowercaseStringOrEmpty, normalizeOptionalString } from "../string-coerce.ts";
+import { normalizeThinkLevel } from "../thinking.ts";
 import type {
   GatewaySessionRow,
+  GatewayThinkingLevelOption,
   SessionCompactionCheckpoint,
   SessionsListResult,
 } from "../types.ts";
@@ -78,13 +80,26 @@ const FAST_LEVELS = [
 const REASONING_LEVELS = ["", "off", "on", "stream"] as const;
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-function resolveThinkLevelOptions(row: GatewaySessionRow): readonly string[] {
-  const options = row.thinkingOptions?.length ? row.thinkingOptions : DEFAULT_THINK_LEVELS;
-  return ["", ...options];
+function normalizeThinkingOptionValue(raw: string): string {
+  return normalizeThinkLevel(raw) ?? normalizeLowercaseStringOrEmpty(raw);
 }
 
-function isBinaryThinkingRow(row: GatewaySessionRow): boolean {
-  return row.thinkingOptions?.includes("on") === true;
+function resolveThinkLevelOptions(
+  row: GatewaySessionRow,
+): readonly { value: string; label: string }[] {
+  const options: readonly GatewayThinkingLevelOption[] = row.thinkingLevels?.length
+    ? row.thinkingLevels
+    : (row.thinkingOptions?.length ? row.thinkingOptions : DEFAULT_THINK_LEVELS).map((label) => ({
+        id: normalizeThinkingOptionValue(label),
+        label,
+      }));
+  return [
+    { value: "", label: "inherit" },
+    ...options.map((option) => ({
+      value: normalizeThinkingOptionValue(option.id),
+      label: option.label,
+    })),
+  ];
 }
 
 function withCurrentOption(options: readonly string[], current: string): string[] {
@@ -110,25 +125,9 @@ function withCurrentLabeledOption(
   return [...options, { value: current, label: `${current} (custom)` }];
 }
 
-function resolveThinkLevelDisplay(value: string, isBinary: boolean): string {
-  if (!isBinary) {
-    return value;
-  }
-  if (!value || value === "off") {
-    return value;
-  }
-  return "on";
-}
-
-function resolveThinkLevelPatchValue(value: string, isBinary: boolean): string | null {
+function resolveThinkLevelPatchValue(value: string): string | null {
   if (!value) {
     return null;
-  }
-  if (!isBinary) {
-    return value;
-  }
-  if (value === "on") {
-    return "low";
   }
   return value;
 }
@@ -401,18 +400,17 @@ export function renderSessions(props: SessionsProps) {
               </tr>
             </thead>
             <tbody>
-              ${paginated.length === 0
-                ? html`
-                    <tr>
-                      <td
-                        colspan="11"
-                        style="text-align: center; padding: 48px 16px; color: var(--muted)"
-                      >
-                        No sessions found.
-                      </td>
-                    </tr>
-                  `
-                : paginated.flatMap((row) => renderRows(row, props))}
+              ${
+                paginated.length === 0
+                  ? html`
+                      <tr>
+                        <td colspan="11" style="text-align: center; padding: 48px 16px; color: var(--muted)">
+                          No sessions found.
+                        </td>
+                      </tr>
+                    `
+                  : paginated.flatMap((row) => renderRows(row, props))
+              }
             </tbody>
           </table>
         </div>
@@ -456,9 +454,8 @@ export function renderSessions(props: SessionsProps) {
 function renderRows(row: GatewaySessionRow, props: SessionsProps) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
   const rawThinking = row.thinkingLevel ?? "";
-  const isBinaryThinking = isBinaryThinkingRow(row);
-  const thinking = resolveThinkLevelDisplay(rawThinking, isBinaryThinking);
-  const thinkLevels = withCurrentOption(resolveThinkLevelOptions(row), thinking);
+  const thinking = rawThinking ? normalizeThinkingOptionValue(rawThinking) : "";
+  const thinkLevels = withCurrentLabeledOption(resolveThinkLevelOptions(row), thinking);
   const fastMode = row.fastMode === true ? "on" : row.fastMode === false ? "off" : "";
   const fastLevels = withCurrentLabeledOption(FAST_LEVELS, fastMode);
   const verbose = row.verboseLevel ?? "";
@@ -552,18 +549,22 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       <td>
         <div style="display: grid; gap: 6px;">
           <span class="muted" style="font-size: 12px;">
-            ${checkpointCount > 0
-              ? `${checkpointCount} checkpoint${checkpointCount === 1 ? "" : "s"}`
-              : "none"}
+            ${
+              checkpointCount > 0
+                ? `${checkpointCount} checkpoint${checkpointCount === 1 ? "" : "s"}`
+                : "none"
+            }
           </span>
-          ${latestCheckpoint
-            ? html`
+          ${
+            latestCheckpoint
+              ? html`
                 <span style="font-size: 12px;">
                   ${formatCheckpointReason(latestCheckpoint.reason)} ·
                   ${formatRelativeTimestamp(latestCheckpoint.createdAt)}
                 </span>
               `
-            : nothing}
+              : nothing
+          }
           <button
             class="btn btn--sm"
             ?disabled=${props.checkpointLoadingKey === row.key}
@@ -580,14 +581,14 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
           @change=${(e: Event) => {
             const value = (e.target as HTMLSelectElement).value;
             props.onPatch(row.key, {
-              thinkingLevel: resolveThinkLevelPatchValue(value, isBinaryThinking),
+              thinkingLevel: resolveThinkLevelPatchValue(value),
             });
           }}
         >
           ${thinkLevels.map(
             (level) =>
-              html`<option value=${level} ?selected=${thinking === level}>
-                ${level || "inherit"}
+              html`<option value=${level.value} ?selected=${thinking === level.value}>
+                ${level.label}
               </option>`,
           )}
         </select>
@@ -651,15 +652,18 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
               <div
                 style="padding: 14px 16px; border-top: 1px solid var(--border); background: var(--surface-2, rgba(127, 127, 127, 0.05));"
               >
-                ${props.checkpointLoadingKey === row.key
-                  ? html`<div class="muted">Loading checkpoints…</div>`
-                  : checkpointError
-                    ? html`<div class="callout danger">${checkpointError}</div>`
-                    : checkpointItems.length === 0
-                      ? html`<div class="muted">
-                          No compaction checkpoints recorded for this session.
-                        </div>`
-                      : html`
+                ${
+                  props.checkpointLoadingKey === row.key
+                    ? html`
+                        <div class="muted">Loading checkpoints…</div>
+                      `
+                    : checkpointError
+                      ? html`<div class="callout danger">${checkpointError}</div>`
+                      : checkpointItems.length === 0
+                        ? html`
+                            <div class="muted">No compaction checkpoints recorded for this session.</div>
+                          `
+                        : html`
                           <div style="display: grid; gap: 10px;">
                             ${checkpointItems.map(
                               (checkpoint) => html`
@@ -677,16 +681,21 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                                       ${formatCheckpointDelta(checkpoint)}
                                     </span>
                                   </div>
-                                  ${checkpoint.summary
-                                    ? html`<div style="white-space: pre-wrap;">
+                                  ${
+                                    checkpoint.summary
+                                      ? html`<div style="white-space: pre-wrap;">
                                         ${checkpoint.summary}
                                       </div>`
-                                    : html`<div class="muted">No summary captured.</div>`}
+                                      : html`
+                                          <div class="muted">No summary captured.</div>
+                                        `
+                                  }
                                   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                     <button
                                       class="btn btn--sm"
-                                      ?disabled=${props.checkpointBusyKey ===
-                                      checkpoint.checkpointId}
+                                      ?disabled=${
+                                        props.checkpointBusyKey === checkpoint.checkpointId
+                                      }
                                       @click=${() =>
                                         props.onBranchFromCheckpoint(
                                           row.key,
@@ -697,8 +706,9 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                                     </button>
                                     <button
                                       class="btn btn--sm"
-                                      ?disabled=${props.checkpointBusyKey ===
-                                      checkpoint.checkpointId}
+                                      ?disabled=${
+                                        props.checkpointBusyKey === checkpoint.checkpointId
+                                      }
                                       @click=${() =>
                                         props.onRestoreCheckpoint(row.key, checkpoint.checkpointId)}
                                     >
@@ -709,7 +719,8 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                               `,
                             )}
                           </div>
-                        `}
+                        `
+                }
               </div>
             </td>
           </tr>`,
