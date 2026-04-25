@@ -186,6 +186,7 @@ const TalkSchema = z
   .object({
     provider: z.string().optional(),
     providers: z.record(z.string(), TalkProviderEntrySchema).optional(),
+    speechLocale: z.string().optional(),
     interruptOnSpeech: z.boolean().optional(),
     silenceTimeoutMs: z.number().int().positive().optional(),
   })
@@ -457,7 +458,7 @@ export const OpenClawSchema = z
         assistant: z
           .object({
             name: z.string().max(50).optional(),
-            avatar: z.string().max(200).optional(),
+            avatar: z.string().max(2_000_000).optional(),
           })
           .strict()
           .optional(),
