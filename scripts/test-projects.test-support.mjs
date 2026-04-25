@@ -230,7 +230,11 @@ const TOOLING_SOURCE_TEST_TARGETS = new Map([
   ["scripts/lib/vitest-local-scheduling.mjs", ["test/scripts/vitest-local-scheduling.test.ts"]],
   [
     "scripts/run-vitest.mjs",
-    ["test/scripts/test-projects.test.ts", "test/scripts/vitest-local-scheduling.test.ts"],
+    [
+      "test/scripts/run-vitest.test.ts",
+      "test/scripts/test-projects.test.ts",
+      "test/scripts/vitest-local-scheduling.test.ts",
+    ],
   ],
   ["scripts/run-oxlint.mjs", ["test/scripts/run-oxlint.test.ts"]],
   ["scripts/test-extension-batch.mjs", ["test/scripts/test-extension.test.ts"]],
@@ -1230,6 +1234,10 @@ function filterPlansForContractIncludeFile(plans, env) {
 }
 
 export function shouldAcquireLocalHeavyCheckLock(runSpecs, env = process.env) {
+  if (env.OPENCLAW_TEST_HEAVY_CHECK_LOCK_HELD === "1") {
+    return false;
+  }
+
   if (env.OPENCLAW_TEST_PROJECTS_FORCE_LOCK === "1") {
     return true;
   }

@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getSafeLocalStorage } from "../../local-storage.ts";
 import type { MessageGroup } from "../types/chat-types.ts";
 import {
+  formatChatTimestampForDisplay,
   renderMessageGroup,
+  renderStreamingGroup,
   resolveAssistantTextAvatar,
   resetAssistantAttachmentAvailabilityCacheForTest,
 } from "./grouped-render.ts";
@@ -15,27 +17,65 @@ vi.mock("../markdown.ts", () => ({
   toSanitizedMarkdownHtml: (value: string) => value,
 }));
 
-vi.mock("../views/agents-utils.ts", () => ({
-  agentLogoUrl: () => "/openclaw-logo.svg",
-  isRenderableControlUiAvatarUrl: (value: string) =>
-    /^data:image\//i.test(value) || (value.startsWith("/") && !value.startsWith("//")),
-  resolveChatAvatarRenderUrl: (
-    candidate: string | null | undefined,
-    agent: { identity?: { avatar?: string; avatarUrl?: string } },
-  ) => {
-    if (typeof candidate === "string" && candidate.startsWith("blob:")) {
-      return candidate;
-    }
-    for (const value of [candidate, agent.identity?.avatarUrl, agent.identity?.avatar]) {
-      if (
-        typeof value === "string" &&
-        (/^data:image\//i.test(value) || (value.startsWith("/") && !value.startsWith("//")))
-      ) {
-        return value;
+vi.mock("../icons.ts", () => ({
+  icons: new Proxy(
+    {},
+    {
+      get: () => "",
+    },
+  ),
+}));
+
+vi.mock("../views/agents-utils.ts", () => {
+  const isRenderableControlUiAvatarUrl = (value: string) =>
+    /^data:image\//i.test(value) || (value.startsWith("/") && !value.startsWith("//"));
+
+  return {
+    assistantAvatarFallbackUrl: () => "/openclaw-molty.png",
+    agentLogoUrl: () => "/openclaw-logo.svg",
+    isRenderableControlUiAvatarUrl,
+    resolveAssistantTextAvatar: (value: string | null | undefined) => {
+      const trimmed = value?.trim();
+      if (!trimmed || trimmed === "A") {
+        return null;
       }
-    }
-    return null;
-  },
+      if (trimmed.startsWith("blob:") || isRenderableControlUiAvatarUrl(trimmed)) {
+        return null;
+      }
+      if (
+        trimmed.length > 8 ||
+        /\s/.test(trimmed) ||
+        /[\\/.:]/.test(trimmed) ||
+        /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/u.test(trimmed)
+      ) {
+        return null;
+      }
+      return trimmed;
+    },
+    resolveChatAvatarRenderUrl: (
+      candidate: string | null | undefined,
+      agent: { identity?: { avatar?: string; avatarUrl?: string } },
+    ) => {
+      if (typeof candidate === "string" && candidate.startsWith("blob:")) {
+        return candidate;
+      }
+      for (const value of [candidate, agent.identity?.avatarUrl, agent.identity?.avatar]) {
+        if (typeof value === "string" && isRenderableControlUiAvatarUrl(value)) {
+          return value;
+        }
+      }
+      return null;
+    },
+  };
+});
+
+vi.mock("../tool-display.ts", () => ({
+  formatToolDetail: () => undefined,
+  resolveToolDisplay: ({ name }: { name: string }) => ({
+    name,
+    label: name,
+    icon: "zap",
+  }),
 }));
 
 vi.mock("./speech.ts", () => ({
@@ -196,7 +236,21 @@ describe("grouped chat rendering", () => {
     );
 
     const img = container.querySelector("img.chat-avatar");
-    expect(img?.getAttribute("src")).toBe("/openclaw-logo.svg");
+    expect(img?.getAttribute("src")).toBe("/openclaw-molty.png");
+  });
+
+  it("uses the Molty png as the default assistant transcript avatar", () => {
+    const container = document.createElement("div");
+
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "hello",
+      timestamp: 1000,
+    });
+
+    const avatar = container.querySelector<HTMLImageElement>(".chat-avatar.assistant");
+    expect(avatar).not.toBeNull();
+    expect(avatar?.getAttribute("src")).toBe("/openclaw-molty.png");
   });
 
   it("positions delete confirm by message side", () => {
@@ -259,7 +313,7 @@ describe("grouped chat rendering", () => {
     };
 
     const remoteAvatar = renderAvatar("https://example.com/avatar.png");
-    expect(remoteAvatar?.getAttribute("src")).toBe("/openclaw-logo.svg");
+    expect(remoteAvatar?.getAttribute("src")).toBe("/openclaw-molty.png");
 
     const blobAvatar = renderAvatar("blob:managed-image");
     expect(blobAvatar?.tagName).toBe("IMG");
@@ -304,6 +358,10 @@ describe("grouped chat rendering", () => {
       },
       1_000_000,
     );
+    const meta = cached.querySelector<HTMLDetailsElement>("details.msg-meta");
+    expect(meta).not.toBeNull();
+    expect(meta?.open).toBe(false);
+    expect(meta?.querySelector("summary")?.textContent).toContain("Context");
     expect(cached.querySelector(".msg-meta__ctx")?.textContent).toBe("44% ctx");
     expect(cached.textContent).toContain("R438.4k");
     expect(cached.textContent).toContain("W307");
@@ -318,6 +376,34 @@ describe("grouped chat rendering", () => {
       10_000,
     );
     expect(outputHeavy.querySelector(".msg-meta__ctx")?.textContent).toBe("10% ctx");
+  });
+
+  it("renders full dates with message timestamps", () => {
+    const container = document.createElement("div");
+    const timestamp = Date.UTC(2026, 3, 24, 18, 30);
+
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "Done",
+      timestamp,
+    });
+
+    const time = container.querySelector<HTMLTimeElement>(".chat-group-timestamp");
+    const display = formatChatTimestampForDisplay(timestamp);
+    expect(time).not.toBeNull();
+    expect(time?.dateTime).toBe(display.dateTime);
+    expect(time?.textContent?.trim()).toBe(display.label);
+    expect(time?.getAttribute("title")).toBe(display.title);
+  });
+
+  it("renders full dates with streaming timestamps", () => {
+    const container = document.createElement("div");
+    const timestamp = Date.UTC(2026, 3, 24, 18, 30);
+
+    render(renderStreamingGroup("Working", timestamp), container);
+
+    const time = container.querySelector<HTMLTimeElement>(".chat-group-timestamp");
+    expect(time?.textContent?.trim()).toBe(formatChatTimestampForDisplay(timestamp).label);
   });
 
   it("renders configured local user names and avatar variants", () => {
@@ -695,11 +781,14 @@ describe("grouped chat rendering", () => {
       },
     );
 
-    await vi.waitFor(() => {
-      const image = container.querySelector<HTMLImageElement>(".chat-message-image");
-      expect(image?.getAttribute("src")).toBe(objectUrl);
-      expect(image?.getAttribute("alt")).toBe("Generated image 1");
-    });
+    await vi.waitFor(
+      () => {
+        const image = container.querySelector<HTMLImageElement>(".chat-message-image");
+        expect(image?.getAttribute("src")).toBe(objectUrl);
+        expect(image?.getAttribute("alt")).toBe("Generated image 1");
+      },
+      { interval: 1, timeout: 100 },
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chat/media/outgoing/agent%3Amain%3Amain/00000000-0000-4000-8000-000000000000/full",
       expect.objectContaining({

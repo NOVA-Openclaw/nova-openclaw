@@ -43,7 +43,11 @@ import { detectTextDirection } from "../text-direction.ts";
 import type { SessionsListResult } from "../types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { resolveLocalUserName } from "../user-identity.ts";
-import { agentLogoUrl, resolveChatAvatarRenderUrl } from "./agents-utils.ts";
+import {
+  agentLogoUrl,
+  assistantAvatarFallbackUrl,
+  resolveChatAvatarRenderUrl,
+} from "./agents-utils.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
 import "../components/resizable-divider.ts";
 
@@ -139,6 +143,11 @@ function getPinnedMessages(sessionKey: string): PinnedMessages {
     sessionKey,
     () => new PinnedMessages(sessionKey),
   );
+}
+
+function toPlainTextCodeFence(value: string, language = ""): string {
+  const fenceHeader = language ? `\`\`\`${language}` : "```";
+  return `${fenceHeader}\n${value}\n\`\`\``;
 }
 
 function getDeletedMessages(sessionKey: string): DeletedMessages {
@@ -479,6 +488,7 @@ function renderWelcomeState(props: ChatProps): TemplateResult {
   const name = props.assistantName || "Assistant";
   const avatar = resolveAssistantAvatarUrl(props);
   const avatarText = avatar ? null : resolveAssistantTextAvatar(props.assistantAvatar);
+  const fallbackAvatarUrl = assistantAvatarFallbackUrl(props.basePath ?? "");
   const logoUrl = agentLogoUrl(props.basePath ?? "");
 
   return html`
@@ -496,7 +506,7 @@ function renderWelcomeState(props: ChatProps): TemplateResult {
               ${avatarText}
             </div>`
             : html`<div class="agent-chat__avatar agent-chat__avatar--logo">
-              <img src=${logoUrl} alt="OpenClaw" />
+              <img src=${fallbackAvatarUrl} alt=${name} />
             </div>`
       }
       <h2>${name}</h2>
@@ -1141,14 +1151,17 @@ export function renderChat(props: ChatProps) {
                       return;
                     }
                     if (props.sidebarContent.kind === "markdown") {
+                      const rawText = props.sidebarContent.rawText ?? props.sidebarContent.content;
                       props.onOpenSidebar(
-                        buildSidebarContent(`\`\`\`\n${props.sidebarContent.content}\n\`\`\``),
+                        buildSidebarContent(toPlainTextCodeFence(rawText), { rawText }),
                       );
                       return;
                     }
                     if (props.sidebarContent.rawText?.trim()) {
                       props.onOpenSidebar(
-                        buildSidebarContent(`\`\`\`json\n${props.sidebarContent.rawText}\n\`\`\``),
+                        buildSidebarContent(
+                          toPlainTextCodeFence(props.sidebarContent.rawText, "json"),
+                        ),
                       );
                     }
                   },
