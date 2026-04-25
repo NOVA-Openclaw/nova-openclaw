@@ -2,7 +2,6 @@ import type { TypingCallbacks } from "../../channels/typing.js";
 import { resolveSilentReplySettings } from "../../config/silent-reply.js";
 import type { HumanDelayConfig } from "../../config/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { triggerMessageSent } from "../../hooks/message-hooks.js";
 import { generateSecureInt } from "../../infra/secure-random.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
@@ -31,6 +30,11 @@ type ReplyDispatchDeliverer = (
   payload: ReplyPayload,
   info: { kind: ReplyDispatchKind },
 ) => Promise<void>;
+
+export type ReplyDispatchBeforeDeliver = (
+  payload: ReplyPayload,
+  info: { kind: ReplyDispatchKind },
+) => Promise<ReplyPayload | null> | ReplyPayload | null;
 
 const DEFAULT_HUMAN_DELAY_MIN_MS = 800;
 const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
@@ -74,12 +78,7 @@ export type ReplyDispatcherOptions = {
   onSkip?: ReplyDispatchSkipHandler;
   /** Human-like delay between block replies for natural rhythm. */
   humanDelay?: HumanDelayConfig;
-  /** Hook context for message:sent events */
-  hookContext?: {
-    sessionKey?: string;
-    channel?: string;
-    target?: string;
-  };
+  beforeDeliver?: ReplyDispatchBeforeDeliver;
 };
 
 export type ReplyDispatcherWithTypingOptions = Omit<ReplyDispatcherOptions, "onIdle"> & {
@@ -197,6 +196,11 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     block: 0,
     final: 0,
   };
+  const cancelledCounts: Record<ReplyDispatchKind, number> = {
+    tool: 0,
+    block: 0,
+    final: 0,
+  };
 
   // Register this dispatcher globally for gateway restart coordination.
   const { unregister } = registerDispatcher({
@@ -249,18 +253,15 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
             await sleep(delayMs);
           }
         }
-        // Safe: deliver is called inside an async .then() callback, so even a synchronous
-        // throw becomes a rejection that flows through .catch()/.finally(), ensuring cleanup.
-        await options.deliver(normalized, { kind });
-
-        // Trigger message:sent hook after successful delivery
-        if (options.hookContext?.sessionKey) {
-          await triggerMessageSent(options.hookContext.sessionKey, normalized, {
-            target: options.hookContext.target,
-            channel: options.hookContext.channel,
-            kind,
-          });
+        let deliverPayload: ReplyPayload | null = normalized;
+        if (options.beforeDeliver) {
+          deliverPayload = await options.beforeDeliver(normalized, { kind });
+          if (!deliverPayload) {
+            cancelledCounts[kind] += 1;
+            return;
+          }
         }
+        await options.deliver(deliverPayload, { kind });
       })
       .catch((err) => {
         failedCounts[kind] += 1;
@@ -310,6 +311,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     sendFinalReply: (payload) => enqueue("final", payload),
     waitForIdle: () => sendChain,
     getQueuedCounts: () => ({ ...queuedCounts }),
+    getCancelledCounts: () => ({ ...cancelledCounts }),
     getFailedCounts: () => ({ ...failedCounts }),
     markComplete,
   };

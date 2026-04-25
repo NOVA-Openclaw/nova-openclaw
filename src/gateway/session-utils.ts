@@ -19,12 +19,18 @@ import {
   resolvePersistedSelectedModelRef,
 } from "../agents/model-selection.js";
 import {
+  countActiveDescendantRuns,
   getSessionDisplaySubagentRunByChildSessionKey,
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
+  isSubagentRunLive,
   listSubagentRunsForController,
   resolveSubagentSessionStatus,
 } from "../agents/subagent-registry-read.js";
+import {
+  RECENT_ENDED_SUBAGENT_CHILD_SESSION_MS,
+  shouldKeepSubagentRunChildLink,
+} from "../agents/subagent-run-liveness.js";
 import {
   listThinkingLevelOptions,
   resolveThinkingDefaultForModel,
@@ -81,6 +87,7 @@ import type {
   GatewayAgentRow,
   GatewaySessionRow,
   GatewaySessionsDefaults,
+  SessionRunStatus,
   SessionsListResult,
 } from "./session-utils.types.js";
 
@@ -291,9 +298,36 @@ function resolveEstimatedSessionCostUsd(params: {
   return resolveNonNegativeNumber(estimated);
 }
 
+const STALE_STORE_ONLY_CHILD_LINK_MS = 60 * 60 * 1_000;
+
+function isFinitePositiveTimestamp(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isTerminalSessionStatus(status: unknown): status is Exclude<SessionRunStatus, "running"> {
+  return status === "done" || status === "failed" || status === "killed" || status === "timeout";
+}
+
+function shouldKeepStoreOnlyChildLink(entry: SessionEntry, now: number): boolean {
+  if (isTerminalSessionStatus(entry.status) || isFinitePositiveTimestamp(entry.endedAt)) {
+    const endedAt = isFinitePositiveTimestamp(entry.endedAt) ? entry.endedAt : entry.updatedAt;
+    return (
+      isFinitePositiveTimestamp(endedAt) && now - endedAt <= RECENT_ENDED_SUBAGENT_CHILD_SESSION_MS
+    );
+  }
+  if (entry.status === "running" || isFinitePositiveTimestamp(entry.startedAt)) {
+    return true;
+  }
+  return (
+    isFinitePositiveTimestamp(entry.updatedAt) &&
+    now - entry.updatedAt <= STALE_STORE_ONLY_CHILD_LINK_MS
+  );
+}
+
 function resolveChildSessionKeys(
   controllerSessionKey: string,
   store: Record<string, SessionEntry>,
+  now = Date.now(),
 ): string[] | undefined {
   const childSessionKeys = new Set<string>();
   for (const entry of listSubagentRunsForController(controllerSessionKey)) {
@@ -302,10 +336,21 @@ function resolveChildSessionKeys(
       continue;
     }
     const latest = getSessionDisplaySubagentRunByChildSessionKey(childSessionKey);
+    if (!latest) {
+      continue;
+    }
     const latestControllerSessionKey =
       normalizeOptionalString(latest?.controllerSessionKey) ||
       normalizeOptionalString(latest?.requesterSessionKey);
     if (latestControllerSessionKey !== controllerSessionKey) {
+      continue;
+    }
+    if (
+      !shouldKeepSubagentRunChildLink(latest, {
+        activeDescendants: countActiveDescendantRuns(childSessionKey),
+        now,
+      })
+    ) {
       continue;
     }
     childSessionKeys.add(childSessionKey);
@@ -327,6 +372,16 @@ function resolveChildSessionKeys(
       if (latestControllerSessionKey !== controllerSessionKey) {
         continue;
       }
+      if (
+        !shouldKeepSubagentRunChildLink(latest, {
+          activeDescendants: countActiveDescendantRuns(key),
+          now,
+        })
+      ) {
+        continue;
+      }
+    } else if (!shouldKeepStoreOnlyChildLink(entry, now)) {
+      continue;
     }
     childSessionKeys.add(key);
   }
@@ -1202,10 +1257,51 @@ export function buildGatewaySessionRow(params: {
   const subagentOwner =
     normalizeOptionalString(subagentRun?.controllerSessionKey) ||
     normalizeOptionalString(subagentRun?.requesterSessionKey);
-  const subagentStatus = subagentRun ? resolveSubagentSessionStatus(subagentRun) : undefined;
-  const subagentStartedAt = subagentRun ? getSubagentSessionStartedAt(subagentRun) : undefined;
-  const subagentEndedAt = subagentRun ? subagentRun.endedAt : undefined;
-  const subagentRuntimeMs = subagentRun ? resolveSessionRuntimeMs(subagentRun, now) : undefined;
+  const liveSubagentRunActive = isSubagentRunLive(subagentRun);
+  const persistedSessionStatus = entry?.status;
+  const persistedSessionEndedAt = entry?.endedAt;
+  const persistedSessionStartedAt = entry?.startedAt;
+  const persistedSessionRuntimeMs = entry?.runtimeMs;
+  const subagentRunState = subagentRun
+    ? liveSubagentRunActive
+      ? "active"
+      : typeof subagentRun.endedAt === "number" ||
+          persistedSessionStatus === "done" ||
+          persistedSessionStatus === "failed" ||
+          persistedSessionStatus === "killed" ||
+          persistedSessionStatus === "timeout" ||
+          typeof persistedSessionEndedAt === "number"
+        ? "historical"
+        : "interrupted"
+    : undefined;
+  const subagentStatus = subagentRun
+    ? liveSubagentRunActive
+      ? resolveSubagentSessionStatus(subagentRun)
+      : persistedSessionStatus === "running"
+        ? undefined
+        : (persistedSessionStatus ??
+          (typeof subagentRun.endedAt === "number"
+            ? resolveSubagentSessionStatus(subagentRun)
+            : undefined))
+    : undefined;
+  const subagentStartedAt = subagentRun
+    ? liveSubagentRunActive
+      ? getSubagentSessionStartedAt(subagentRun)
+      : (persistedSessionStartedAt ?? getSubagentSessionStartedAt(subagentRun))
+    : undefined;
+  const subagentEndedAt = subagentRun
+    ? liveSubagentRunActive
+      ? subagentRun.endedAt
+      : (persistedSessionEndedAt ?? subagentRun.endedAt)
+    : undefined;
+  const subagentRuntimeMs = subagentRun
+    ? liveSubagentRunActive
+      ? resolveSessionRuntimeMs(subagentRun, now)
+      : (persistedSessionRuntimeMs ??
+        (typeof subagentRun.endedAt === "number"
+          ? resolveSessionRuntimeMs(subagentRun, now)
+          : undefined))
+    : undefined;
   const selectedModel = entry?.modelOverride?.trim()
     ? resolveSessionModelRef(cfg, entry, sessionAgentId)
     : null;
@@ -1262,7 +1358,7 @@ export function buildGatewaySessionRow(params: {
     typeof totalTokens === "number" && Number.isFinite(totalTokens) && totalTokens > 0
       ? true
       : transcriptUsage?.totalTokensFresh === true;
-  const childSessions = resolveChildSessionKeys(key, store);
+  const childSessions = resolveChildSessionKeys(key, store, now);
   const latestCompactionCheckpoint = resolveLatestCompactionCheckpoint(entry);
   const estimatedCostUsd =
     resolveEstimatedSessionCostUsd({
@@ -1349,6 +1445,8 @@ export function buildGatewaySessionRow(params: {
     totalTokensFresh,
     estimatedCostUsd,
     status: subagentRun ? subagentStatus : entry?.status,
+    subagentRunState,
+    hasActiveSubagentRun: subagentRun ? liveSubagentRunActive : undefined,
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
@@ -1445,9 +1543,18 @@ export function listSessionsFromStore(params: {
         const latestControllerSessionKey =
           normalizeOptionalString(latest.controllerSessionKey) ||
           normalizeOptionalString(latest.requesterSessionKey);
-        return latestControllerSessionKey === spawnedBy;
+        return (
+          latestControllerSessionKey === spawnedBy &&
+          shouldKeepSubagentRunChildLink(latest, {
+            activeDescendants: countActiveDescendantRuns(key),
+            now,
+          })
+        );
       }
-      return entry?.spawnedBy === spawnedBy || entry?.parentSessionKey === spawnedBy;
+      return (
+        shouldKeepStoreOnlyChildLink(entry, now) &&
+        (entry?.spawnedBy === spawnedBy || entry?.parentSessionKey === spawnedBy)
+      );
     })
     .filter(([, entry]) => {
       if (!label) {
