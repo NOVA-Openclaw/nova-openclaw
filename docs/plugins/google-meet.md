@@ -97,11 +97,16 @@ Or let an agent join through the `google_meet` tool:
 }
 ```
 
-Create a new meeting, then join it:
+Create a new meeting and join it:
 
 ```bash
-openclaw googlemeet create
-openclaw googlemeet join https://meet.google.com/new-abcd-xyz --transport chrome-node
+openclaw googlemeet create --transport chrome-node --mode realtime
+```
+
+Create only the URL without joining:
+
+```bash
+openclaw googlemeet create --no-join
 ```
 
 `googlemeet create` has two paths:
@@ -114,25 +119,23 @@ openclaw googlemeet join https://meet.google.com/new-abcd-xyz --transport chrome
   the OpenClaw Chrome profile on the node to already be signed in to Google.
   Browser automation handles Meet's own first-run microphone prompt; that prompt
   is not treated as a Google login failure.
+  Join and create flows also try to reuse an existing Meet tab before opening a
+  new one. Matching ignores harmless URL query strings such as `authuser`, so an
+  agent retry should focus the already-open meeting instead of creating a second
+  Chrome tab.
 
-The command output includes a `source` field (`api` or `browser`) so agents can
-explain which path was used.
+The command/tool output includes a `source` field (`api` or `browser`) so agents
+can explain which path was used. `create` joins the new meeting by default and
+returns `joined: true` plus the join session. To only mint the URL, use
+`create --no-join` on the CLI or pass `"join": false` to the tool.
 
 Or tell an agent: "Create a Google Meet, join it with realtime voice, and send
-me the link." The agent should call `google_meet` with `action: "create"`, copy
-the returned `meetingUri`, then call `google_meet` with `action: "join"` and
-that URL.
+me the link." The agent should call `google_meet` with `action: "create"` and
+then share the returned `meetingUri`.
 
 ```json
 {
-  "action": "create"
-}
-```
-
-```json
-{
-  "action": "join",
-  "url": "https://meet.google.com/new-abcd-xyz",
+  "action": "create",
   "transport": "chrome-node",
   "mode": "realtime"
 }
@@ -141,6 +144,14 @@ that URL.
 For an observe-only/browser-control join, set `"mode": "transcribe"`. That does
 not start the duplex realtime model bridge, so it will not talk back into the
 meeting.
+
+During realtime sessions, `google_meet` status includes browser and audio bridge
+health such as `inCall`, `manualActionRequired`, `providerConnected`,
+`realtimeReady`, `audioInputActive`, `audioOutputActive`, last input/output
+timestamps, byte counters, and bridge closed state. If a safe Meet page prompt
+appears, browser automation handles it when it can. Login, host admission, and
+browser/OS permission prompts are reported as manual action with a reason and
+message for the agent to relay.
 
 Chrome joins as the signed-in Chrome profile. In Meet, pick `BlackHole 2ch` for
 the microphone/speaker path used by OpenClaw. For clean duplex audio, use
@@ -475,11 +486,11 @@ Create a fresh Meet space:
 openclaw googlemeet create
 ```
 
-The command prints the new `meeting uri` and source. With OAuth credentials it
-uses the official Google Meet API. Without OAuth credentials it uses the pinned
-Chrome node's signed-in browser profile as a fallback. Agents can use the
-`google_meet` tool with `action: "create"` to create a meeting, then call
-`action: "join"` with the returned `meetingUri`.
+The command prints the new `meeting uri`, source, and join session. With OAuth
+credentials it uses the official Google Meet API. Without OAuth credentials it
+uses the pinned Chrome node's signed-in browser profile as a fallback. Agents can
+use the `google_meet` tool with `action: "create"` to create and join in one
+step. For URL-only creation, pass `"join": false`.
 
 Example JSON output from the browser fallback:
 
@@ -487,12 +498,43 @@ Example JSON output from the browser fallback:
 {
   "source": "browser",
   "meetingUri": "https://meet.google.com/abc-defg-hij",
+  "joined": true,
   "browser": {
     "nodeId": "ba0f4e4bc...",
     "targetId": "tab-1"
+  },
+  "join": {
+    "session": {
+      "id": "meet_...",
+      "url": "https://meet.google.com/abc-defg-hij"
+    }
   }
 }
 ```
+
+If the browser fallback hits Google login or a Meet permission blocker before it
+can create the URL, the Gateway method returns a failed response and the
+`google_meet` tool returns structured details instead of a plain string:
+
+```json
+{
+  "source": "browser",
+  "error": "google-login-required: Sign in to Google in the OpenClaw browser profile, then retry meeting creation.",
+  "manualActionRequired": true,
+  "manualActionReason": "google-login-required",
+  "manualActionMessage": "Sign in to Google in the OpenClaw browser profile, then retry meeting creation.",
+  "browser": {
+    "nodeId": "ba0f4e4bc...",
+    "targetId": "tab-1",
+    "browserUrl": "https://accounts.google.com/signin",
+    "browserTitle": "Sign in - Google Accounts"
+  }
+}
+```
+
+When an agent sees `manualActionRequired: true`, it should report the
+`manualActionMessage` plus the browser node/tab context and stop opening new
+Meet tabs until the operator completes the browser step.
 
 Example JSON output from API create:
 
@@ -500,19 +542,26 @@ Example JSON output from API create:
 {
   "source": "api",
   "meetingUri": "https://meet.google.com/abc-defg-hij",
+  "joined": true,
   "space": {
     "name": "spaces/abc-defg-hij",
     "meetingCode": "abc-defg-hij",
     "meetingUri": "https://meet.google.com/abc-defg-hij"
+  },
+  "join": {
+    "session": {
+      "id": "meet_...",
+      "url": "https://meet.google.com/abc-defg-hij"
+    }
   }
 }
 ```
 
-Creating a Meet only creates or discovers the meeting URL. The Chrome or
-Chrome-node transport still needs a signed-in Google Chrome profile to join
-through the browser. If the profile is signed out, OpenClaw reports
-`manualActionRequired: true` or a browser fallback error and asks the operator
-to finish Google login before retrying.
+Creating a Meet joins by default. The Chrome or Chrome-node transport still
+needs a signed-in Google Chrome profile to join through the browser. If the
+profile is signed out, OpenClaw reports `manualActionRequired: true` or a
+browser fallback error and asks the operator to finish Google login before
+retrying.
 
 Set `preview.enrollmentAcknowledged: true` only after confirming your Cloud
 project, OAuth principal, and meeting participants are enrolled in the Google
@@ -715,10 +764,28 @@ openclaw googlemeet test-speech https://meet.google.com/abc-defg-hij \
 Expected Chrome-node state:
 
 - `googlemeet setup` is all green.
+- `googlemeet setup` includes `chrome-node-connected` when Chrome-node is the
+  default transport or a node is pinned.
 - `nodes status` shows the selected node connected.
 - The selected node advertises both `googlemeet.chrome` and `browser.proxy`.
 - The Meet tab joins the call and `test-speech` returns Chrome health with
   `inCall: true`.
+
+For a remote Chrome host such as a Parallels macOS VM, this is the shortest
+safe check after updating the Gateway or the VM:
+
+```bash
+openclaw googlemeet setup
+openclaw nodes status --connected
+openclaw nodes invoke \
+  --node parallels-macos \
+  --command googlemeet.chrome \
+  --params '{"action":"setup"}'
+```
+
+That proves the Gateway plugin is loaded, the VM node is connected with the
+current token, and the Meet audio bridge is available before an agent opens a
+real meeting tab.
 
 For a Twilio smoke, use a meeting that exposes phone dial-in details:
 
@@ -785,6 +852,26 @@ The Gateway config must allow those node commands:
 }
 ```
 
+If `googlemeet setup` fails `chrome-node-connected` or the Gateway log reports
+`gateway token mismatch`, reinstall or restart the node with the current Gateway
+token. For a LAN Gateway this usually means:
+
+```bash
+OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1 \
+  openclaw node install \
+  --host <gateway-lan-ip> \
+  --port 18789 \
+  --display-name parallels-macos \
+  --force
+```
+
+Then reload the node service and re-run:
+
+```bash
+openclaw googlemeet setup
+openclaw nodes status --connected
+```
+
 ### Browser opens but agent cannot join
 
 Run `googlemeet test-speech` and inspect the returned Chrome health. If it
@@ -825,6 +912,10 @@ to the pinned Chrome node browser. Confirm:
 - For browser fallback: retries reuse an existing `https://meet.google.com/new`
   or Google account prompt tab before opening a new tab. If an agent times out,
   retry the tool call rather than manually opening another Meet tab.
+- For browser fallback: if the tool returns `manualActionRequired: true`, use
+  the returned `browser.nodeId`, `browser.targetId`, `browserUrl`, and
+  `manualActionMessage` to guide the operator. Do not retry in a loop until that
+  action is complete.
 - For browser fallback: if Meet shows "Do you want people to hear you in the
   meeting?", leave the tab open. OpenClaw should click **Use microphone** or, for
   create-only fallback, **Continue without microphone** through browser
@@ -837,7 +928,7 @@ Check the realtime path:
 
 ```bash
 openclaw googlemeet setup
-openclaw googlemeet status
+openclaw googlemeet doctor
 ```
 
 Use `mode: "realtime"` for listen/talk-back. `mode: "transcribe"` intentionally
@@ -851,6 +942,25 @@ Also verify:
 - `rec` and `play` exist on the Chrome host.
 - Meet microphone and speaker are routed through the virtual audio path used by
   OpenClaw.
+
+`googlemeet doctor [session-id]` prints the session, node, in-call state,
+manual action reason, realtime provider connection, `realtimeReady`, audio
+input/output activity, last audio timestamps, byte counters, and browser URL.
+Use `googlemeet status [session-id]` when you need the raw JSON.
+
+If an agent timed out and you can see a Meet tab already open, inspect that tab
+without opening another one:
+
+```bash
+openclaw googlemeet recover-tab
+openclaw googlemeet recover-tab https://meet.google.com/abc-defg-hij
+```
+
+The equivalent tool action is `recover_current_tab`. It focuses and inspects an
+existing Meet tab on the configured Chrome node. It does not open a new tab or
+create a new session; it reports the current blocker, such as login, admission,
+permissions, or audio-choice state. The CLI command talks to the configured
+Gateway, so the Gateway must be running and the Chrome node must be connected.
 
 ### Twilio setup checks fail
 
@@ -871,6 +981,21 @@ Then restart or reload the Gateway and run:
 
 ```bash
 openclaw googlemeet setup
+openclaw voicecall setup
+openclaw voicecall smoke
+```
+
+`voicecall smoke` is readiness-only by default. To dry-run a specific number:
+
+```bash
+openclaw voicecall smoke --to "+15555550123"
+```
+
+Only add `--yes` when you intentionally want to place a live outbound notify
+call:
+
+```bash
+openclaw voicecall smoke --to "+15555550123" --yes
 ```
 
 ### Twilio call starts but never enters the meeting

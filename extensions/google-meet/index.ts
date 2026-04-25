@@ -11,14 +11,15 @@ import {
   type GoogleMeetTransport,
 } from "./src/config.js";
 import {
-  buildGoogleMeetPreflightReport,
-  createGoogleMeetSpace,
-  fetchGoogleMeetSpace,
-} from "./src/meet.js";
+  createAndJoinMeetFromParams,
+  createMeetFromParams,
+  shouldJoinCreatedMeet,
+} from "./src/create.js";
+import { buildGoogleMeetPreflightReport, fetchGoogleMeetSpace } from "./src/meet.js";
 import { handleGoogleMeetNodeHostCommand } from "./src/node-host.js";
 import { resolveGoogleMeetAccessToken } from "./src/oauth.js";
 import { GoogleMeetRuntime } from "./src/runtime.js";
-import { createMeetWithBrowserProxyOnNode } from "./src/transports/chrome.js";
+import { isGoogleMeetBrowserManualActionError } from "./src/transports/chrome-create.js";
 
 const googleMeetConfigSchema = {
   parse(value: unknown) {
@@ -144,12 +145,19 @@ const GoogleMeetToolSchema = Type.Object({
       "setup_status",
       "resolve_space",
       "preflight",
+      "recover_current_tab",
       "leave",
       "speak",
       "test_speech",
     ],
-    description: "Google Meet action to run",
+    description:
+      "Google Meet action to run. create creates and joins by default; pass join=false to only mint a URL. After a timeout or unclear browser state, call recover_current_tab before retrying join.",
   }),
+  join: Type.Optional(
+    Type.Boolean({
+      description: "For action=create, set false to create the URL without joining.",
+    }),
+  ),
   url: Type.Optional(Type.String({ description: "Explicit https://meet.google.com/... URL" })),
   transport: Type.Optional(
     Type.String({ enum: ["chrome", "chrome-node", "twilio"], description: "Join transport" }),
@@ -219,57 +227,6 @@ async function resolveSpaceFromParams(config: GoogleMeetConfig, raw: Record<stri
   return { meeting, token, space };
 }
 
-async function createSpaceFromParams(config: GoogleMeetConfig, raw: Record<string, unknown>) {
-  const token = await resolveGoogleMeetAccessToken({
-    clientId: normalizeOptionalString(raw.clientId) ?? config.oauth.clientId,
-    clientSecret: normalizeOptionalString(raw.clientSecret) ?? config.oauth.clientSecret,
-    refreshToken: normalizeOptionalString(raw.refreshToken) ?? config.oauth.refreshToken,
-    accessToken: normalizeOptionalString(raw.accessToken) ?? config.oauth.accessToken,
-    expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : config.oauth.expiresAt,
-  });
-  const result = await createGoogleMeetSpace({ accessToken: token.accessToken });
-  return { source: "api" as const, token, ...result };
-}
-
-function hasGoogleMeetOAuth(config: GoogleMeetConfig, raw: Record<string, unknown>): boolean {
-  return Boolean(
-    normalizeOptionalString(raw.accessToken) ??
-    normalizeOptionalString(raw.refreshToken) ??
-    config.oauth.accessToken ??
-    config.oauth.refreshToken,
-  );
-}
-
-async function createMeetFromParams(params: {
-  config: GoogleMeetConfig;
-  runtime: OpenClawPluginApi["runtime"];
-  raw: Record<string, unknown>;
-}) {
-  if (hasGoogleMeetOAuth(params.config, params.raw)) {
-    const { token: _token, ...result } = await createSpaceFromParams(params.config, params.raw);
-    return result;
-  }
-  const browser = await createMeetWithBrowserProxyOnNode({
-    runtime: params.runtime,
-    config: params.config,
-  });
-  return {
-    source: browser.source,
-    meetingUri: browser.meetingUri,
-    space: {
-      name: `browser/${browser.meetingUri.split("/").pop()}`,
-      meetingUri: browser.meetingUri,
-    },
-    browser: {
-      nodeId: browser.nodeId,
-      targetId: browser.targetId,
-      browserUrl: browser.browserUrl,
-      browserTitle: browser.browserTitle,
-      notes: browser.notes,
-    },
-  };
-}
-
 export default definePluginEntry({
   id: "google-meet",
   name: "Google Meet",
@@ -294,8 +251,11 @@ export default definePluginEntry({
       return runtime;
     };
 
+    const formatGatewayError = (err: unknown) =>
+      isGoogleMeetBrowserManualActionError(err) ? err.payload : { error: formatErrorMessage(err) };
+
     const sendError = (respond: (ok: boolean, payload?: unknown) => void, err: unknown) => {
-      respond(false, { error: formatErrorMessage(err) });
+      respond(false, formatGatewayError(err));
     };
 
     api.registerGatewayMethod(
@@ -324,7 +284,17 @@ export default definePluginEntry({
       async ({ params, respond }: GatewayRequestHandlerOptions) => {
         try {
           const raw = asParamRecord(params);
-          respond(true, await createMeetFromParams({ config, runtime: api.runtime, raw }));
+          respond(
+            true,
+            shouldJoinCreatedMeet(raw)
+              ? await createAndJoinMeetFromParams({
+                  config,
+                  runtime: api.runtime,
+                  raw,
+                  ensureRuntime,
+                })
+              : await createMeetFromParams({ config, runtime: api.runtime, raw }),
+          );
         } catch (err) {
           sendError(respond, err);
         }
@@ -344,11 +314,23 @@ export default definePluginEntry({
     );
 
     api.registerGatewayMethod(
+      "googlemeet.recoverCurrentTab",
+      async ({ params, respond }: GatewayRequestHandlerOptions) => {
+        try {
+          const rt = await ensureRuntime();
+          respond(true, await rt.recoverCurrentTab({ url: normalizeOptionalString(params?.url) }));
+        } catch (err) {
+          sendError(respond, err);
+        }
+      },
+    );
+
+    api.registerGatewayMethod(
       "googlemeet.setup",
       async ({ respond }: GatewayRequestHandlerOptions) => {
         try {
           const rt = await ensureRuntime();
-          respond(true, rt.setupStatus());
+          respond(true, await rt.setupStatus());
         } catch (err) {
           sendError(respond, err);
         }
@@ -413,7 +395,8 @@ export default definePluginEntry({
     api.registerTool({
       name: "google_meet",
       label: "Google Meet",
-      description: "Join and track Google Meet sessions through Chrome or Twilio.",
+      description:
+        "Join and track Google Meet sessions through Chrome or Twilio. If a Meet tab is already open after a timeout, call recover_current_tab before retrying join to report login, permission, or admission blockers without opening another tab.",
       parameters: GoogleMeetToolSchema,
       async execute(_toolCallId, params) {
         const raw = asParamRecord(params);
@@ -434,7 +417,16 @@ export default definePluginEntry({
               );
             }
             case "create": {
-              return json(await createMeetFromParams({ config, runtime: api.runtime, raw }));
+              return json(
+                shouldJoinCreatedMeet(raw)
+                  ? await createAndJoinMeetFromParams({
+                      config,
+                      runtime: api.runtime,
+                      raw,
+                      ensureRuntime,
+                    })
+                  : await createMeetFromParams({ config, runtime: api.runtime, raw }),
+              );
             }
             case "test_speech": {
               const rt = await ensureRuntime();
@@ -454,9 +446,13 @@ export default definePluginEntry({
               const rt = await ensureRuntime();
               return json(rt.status(normalizeOptionalString(raw.sessionId)));
             }
+            case "recover_current_tab": {
+              const rt = await ensureRuntime();
+              return json(await rt.recoverCurrentTab({ url: normalizeOptionalString(raw.url) }));
+            }
             case "setup_status": {
               const rt = await ensureRuntime();
-              return json(rt.setupStatus());
+              return json(await rt.setupStatus());
             }
             case "resolve_space": {
               const { token: _token, ...result } = await resolveSpaceFromParams(config, raw);
@@ -493,7 +489,7 @@ export default definePluginEntry({
               throw new Error("unknown google_meet action");
           }
         } catch (err) {
-          return json({ error: formatErrorMessage(err) });
+          return json(formatGatewayError(err));
         }
       },
     });
