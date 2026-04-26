@@ -4479,6 +4479,14 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         minimum: 0,
                         maximum: 9007199254740991,
                       },
+                      embeddingBatchTimeoutSeconds: {
+                        type: "integer",
+                        exclusiveMinimum: 0,
+                        maximum: 9007199254740991,
+                        title: "Embedding Batch Timeout (s)",
+                        description:
+                          "Overrides the timeout for inline embedding batches during memory indexing. Leave unset to use provider defaults: 600 seconds for local/self-hosted providers such as local, Ollama, and LM Studio, and 120 seconds for hosted providers.",
+                      },
                       sessions: {
                         type: "object",
                         properties: {
@@ -6359,6 +6367,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                         intervalMinutes: {
                           type: "integer",
                           minimum: 0,
+                          maximum: 9007199254740991,
+                        },
+                        embeddingBatchTimeoutSeconds: {
+                          type: "integer",
+                          exclusiveMinimum: 0,
                           maximum: 9007199254740991,
                         },
                         sessions: {
@@ -18029,6 +18042,38 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   description:
                     "Match rule object for deciding when a binding applies, including channel and optional account/peer constraints. Keep rules narrow to avoid accidental agent takeover across contexts.",
                 },
+                session: {
+                  type: "object",
+                  properties: {
+                    dmScope: {
+                      anyOf: [
+                        {
+                          type: "string",
+                          const: "main",
+                        },
+                        {
+                          type: "string",
+                          const: "per-peer",
+                        },
+                        {
+                          type: "string",
+                          const: "per-channel-peer",
+                        },
+                        {
+                          type: "string",
+                          const: "per-account-channel-peer",
+                        },
+                      ],
+                      title: "Binding Session DM Scope",
+                      description:
+                        'Optional DM session scope override for this route binding. For example, keep global session.dmScope="main" while using "per-account-channel-peer" for selected direct peers.',
+                    },
+                  },
+                  additionalProperties: false,
+                  title: "Binding Session",
+                  description:
+                    "Optional route session overrides for conversations matched by this binding. Use this when a narrow route should keep the same agent but isolate session continuity differently.",
+                },
               },
               required: ["agentId", "match"],
               additionalProperties: false,
@@ -25144,6 +25189,16 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: "Target agent ID that receives traffic when the corresponding binding match rule is satisfied. Use valid configured agent IDs only so routing does not fail at runtime.",
       tags: ["advanced"],
     },
+    "bindings[].session": {
+      label: "Binding Session",
+      help: "Optional route session overrides for conversations matched by this binding. Use this when a narrow route should keep the same agent but isolate session continuity differently.",
+      tags: ["storage"],
+    },
+    "bindings[].session.dmScope": {
+      label: "Binding Session DM Scope",
+      help: 'Optional DM session scope override for this route binding. For example, keep global session.dmScope="main" while using "per-account-channel-peer" for selected direct peers.',
+      tags: ["storage"],
+    },
     "bindings[].match": {
       label: "Binding Match Rule",
       help: "Match rule object for deciding when a binding applies, including channel and optional account/peer constraints. Keep rules narrow to avoid accidental agent takeover across contexts.",
@@ -25534,6 +25589,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       label: "Memory Watch Debounce (ms)",
       help: "Debounce window in milliseconds for coalescing rapid file-watch events before reindex runs. Increase to reduce churn on frequently-written files, or lower for faster freshness.",
       tags: ["performance", "automation"],
+    },
+    "agents.defaults.memorySearch.sync.embeddingBatchTimeoutSeconds": {
+      label: "Embedding Batch Timeout (s)",
+      help: "Overrides the timeout for inline embedding batches during memory indexing. Leave unset to use provider defaults: 600 seconds for local/self-hosted providers such as local, Ollama, and LM Studio, and 120 seconds for hosted providers.",
+      tags: ["performance"],
     },
     "agents.defaults.memorySearch.sync.sessions.deltaBytes": {
       label: "Session Delta Bytes",

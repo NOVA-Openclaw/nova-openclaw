@@ -520,6 +520,10 @@ export const FIELD_HELP: Record<string, string> = {
     'Binding kind. Use "route" (or omit for legacy route entries) for normal routing, and "acp" for persistent ACP conversation bindings.',
   "bindings[].agentId":
     "Target agent ID that receives traffic when the corresponding binding match rule is satisfied. Use valid configured agent IDs only so routing does not fail at runtime.",
+  "bindings[].session":
+    "Optional route session overrides for conversations matched by this binding. Use this when a narrow route should keep the same agent but isolate session continuity differently.",
+  "bindings[].session.dmScope":
+    'Optional DM session scope override for this route binding. For example, keep global session.dmScope="main" while using "per-account-channel-peer" for selected direct peers.',
   "bindings[].match":
     "Match rule object for deciding when a binding applies, including channel and optional account/peer constraints. Keep rules narrow to avoid accidental agent takeover across contexts.",
   "bindings[].match.channel":
@@ -1109,6 +1113,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Watches memory files and schedules index updates from file-change events (chokidar). Enable for near-real-time freshness; disable on very large workspaces if watch churn is too noisy.",
   "agents.defaults.memorySearch.sync.watchDebounceMs":
     "Debounce window in milliseconds for coalescing rapid file-watch events before reindex runs. Increase to reduce churn on frequently-written files, or lower for faster freshness.",
+  "agents.defaults.memorySearch.sync.embeddingBatchTimeoutSeconds":
+    "Overrides the timeout for inline embedding batches during memory indexing. Leave unset to use provider defaults: 600 seconds for local/self-hosted providers such as local, Ollama, and LM Studio, and 120 seconds for hosted providers.",
   "agents.defaults.memorySearch.sync.sessions.deltaBytes":
     "Requires at least this many newly appended bytes before session transcript changes trigger reindex (default: 100000). Increase to reduce frequent small reindexes, or lower for faster transcript freshness.",
   "agents.defaults.memorySearch.sync.sessions.deltaMessages":

@@ -12,6 +12,7 @@ import {
   makeTrackedTempDir,
 } from "../../../plugins/test-helpers/fs-fixtures.js";
 import {
+  DISABLE_PLUGIN_REGISTRY_MIGRATION_ENV,
   FORCE_PLUGIN_REGISTRY_MIGRATION_ENV,
   migratePluginRegistryForInstall,
   preflightPluginRegistryInstallMigration,
@@ -38,7 +39,11 @@ function hermeticEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
-function createCandidate(rootDir: string, id = "demo"): PluginCandidate {
+function createCandidate(
+  rootDir: string,
+  id = "demo",
+  origin: PluginCandidate["origin"] = "global",
+): PluginCandidate {
   fs.writeFileSync(
     path.join(rootDir, "index.ts"),
     "throw new Error('runtime entry should not load while migrating plugin registry');\n",
@@ -58,7 +63,7 @@ function createCandidate(rootDir: string, id = "demo"): PluginCandidate {
     idHint: id,
     source: path.join(rootDir, "index.ts"),
     rootDir,
-    origin: "global",
+    origin,
   };
 }
 
@@ -127,19 +132,22 @@ describe("plugin registry install migration", () => {
     });
   });
 
-  it("persists only plugins enabled by the central config policy", async () => {
+  it("persists migration-relevant plugin records without dropping explicit disabled state", async () => {
     const stateDir = makeTempDir();
     const enabledDir = path.join(stateDir, "plugins", "enabled-demo");
     const disabledDir = path.join(stateDir, "plugins", "disabled-demo");
+    const unusedBundledDir = path.join(stateDir, "plugins", "unused-bundled");
     fs.mkdirSync(enabledDir, { recursive: true });
     fs.mkdirSync(disabledDir, { recursive: true });
+    fs.mkdirSync(unusedBundledDir, { recursive: true });
 
     await expect(
       migratePluginRegistryForInstall({
         stateDir,
         candidates: [
           createCandidate(enabledDir, "enabled-demo"),
-          createCandidate(disabledDir, "disabled-demo"),
+          createCandidate(disabledDir, "disabled-demo", "bundled"),
+          createCandidate(unusedBundledDir, "unused-bundled", "bundled"),
         ],
         readConfig: async () => ({
           plugins: {
@@ -155,15 +163,24 @@ describe("plugin registry install migration", () => {
     ).resolves.toMatchObject({
       status: "migrated",
       current: {
-        plugins: [expect.objectContaining({ pluginId: "enabled-demo" })],
+        plugins: [
+          expect.objectContaining({ pluginId: "enabled-demo", enabled: true }),
+          expect.objectContaining({ pluginId: "disabled-demo", enabled: false }),
+        ],
       },
     });
 
     await expect(readPersistedInstalledPluginIndex({ stateDir })).resolves.toMatchObject({
-      plugins: [expect.objectContaining({ pluginId: "enabled-demo" })],
+      plugins: [
+        expect.objectContaining({ pluginId: "enabled-demo", enabled: true }),
+        expect.objectContaining({ pluginId: "disabled-demo", enabled: false }),
+      ],
     });
     const persisted = await readPersistedInstalledPluginIndex({ stateDir });
-    expect(persisted?.plugins.map((plugin) => plugin.pluginId)).toEqual(["enabled-demo"]);
+    expect(persisted?.plugins.map((plugin) => plugin.pluginId)).toEqual([
+      "enabled-demo",
+      "disabled-demo",
+    ]);
   });
 
   it("supports dry-run preflight without reading config or writing the registry", async () => {
@@ -250,6 +267,25 @@ describe("plugin registry install migration", () => {
       deprecationWarnings: [
         expect.stringContaining(`${FORCE_PLUGIN_REGISTRY_MIGRATION_ENV} is deprecated`),
       ],
+    });
+  });
+
+  it("treats falsey env flag strings as unset", async () => {
+    const stateDir = makeTempDir();
+    await writePersistedInstalledPluginIndex(createCurrentIndex(), { stateDir });
+
+    expect(
+      preflightPluginRegistryInstallMigration({
+        stateDir,
+        env: hermeticEnv({
+          [DISABLE_PLUGIN_REGISTRY_MIGRATION_ENV]: "0",
+          [FORCE_PLUGIN_REGISTRY_MIGRATION_ENV]: "false",
+        }),
+      }),
+    ).toMatchObject({
+      action: "skip-existing",
+      force: false,
+      deprecationWarnings: [],
     });
   });
 });
