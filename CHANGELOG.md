@@ -11,6 +11,8 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Hooks/message:received: canonical context pipeline** (#41) — `triggerMessageReceived` now uses the canonical two-step pipeline: `deriveInboundMessageHookContext(ctx)` → `toInternalMessageReceivedContext(canonical)`. Previously it built a hand-rolled context with non-standard field names (`message` instead of `content`, `channel` instead of `provider`/`channelId`). The new pipeline produces a consistent context with sender fields at the top level (`senderId`, `senderName`, `senderUsername`, `senderE164`) and provider metadata in `context.metadata`. The legacy `MessageReceivedContext` type is kept with `@deprecated` for backward compatibility. **Breaking change:** hooks reading `event.context.message` must migrate to `event.context.content`. New file: `src/hooks/message-hooks.ts` extracted `triggerMessageReceived` and `triggerMessageSent` into a dedicated module.
+
 - ACP sessions: map canonical runtime options to backend-advertised ACP config keys like Claude's `effort` while keeping persisted OpenClaw state canonical. (#79926) Thanks @InTheCloudDan.
 - Gateway/watch: rebuild or restage missing bundled-plugin dist and runtime-postbuild outputs before launching the Gateway from a source checkout, preventing incomplete watch-mode runtime trees. (#70805) Thanks @rubencu.
 - CLI/update: allow restart health probes from the previous gateway protocol during self-update, and make plugin dry-runs report exact npm target versions instead of `unknown` while preserving unchanged status.
