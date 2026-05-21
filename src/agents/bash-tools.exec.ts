@@ -1747,7 +1747,8 @@ export function createExecTool(
 
 export const execTool = createExecTool();
 
-export const __testing = {
+export const testing = {
   parseOpenClawChannelsLoginShellCommand,
   validateScriptFileForShellBleed,
 };
+export { testing as __testing };

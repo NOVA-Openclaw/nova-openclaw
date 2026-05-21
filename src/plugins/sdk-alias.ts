@@ -486,24 +486,6 @@ function isOfficialInstalledCodexPluginPackageRoot(packageRoot: string) {
   return last === "codex" && scope === "@openclaw" && nodeModules === "node_modules";
 }
 
-function isModulePathInsideNodeModulesPackage(params: { modulePath: string; packageName: string }) {
-  const packageSegments = params.packageName.split("/");
-  if (packageSegments.length === 0 || packageSegments.some((segment) => segment.length === 0)) {
-    return false;
-  }
-  const pathSegments = path.resolve(params.modulePath).split(path.sep);
-  const nodeModulesIndex = pathSegments.lastIndexOf("node_modules");
-  if (nodeModulesIndex < 0) {
-    return false;
-  }
-  const packageStart = nodeModulesIndex + 1;
-  const packageEnd = packageStart + packageSegments.length;
-  if (pathSegments.length <= packageEnd) {
-    return false;
-  }
-  return packageSegments.every((segment, index) => pathSegments[packageStart + index] === segment);
-}
-
 function isOfficialInstalledCodexPluginModulePath(params: { modulePath: string }) {
   let cursor = path.dirname(path.resolve(params.modulePath));
   for (let depth = 0; depth < 12; depth += 1) {
@@ -526,10 +508,6 @@ function isOfficialInstalledCodexPluginModulePath(params: { modulePath: string }
 function isTrustedCodexPluginModulePath(params: { packageRoot: string; modulePath: string }) {
   return (
     isBundledCodexPluginModulePath(params) ||
-    isModulePathInsideNodeModulesPackage({
-      modulePath: params.modulePath,
-      packageName: OFFICIAL_CODEX_PLUGIN_PACKAGE_NAME,
-    }) ||
     isOfficialInstalledCodexPluginModulePath({ modulePath: params.modulePath })
   );
 }

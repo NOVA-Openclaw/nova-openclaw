@@ -8,37 +8,33 @@ minimumReleaseAge: 2880
 
 minimumReleaseAgeExclude:
   - "@openclaw/fs-safe@0.2.4"
+  - "@openclaw/proxyline@0.3.3"
   - "acpx"
   - "tokenjuice"
   - "@agentclientprotocol/sdk"
-  - "@anthropic-ai/sdk"
   - "axios"
   - "basic-ftp"
   - "baileys@7.0.0-rc11"
-  - "@copilotkit/aimock"
   - "hono"
   - "libsignal@6.0.0"
   - "openclaw"
-  - "playwright-core"
   - "protobufjs"
-  - "vitest"
-  - "@vitest/*"
   - "vite"
-  - "yaml"
   - "@cloudflare/workers-types"
   - "@hono/node-server"
   - "@mariozechner/*"
-  - "@openclaw/fs-safe"
+  - "@earendil-works/pi-agent-core"
+  - "@earendil-works/pi-ai"
+  - "@earendil-works/pi-coding-agent"
+  - "@earendil-works/pi-tui"
   - "@openai/codex"
   - "@openai/codex-*"
-  - "@smithy/*"
   - "@smithy/shared-ini-file-loader@4.5.1"
   - "@typescript/native-preview*"
   - "@types/node"
   - "@rolldown/*"
   - "@oxlint/*"
   - "@oxfmt/*"
-  - "oxlint"
   - "oxfmt"
   - "axios@1.15.0"
   - "discord-api-types"
@@ -94,6 +90,7 @@ allowBuilds:
   sharp: true
   tree-sitter-bash: false
   openclaw: true
+  "@openclaw/proxyline": true
 
 packageExtensions:
   "@earendil-works/pi-coding-agent":

@@ -1,9 +1,9 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import { resolveProviderSyntheticAuthWithPlugin } from "../plugins/provider-runtime.js";
-import { resolveDefaultSecretProviderAlias } from "../secrets/ref-contract.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
 import {
+  isKnownEnvApiKeyMarker,
   isNonSecretApiKeyMarker,
   resolveNonEnvSecretRefApiKeyMarker,
 } from "./model-auth-markers.js";
@@ -42,25 +42,6 @@ export {
 } from "./models-config.providers.secret-helpers.js";
 
 type AuthProfileStoreInput = AuthProfileStore | (() => AuthProfileStore);
-
-const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
-
-function canResolveEnvSecretRefInConfigAuth(params: {
-  config: OpenClawConfig | undefined;
-  provider: string;
-  id: string;
-}): boolean {
-  const providerName = params.provider.trim();
-  const providerConfig = params.config?.secrets?.providers?.[providerName];
-  if (!providerConfig) {
-    return providerName === resolveDefaultSecretProviderAlias(params.config ?? {}, "env");
-  }
-  if (providerConfig.source !== "env") {
-    return false;
-  }
-  const allowlist = providerConfig.allowlist;
-  return !allowlist || allowlist.includes(params.id);
-}
 
 function resolveAuthProfileStoreInput(input: AuthProfileStoreInput) {
   return typeof input === "function" ? input() : input;
@@ -227,22 +208,14 @@ function resolveConfigBackedProviderAuth(params: {
   }
 
   const configuredProvider = params.config?.models?.providers?.[authProvider];
+  const configuredProviderApiKey = configuredProvider?.apiKey;
   const configuredApiKeyRef = resolveSecretInputRef({
-    value: configuredProvider?.apiKey,
+    value: configuredProviderApiKey,
     defaults: params.config?.secrets?.defaults,
   }).ref;
-  if (configuredApiKeyRef?.id.trim()) {
+  if (configuredApiKeyRef) {
     if (configuredApiKeyRef.source === "env") {
       const envVar = configuredApiKeyRef.id.trim();
-      if (
-        !canResolveEnvSecretRefInConfigAuth({
-          config: params.config,
-          provider: configuredApiKeyRef.provider,
-          id: envVar,
-        })
-      ) {
-        return undefined;
-      }
       const envValue = params.env?.[envVar]?.trim();
       return envValue
         ? {
@@ -255,27 +228,29 @@ function resolveConfigBackedProviderAuth(params: {
     }
     return {
       apiKey: resolveNonEnvSecretRefApiKeyMarker(configuredApiKeyRef.source),
+      discoveryApiKey: undefined,
       mode: "api_key",
       source: "config",
     };
   }
-  if (typeof configuredProvider?.apiKey !== "string") {
+  if (typeof configuredProviderApiKey !== "string") {
     return undefined;
   }
-  const configuredApiKey = normalizeApiKeyConfig(configuredProvider.apiKey);
+  const configuredApiKey = normalizeApiKeyConfig(configuredProviderApiKey);
   if (!configuredApiKey) {
     return undefined;
   }
-  if (ENV_VAR_NAME_RE.test(configuredApiKey)) {
+  if (isKnownEnvApiKeyMarker(configuredApiKey)) {
     const envValue = params.env?.[configuredApiKey]?.trim();
-    return envValue
-      ? {
-          apiKey: configuredApiKey,
-          discoveryApiKey: toDiscoveryApiKey(envValue),
-          mode: "api_key",
-          source: "config",
-        }
-      : undefined;
+    if (envValue) {
+      return {
+        apiKey: configuredApiKey,
+        discoveryApiKey: toDiscoveryApiKey(envValue),
+        mode: "api_key",
+        source: "config",
+      };
+    }
+    return undefined;
   }
   return isNonSecretApiKeyMarker(configuredApiKey)
     ? {
