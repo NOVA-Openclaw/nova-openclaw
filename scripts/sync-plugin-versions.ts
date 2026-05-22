@@ -19,10 +19,15 @@ type PackageJson = {
   };
 };
 
+type PluginManifestJson = {
+  version?: string;
+};
+
 type SyncPluginVersionsOptions = {
   write?: boolean;
 };
 
+const OPENCLAW_VERSION_RE = /^\d{4}\.\d{1,2}\.\d{1,2}(?:[-.][^"\s]+)?$/u;
 const OPENCLAW_VERSION_RANGE_RE = /^>=\d{4}\.\d{1,2}\.\d{1,2}(?:[-.][^"\s]+)?$/u;
 
 function syncOpenClawDependencyRange(
@@ -65,6 +70,22 @@ function syncBuildOpenClawVersion(pkg: PackageJson, targetVersion: string): bool
     return false;
   }
   build.openclawVersion = targetVersion;
+  return true;
+}
+
+function syncManifestVersion(manifestPath: string, targetVersion: string, write: boolean): boolean {
+  if (!existsSync(manifestPath)) {
+    return false;
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as PluginManifestJson;
+  const current = manifest.version;
+  if (!current || !OPENCLAW_VERSION_RE.test(current) || current === targetVersion) {
+    return false;
+  }
+  manifest.version = targetVersion;
+  if (write) {
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
   return true;
 }
 
@@ -143,12 +164,18 @@ export function syncPluginVersions(
     // Keep it stable unless the owning plugin intentionally raises it.
     const pluginApiChanged = syncPluginApiVersion(pkg, targetVersion);
     const buildOpenClawVersionChanged = syncBuildOpenClawVersion(pkg, targetVersion);
+    const manifestVersionChanged = syncManifestVersion(
+      join(extensionsDir, dir.name, "openclaw.plugin.json"),
+      targetVersion,
+      write,
+    );
     const packageChanged =
       versionChanged ||
       devDependencyChanged ||
       peerDependencyChanged ||
       pluginApiChanged ||
-      buildOpenClawVersionChanged;
+      buildOpenClawVersionChanged ||
+      manifestVersionChanged;
     if (!packageChanged) {
       skipped.push(pkg.name);
       continue;

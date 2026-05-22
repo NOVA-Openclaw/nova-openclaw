@@ -1692,6 +1692,13 @@ jobs:
       - name: Swift build (release)
         run: |
           set -euo pipefail
+          clear_swift_binary_artifacts() {
+            # SwiftPM can restore a partial binary artifact cache; force a
+            # redownload on retry instead of failing the same missing file.
+            rm -rf apps/macos/.build/artifacts
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+            swift package --package-path apps/macos reset || true
+          }
           for attempt in 1 2 3; do
             # The macOS lane validates the desktop app build; the CLI product is
             # intentionally left to its own narrower surfaces instead of making
@@ -1700,6 +1707,7 @@ jobs:
               exit 0
             fi
             echo "swift build failed (attempt $attempt/3). Retrying…"
+            clear_swift_binary_artifacts
             sleep $((attempt * 20))
           done
           exit 1
@@ -1707,11 +1715,17 @@ jobs:
       - name: Swift test
         run: |
           set -euo pipefail
+          clear_swift_binary_artifacts() {
+            rm -rf apps/macos/.build/artifacts
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+            swift package --package-path apps/macos reset || true
+          }
           for attempt in 1 2 3; do
             if swift test --package-path apps/macos --parallel --enable-code-coverage --show-codecov-path; then
               exit 0
             fi
             echo "swift test failed (attempt $attempt/3). Retrying…"
+            clear_swift_binary_artifacts
             sleep $((attempt * 20))
           done
           exit 1

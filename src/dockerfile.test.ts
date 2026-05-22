@@ -89,15 +89,17 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("apt-get install -y --no-install-recommends xvfb");
   });
 
-  it("uses the Docker target platform for pnpm install and runtime dependency install", async () => {
+  it("uses the Docker target platform for pnpm install and prune", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
+    const installIndex = dockerfile.indexOf("pnpm install --frozen-lockfile \\");
+    const storeAddIndex = dockerfile.indexOf("pnpm store add source-map@0.6.1");
+    const pruneIndex = dockerfile.indexOf("CI=true pnpm prune --prod \\");
 
-    expect(dockerfile).toContain("pnpm install --frozen-lockfile \\");
-    expect(dockerfile).toContain(
-      "NODE_OPTIONS=--max-old-space-size=2048 pnpm install --prod --frozen-lockfile --ignore-scripts \\",
-    );
-    expect(dockerfile).not.toContain("pnpm prune --prod");
-    expect(dockerfile).not.toContain("--config.offline=true");
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(storeAddIndex).toBeGreaterThan(installIndex);
+    expect(storeAddIndex).toBeLessThan(pruneIndex);
+    expect(pruneIndex).toBeGreaterThan(-1);
+    expect(dockerfile).toContain("--config.offline=true");
     expect(dockerfile.split("--config.supportedArchitectures.os=linux").length - 1).toBe(2);
     expect(
       dockerfile.split("--config.supportedArchitectures.cpu=\"$(node -p 'process.arch')\"").length -
@@ -160,7 +162,7 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain("pnpm_config_verify_deps_before_run=false pnpm qa:lab:build");
   });
 
-  it("installs runtime dependencies after the build stage", async () => {
+  it("prunes runtime dependencies after the build stage", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
     expect(dockerfile).toContain("FROM build AS runtime-assets");
     expect(dockerfile).toContain("ARG OPENCLAW_EXTENSIONS");
@@ -172,19 +174,14 @@ describe("Dockerfile", () => {
       'Example: docker build --build-arg OPENCLAW_EXTENSIONS="diagnostics-otel,matrix" .',
     );
     expect(dockerfile).toContain(
-      "RUN --mount=type=cache,id=openclaw-pnpm-runtime-store,target=/root/.local/share/pnpm/store,sharing=locked \\",
+      "RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \\",
     );
     expect(dockerfile).toContain("COPY --from=workspace-deps /out/packages/ ./packages/");
     expect(dockerfile).toContain(
       "COPY --from=workspace-deps /out/${OPENCLAW_BUNDLED_PLUGIN_DIR}/ ./${OPENCLAW_BUNDLED_PLUGIN_DIR}/",
     );
-    expect(dockerfile).toContain("runtime-assets: install prod dependencies");
-    expect(dockerfile).toContain("rm -rf node_modules");
-    expect(dockerfile).toContain(
-      "NODE_OPTIONS=--max-old-space-size=2048 pnpm install --prod --frozen-lockfile --ignore-scripts \\",
-    );
-    expect(dockerfile).not.toContain("pnpm prune --prod");
-    expect(dockerfile).not.toContain("--config.offline=true");
+    expect(dockerfile).toContain("CI=true pnpm prune --prod \\");
+    expect(dockerfile).toContain("--config.offline=true");
     expect(dockerfile).toContain("--config.supportedArchitectures.os=linux");
     expect(dockerfile).toContain(
       "--config.supportedArchitectures.cpu=\"$(node -p 'process.arch')\"",
@@ -214,8 +211,7 @@ describe("Dockerfile", () => {
     const pnpmWorkspace = YAML.parse(await readFile(pnpmWorkspacePath, "utf8")) as {
       patchedDependencies?: Record<string, string>;
     };
-    const runtimeInstall =
-      "NODE_OPTIONS=--max-old-space-size=2048 pnpm install --prod --frozen-lockfile --ignore-scripts";
+    const pruneProd = "CI=true pnpm prune --prod";
     const finalWorkspaceCopy =
       "COPY --from=runtime-assets --chown=node:node /app/pnpm-workspace.yaml .";
 
@@ -224,7 +220,7 @@ describe("Dockerfile", () => {
     expect(dockerfile).not.toContain("write-runtime-pnpm-workspace");
     expect(dockerfile).not.toContain("pnpm_config_frozen_lockfile=false");
     expect(dockerfile).toContain(finalWorkspaceCopy);
-    expect(dockerfile.indexOf(runtimeInstall)).toBeLessThan(dockerfile.indexOf(finalWorkspaceCopy));
+    expect(dockerfile.indexOf(pruneProd)).toBeLessThan(dockerfile.indexOf(finalWorkspaceCopy));
     expect(dockerfile).toContain(
       "COPY --from=runtime-assets --chown=node:node /app/pnpm-workspace.yaml .",
     );

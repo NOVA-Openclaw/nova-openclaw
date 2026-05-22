@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => ({
   detectWhatsAppLinked: vi.fn<(cfg: OpenClawConfig, accountId: string) => Promise<boolean>>(
     async () => false,
   ),
+  hasWebCredsSync: vi.fn(() => false),
   loginWeb: vi.fn(async () => {}),
   pathExists: vi.fn(async () => false),
   readWebAuthState: vi.fn<(authDir: string) => Promise<"linked" | "not-linked" | "unstable">>(
@@ -74,6 +75,13 @@ vi.mock("./auth-store.js", async () => {
   const actual = await vi.importActual<typeof import("./auth-store.js")>("./auth-store.js");
   return Object.assign({}, actual, {
     readWebAuthState: hoisted.readWebAuthState,
+  });
+});
+
+vi.mock("./creds-files.js", async () => {
+  const actual = await vi.importActual<typeof import("./creds-files.js")>("./creds-files.js");
+  return Object.assign({}, actual, {
+    hasWebCredsSync: hoisted.hasWebCredsSync,
   });
 });
 
@@ -142,6 +150,8 @@ describe("whatsapp setup wizard", () => {
   beforeEach(() => {
     hoisted.detectWhatsAppLinked.mockReset();
     hoisted.detectWhatsAppLinked.mockResolvedValue(false);
+    hoisted.hasWebCredsSync.mockReset();
+    hoisted.hasWebCredsSync.mockReturnValue(false);
     hoisted.loginWeb.mockReset();
     hoisted.pathExists.mockReset();
     hoisted.pathExists.mockResolvedValue(false);
@@ -338,6 +348,8 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("skips relink note when already linked and relink is declined", async () => {
+    hoisted.detectWhatsAppLinked.mockResolvedValue(true);
+    hoisted.hasWebCredsSync.mockReturnValue(true);
     hoisted.pathExists.mockResolvedValue(true);
     const harness = createSeparatePhoneHarness({
       selectValues: ["separate", "disabled"],

@@ -22,7 +22,9 @@ import {
   type DiagnosticEventPayload,
 } from "openclaw/plugin-sdk/diagnostic-runtime";
 import {
+  clearInternalHooks,
   initializeGlobalHookRunner,
+  registerInternalHook,
   resetGlobalHookRunner,
 } from "openclaw/plugin-sdk/hook-runtime";
 import { clearPluginCommands, registerPluginCommand } from "openclaw/plugin-sdk/plugin-runtime";
@@ -646,6 +648,7 @@ function extractRelayIdFromThreadRequest(params: unknown): string {
 
 describe("runCodexAppServerAttempt", () => {
   beforeEach(async () => {
+    clearInternalHooks();
     resetAgentEventsForTest();
     resetDiagnosticEventsForTest();
     vi.stubEnv("OPENCLAW_TRAJECTORY", "0");
@@ -663,6 +666,7 @@ describe("runCodexAppServerAttempt", () => {
     resetAgentEventsForTest();
     resetDiagnosticEventsForTest();
     resetGlobalHookRunner();
+    clearInternalHooks();
     defaultCodexAppInventoryCache.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -1402,12 +1406,7 @@ describe("runCodexAppServerAttempt", () => {
       testing.buildDeveloperInstructions(params, {
         dynamicTools: [createMessageDynamicTool("Message test tool")],
       }),
-    ).toContain('call `message` with `action="send"` before ending the turn');
-    expect(
-      testing.buildDeveloperInstructions(params, {
-        dynamicTools: [createMessageDynamicTool("Message test tool")],
-      }),
-    ).toContain("Do not rely on normal final assistant text for visible delivery");
+    ).toContain("To send a visible message, use the `message` tool.");
 
     const withoutMessageToolInstructions = testing.buildDeveloperInstructions(params, {
       dynamicTools: [],
@@ -1418,7 +1417,7 @@ describe("runCodexAppServerAttempt", () => {
     params.sourceReplyDeliveryMode = "automatic";
     const automaticInstructions = testing.buildDeveloperInstructions(params);
     expect(automaticInstructions).toContain("active Codex delivery path");
-    expect(automaticInstructions).not.toContain('call `message` with `action="send"`');
+    expect(automaticInstructions).not.toContain("use the `message` tool");
   });
 
   it("includes Codex app-server scoped plugin command guidance in developer instructions", () => {
@@ -4830,6 +4829,43 @@ describe("runCodexAppServerAttempt", () => {
     });
   });
 
+  it("reports hook-supplied bootstrap files that only expose path and content", async () => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const soulPath = path.join(workspaceDir, "SOUL.md");
+    const soulGuidance = "Hook supplied soul guidance.";
+    await fs.mkdir(workspaceDir, { recursive: true });
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as {
+        bootstrapFiles: Array<{ content: string; missing: boolean; path: string }>;
+      };
+      context.bootstrapFiles = [
+        {
+          path: soulPath,
+          content: soulGuidance,
+          missing: false,
+        },
+      ];
+    });
+    const harness = createStartedThreadHarness();
+
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
+    await harness.waitForMethod("turn/start");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    const result = await run;
+
+    expect(result.systemPromptReport?.injectedWorkspaceFiles).toEqual([
+      expect.objectContaining({
+        name: "SOUL.md",
+        path: soulPath,
+        rawChars: soulGuidance.length,
+        injectedChars: soulGuidance.length,
+        truncated: false,
+      }),
+    ]);
+  });
+
   it("points heartbeat Codex turns at HEARTBEAT.md without injecting its contents", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
@@ -6866,7 +6902,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(result.timedOut).toBe(false);
   });
 
-  it("routes MCP approval elicitations through the native bridge", async () => {
+  it("routes Computer Use MCP elicitations through the native bridge", async () => {
     let notify: (notification: CodexServerNotification) => Promise<void> = async () => undefined;
     let handleRequest:
       | ((request: { id: string; method: string; params?: unknown }) => Promise<unknown>)
@@ -6879,6 +6915,65 @@ describe("runCodexAppServerAttempt", () => {
         _meta: null,
       });
     const request = vi.fn(async (method: string) => {
+      if (method === "plugin/list") {
+        return {
+          marketplaces: [
+            {
+              name: "openai-bundled",
+              path: "/marketplaces/openai-bundled",
+              plugins: [
+                {
+                  id: "computer-use@openai-bundled",
+                  name: "computer-use",
+                  source: {
+                    type: "local",
+                    path: "/marketplaces/openai-bundled/plugins/computer-use",
+                  },
+                  installed: true,
+                  enabled: true,
+                },
+              ],
+            },
+          ],
+          marketplaceLoadErrors: [],
+          featuredPluginIds: [],
+        };
+      }
+      if (method === "plugin/read") {
+        return {
+          plugin: {
+            marketplaceName: "openai-bundled",
+            marketplacePath: "/marketplaces/openai-bundled",
+            summary: {
+              id: "computer-use@openai-bundled",
+              name: "computer-use",
+              source: {
+                type: "local",
+                path: "/marketplaces/openai-bundled/plugins/computer-use",
+              },
+              installed: true,
+              enabled: true,
+            },
+            description: null,
+            skills: [],
+            apps: [],
+            mcpServers: ["computer-use"],
+          },
+        };
+      }
+      if (method === "mcpServerStatus/list") {
+        return {
+          data: [
+            {
+              name: "desktop-control",
+              tools: {
+                "computer-use.get_app_state": {},
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      }
       if (method === "thread/start") {
         return threadStartResult("thread-1");
       }
@@ -6910,6 +7005,15 @@ describe("runCodexAppServerAttempt", () => {
 
     const run = runCodexAppServerAttempt(
       createParams(path.join(tempDir, "session.jsonl"), path.join(tempDir, "workspace")),
+      {
+        pluginConfig: {
+          computerUse: {
+            enabled: true,
+            marketplaceName: "openai-bundled",
+            mcpServerName: "desktop-control",
+          },
+        },
+      },
     );
     await vi.waitFor(() => expect(handleRequest).toBeTypeOf("function"));
 
@@ -6919,7 +7023,7 @@ describe("runCodexAppServerAttempt", () => {
       params: {
         threadId: "thread-1",
         turnId: "turn-1",
-        serverName: "codex_apps__github",
+        serverName: "desktop-control",
         mode: "form",
       },
     });
@@ -6930,10 +7034,23 @@ describe("runCodexAppServerAttempt", () => {
       _meta: null,
     });
     const [bridgeCall] = mockCall(bridgeSpy, "elicitation bridge") as [
-      { threadId?: string; turnId?: string },
+      {
+        requestParams?: { serverName?: string };
+        computerUseMcpServerName?: string;
+        threadId?: string;
+        turnId?: string;
+      },
     ];
     expect(bridgeCall.threadId).toBe("thread-1");
     expect(bridgeCall.turnId).toBe("turn-1");
+    expect(bridgeCall.requestParams?.serverName).toBe("desktop-control");
+    expect(bridgeCall.computerUseMcpServerName).toBe("desktop-control");
+    const requestCalls = request.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+    const threadStart = requestCalls.find(([method]) => method === "thread/start");
+    const threadStartParams = threadStart?.[1] as
+      | { approvalPolicy?: { granular?: { mcp_elicitations?: boolean } } }
+      | undefined;
+    expect(threadStartParams?.approvalPolicy?.granular?.mcp_elicitations).toBe(true);
 
     await notify({
       method: "turn/completed",
