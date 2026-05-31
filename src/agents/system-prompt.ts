@@ -50,6 +50,7 @@ import type {
   ProviderSystemPromptContribution,
   ProviderSystemPromptSectionId,
 } from "./system-prompt-contribution.js";
+import { resolveSystemPromptPreamble } from "./system-prompt-preamble.js";
 import type { PromptMode, SilentReplyPromptMode } from "./system-prompt.types.js";
 
 /**
@@ -718,6 +719,12 @@ export function buildAgentSystemPrompt(params: {
   includeMemorySection?: boolean;
   memoryCitationsMode?: MemoryCitationsMode;
   promptContribution?: ProviderSystemPromptContribution;
+  /**
+   * Optional custom preamble filename from `agents.defaults.systemPromptPreambleFile`.
+   * When provided, `resolveSystemPromptPreamble` uses this filename instead of
+   * the default `system-prompt-preamble.md`.
+   */
+  systemPromptPreambleFile?: string;
 }) {
   const acpEnabled = params.acpEnabled === true;
   const promptSurface = params.promptSurface ?? "openclaw_main";
@@ -946,11 +953,13 @@ export function buildAgentSystemPrompt(params: {
   });
   const workspaceNotes = normalizeStringEntries(params.workspaceNotes);
 
+  const systemPromptPreamble = resolveSystemPromptPreamble({
+    preambleFile: params.systemPromptPreambleFile,
+  });
+
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
-    return ["You are a personal assistant running inside OpenClaw.", modelIdentityLine]
-      .filter(Boolean)
-      .join("\n");
+    return [systemPromptPreamble, modelIdentityLine].filter(Boolean).join("\n");
   }
 
   const contextFiles = prepareContextFilesForPrompt(params.contextFiles);
@@ -999,10 +1008,11 @@ export function buildAgentSystemPrompt(params: {
     memorySection,
     acpEnabled,
     stableContextFiles: contextFiles.stable,
+    systemPromptPreamble,
   });
   const stablePrefix = cacheStablePromptPrefix(stablePrefixCacheKey, () => {
     const lines = [
-      "You are a personal assistant running inside OpenClaw.",
+      systemPromptPreamble,
       "",
       "## Tooling",
       "Available tools are policy-filtered. Names are case-sensitive; call exactly as listed.",

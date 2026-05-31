@@ -241,6 +241,20 @@ export type AgentDefaultsConfig = {
   silentReply?: SilentReplyPolicyShape;
   /** Optional repository root for system prompt runtime line (overrides auto-detect). */
   repoRoot?: string;
+  /** Optional full system prompt replacement. Primarily for prompt debugging and controlled experiments. */
+  systemPromptOverride?: string;
+  /**
+   * Optional filename for a file-based system prompt preamble override, resolved
+   * against the state directory (`~/.openclaw/` by default).
+   *
+   * When set, the named file is read once at startup. If the file exists and
+   * contains non-whitespace content its trimmed text replaces the hardcoded
+   * default preamble `"You are a personal assistant running inside OpenClaw."`.
+   * When the file is absent, empty, or unreadable the default is used.
+   *
+   * If unset, the default filename `system-prompt-preamble.md` is used.
+   */
+  systemPromptPreambleFile?: string;
   /** Provider-independent prompt overlays applied by model family. */
   promptOverlays?: PromptOverlaysConfig;
   /** Skip bootstrap (BOOTSTRAP.md creation, etc.) for pre-configured deployments. */
