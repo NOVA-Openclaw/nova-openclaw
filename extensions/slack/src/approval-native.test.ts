@@ -27,8 +27,8 @@ function buildConfig(
 
 const STORE_PATH = path.join(os.tmpdir(), "openclaw-slack-approval-native-test.json");
 
-async function writeStore(store: Record<string, unknown>) {
-  await saveSessionStore(STORE_PATH, store as never, { skipMaintenance: true });
+async function writeStore(store: Parameters<typeof saveSessionStore>[1]) {
+  await saveSessionStore(STORE_PATH, store, { skipMaintenance: true });
 }
 
 function createExecApprovalRequest(

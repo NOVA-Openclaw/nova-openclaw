@@ -7,7 +7,11 @@ import {
   testing as sessionBindingTesting,
   registerSessionBindingAdapter,
 } from "openclaw/plugin-sdk/session-binding-runtime";
-import { loadSessionStore, saveSessionStore } from "openclaw/plugin-sdk/session-store-runtime";
+import {
+  getSessionEntry,
+  saveSessionStore,
+  upsertSessionEntry,
+} from "openclaw/plugin-sdk/session-store-runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installMatrixMonitorTestRuntime } from "../../test-runtime.js";
 import { MATRIX_OPENCLAW_FINALIZED_PREVIEW_KEY } from "../send/types.js";
@@ -77,30 +81,28 @@ async function writeMatrixSessionMeta(
     nativeDirectUserId?: string;
   },
 ): Promise<void> {
-  const store = loadSessionStore(storePath, { skipCache: true }) as Record<
-    string,
-    Record<string, unknown>
-  >;
-  const existing = store[sessionKey] ?? {
-    sessionId: `sess-${Object.keys(store).length + 1}`,
+  const existing = getSessionEntry({ storePath, sessionKey }) ?? {
+    sessionId: `sess-${sessionKey}`,
     updatedAt: Date.now(),
   };
   const existingOrigin =
     typeof existing.origin === "object" && existing.origin !== null
       ? (existing.origin as Record<string, unknown>)
       : {};
-  store[sessionKey] = {
-    ...existing,
-    origin: {
-      ...existingOrigin,
-      provider: "matrix",
-      surface: "matrix",
-      accountId: "ops",
-      ...origin,
+  await upsertSessionEntry({
+    storePath,
+    sessionKey,
+    entry: {
+      ...existing,
+      origin: {
+        ...existingOrigin,
+        provider: "matrix",
+        surface: "matrix",
+        accountId: "ops",
+        ...origin,
+      },
     },
-  };
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  await saveSessionStore(storePath, store as never, { skipMaintenance: true });
+  });
 }
 
 beforeEach(() => {
@@ -1435,7 +1437,7 @@ describe("matrix monitor handler pairing account scope", () => {
             accountId: "ops",
           },
         },
-      } as never,
+      },
       { skipMaintenance: true },
     );
     const sendNotice = vi.fn(async () => "$notice");
@@ -1482,7 +1484,7 @@ describe("matrix monitor handler pairing account scope", () => {
             accountId: "ops",
           },
         },
-      } as never,
+      },
       { skipMaintenance: true },
     );
     const sendNotice = vi.fn(async () => "$notice");

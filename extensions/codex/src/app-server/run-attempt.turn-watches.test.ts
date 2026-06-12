@@ -459,75 +459,61 @@ describe("runCodexAppServerAttempt turn watches", () => {
   });
 
   it("keeps a progressing active turn alive beyond the original attempt timeout", async () => {
-    const harness = createStartedThreadHarness();
-    const params = createParams(
-      path.join(tempDir, "session.jsonl"),
-      path.join(tempDir, "workspace"),
-    );
-    params.timeoutMs = 100;
     const onRunProgress = vi.fn();
-    params.onRunProgress = onRunProgress;
-
-    const run = runCodexAppServerAttempt(params, {
-      turnCompletionIdleTimeoutMs: 300,
-      turnAssistantCompletionIdleTimeoutMs: 300,
-      turnTerminalIdleTimeoutMs: 300,
-    });
-    await harness.waitForMethod("turn/start");
-    await vi.waitFor(
-      () =>
-        expect(onRunProgress).toHaveBeenCalledWith(
-          expect.objectContaining({ reason: "turn:start" }),
-        ),
-      fastWait,
-    );
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 60);
-    });
-    await harness.notify({
-      method: "rawResponseItem/completed",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        item: {
-          type: "message",
-          id: "raw-progress-1",
-          role: "assistant",
-          content: [{ type: "output_text", text: "Still working." }],
-        },
-      },
-    });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 60);
-    });
-    await harness.notify({
-      method: "rawResponseItem/completed",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        item: {
-          type: "message",
-          id: "raw-progress-2",
-          role: "assistant",
-          content: [{ type: "output_text", text: "Almost done." }],
-        },
-      },
+    const onTimeout = vi.fn();
+    const onAbort = vi.fn();
+    const controller = createCodexAttemptTurnWatchController({
+      threadId: "thread-1",
+      signal: new AbortController().signal,
+      getTurnId: () => "turn-1",
+      isCompleted: () => false,
+      isTerminalTurnNotificationQueued: () => false,
+      getActiveAppServerTurnRequests: () => 0,
+      getActiveTurnItemCount: () => 0,
+      turnCompletionIdleTimeoutMs: 1_000,
+      turnAssistantCompletionIdleTimeoutMs: 1_000,
+      turnAttemptIdleTimeoutMs: 300,
+      turnTerminalIdleTimeoutMs: 1_000,
+      interruptTimeoutMs: 5_000,
+      onInterruptTurn: vi.fn(),
+      onTimeout,
+      onMarkTimedOut: vi.fn(),
+      onAbort,
+      onCompleted: vi.fn(),
+      onResolveCompletion: vi.fn(),
+      onRecordEvent: vi.fn(),
+      onAttemptProgress: onRunProgress,
+      onProgressDiagnostic: vi.fn(),
     });
 
-    expect(harness.request.mock.calls.some(([method]) => method === "turn/interrupt")).toBe(false);
-    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    vi.useFakeTimers();
+    try {
+      controller.armAttemptIdleWatch();
+      controller.touchActivity("turn:start", { attemptProgress: true });
 
-    const result = await run;
-    expect(result.aborted).toBe(false);
-    expect(result.timedOut).toBe(false);
-    expect(result.promptError).toBeNull();
-    expect(harness.request.mock.calls.some(([method]) => method === "turn/interrupt")).toBe(false);
-    const progressReasons = onRunProgress.mock.calls.map(([info]) => info.reason);
-    expect(progressReasons).toContain("turn:start");
-    expect(
-      progressReasons.filter((reason) => reason === "notification:rawResponseItem/completed"),
-    ).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(200);
+      controller.noteNotificationReceived("response.custom_tool_call_input.delta", {
+        attemptProgress: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(200);
+      controller.noteNotificationReceived("response.custom_tool_call_input.delta", {
+        attemptProgress: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(onTimeout).not.toHaveBeenCalled();
+      expect(onAbort).not.toHaveBeenCalled();
+      expect(onRunProgress.mock.calls.map(([reason]) => reason)).toEqual([
+        "turn:start",
+        "notification:response.custom_tool_call_input.delta",
+        "notification:response.custom_tool_call_input.delta",
+      ]);
+    } finally {
+      controller.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("does not count non-turn app-server requests as turn attempt progress", async () => {

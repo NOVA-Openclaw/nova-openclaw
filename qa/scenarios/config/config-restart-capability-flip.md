@@ -138,6 +138,9 @@ steps:
               value: ""
             - set: imageReplyText
               value: ""
+            - set: imageReplyStartIndex
+              value:
+                expr: "state.getSnapshot().messages.filter((message) => message.direction === 'outbound').length"
             - try:
                 actions:
                   - call: runAgentPrompt
@@ -151,15 +154,12 @@ steps:
                           expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
                 catchAs: imageRunError
                 catch:
-                  - set: imageRunErrorText
-                    value:
-                      expr: formatErrorMessage(imageRunError)
                   - if:
-                      expr: "!/agent\\.wait returned error: agent run aborted/i.test(imageRunErrorText)"
+                      expr: "!env.mock || !/agent run aborted/i.test(formatErrorMessage(imageRunError))"
                       then:
                         - throw:
                             message:
-                              expr: imageRunErrorText
+                              expr: "formatErrorMessage(imageRunError)"
             - try:
                 actions:
                   - call: resolveGeneratedImagePath
@@ -187,6 +187,8 @@ steps:
                           params: [candidate]
                           expr: "candidate.conversation.id === 'qa-operator' && (String(candidate.text ?? '').includes('MEDIA:') || /media failed|image generation failed/i.test(String(candidate.text ?? '')))"
                       - expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
+                      - sinceIndex:
+                          ref: imageReplyStartIndex
                   - set: imageReplyText
                     value:
                       expr: "String(imageReply.text ?? '')"

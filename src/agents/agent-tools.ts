@@ -286,6 +286,9 @@ function applyModelProviderToolPolicy(
       config: params?.config,
       modelProvider: params?.modelProvider,
       modelApi: params?.modelApi,
+      modelId: params?.modelId,
+      agentId: params?.agentId,
+      sessionKey: params?.sessionKey,
       agentDir: params?.agentDir,
     })
   ) {
@@ -827,6 +830,8 @@ export function createOpenClawCodingTools(options?: {
         allowBackground,
         scopeKey,
         sessionKey: options?.sessionKey,
+        sessionId: options?.sessionId,
+        sessionStore: options?.config?.session?.store,
         mainKey: options?.config?.session?.mainKey,
         sessionScope: options?.config?.session?.scope,
         eventRouting: resolveEventSessionRoutingPolicy({

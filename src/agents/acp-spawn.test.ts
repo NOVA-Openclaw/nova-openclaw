@@ -122,6 +122,7 @@ vi.mock("../channels/plugins/index.js", () => ({
 
 vi.mock("../channels/plugins/registry.js", () => ({
   getChannelPlugin: hoisted.getChannelPluginMock,
+  getLoadedChannelPlugin: hoisted.getLoadedChannelPluginMock,
   normalizeChannelId: hoisted.normalizeChannelIdMock,
 }));
 
@@ -462,6 +463,9 @@ function enableMatrixAcpThreadBindings(): void {
     },
   };
   const matrixPlugin = {
+    conversationBindings: {
+      defaultTopLevelPlacement: "child",
+    },
     messaging: {
       resolveDeliveryTarget: ({
         conversationId,

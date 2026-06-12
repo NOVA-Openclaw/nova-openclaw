@@ -177,7 +177,7 @@ describe("startCodexAttemptThread", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     for (const root of tempRoots) {
-      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
     tempRoots.clear();
   });
@@ -240,7 +240,7 @@ describe("startCodexAttemptThread", () => {
   });
 
   it("clears the shared app-server when startup abandons an in-flight thread request", async () => {
-    const { harness, run } = startThreadWithHarness(2_000);
+    const { harness, run } = startThreadWithHarness(250);
     const runError = run.then(
       () => undefined,
       (error: unknown) => error,

@@ -11,7 +11,6 @@ import {
   normalizeSessionDeliveryFields,
 } from "../../utils/delivery-context.shared.js";
 import { getFileStatSnapshot } from "../cache-utils.js";
-import { recoverBetaSqliteSessionStoreIfNeeded } from "./session-sqlite-downgrade-rescue.js";
 import { hydrateSessionStoreSkillPromptRefs } from "./skill-prompt-blobs.js";
 import {
   cloneSessionStoreRecord,
@@ -396,14 +395,6 @@ export function loadSessionStore(
   // Retry a few times on Windows because readers can briefly observe empty or
   // transiently invalid content while another process is swapping the file.
   let store: Record<string, SessionEntry> = {};
-  const rescue = recoverBetaSqliteSessionStoreIfNeeded(storePath);
-  if (rescue) {
-    log.info("recovered session metadata from beta SQLite store", {
-      storePath,
-      sqlitePath: rescue.sqlitePath,
-      entries: rescue.entries,
-    });
-  }
   const fileStat = getFileStatSnapshot(storePath);
   const mtimeMs = fileStat?.mtimeMs;
   let serializedFromDisk: string | undefined;
