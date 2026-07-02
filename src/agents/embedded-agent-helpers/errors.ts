@@ -1018,6 +1018,13 @@ function classifyFailoverClassificationFromMessage(
   if (reasonFrom402Text) {
     return toReasonClassification(reasonFrom402Text);
   }
+  // NOTE: Upstream PR #94430 classifies some moderation/content-policy text
+  // as 'rate_limit'. This branch intentionally runs first so that explicit
+  // refusal signals (provider_refusal errorCode, Anthropic refusal text, or
+  // OpenAI content_filter finish reason) map to the dedicated 'refusal' reason
+  // instead. When both changes are present, refusal takes precedence; if a
+  // provider's moderation text is not caught here it can still fall through to
+  // the rate_limit bucket added by #94430.
   if (isRefusalErrorMessage(raw)) {
     return toReasonClassification("refusal");
   }
