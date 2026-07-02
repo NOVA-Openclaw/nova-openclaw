@@ -704,10 +704,11 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
           }
         } else if (event.type === "message_delta") {
           if (event.delta.stop_reason) {
-            if (event.delta.stop_reason === "refusal" || event.delta.stop_reason === "sensitive") {
+            const stopReason = event.delta.stop_reason as string;
+            if (stopReason === "refusal" || stopReason === "sensitive") {
               applyAnthropicRefusal(output, event.delta.stop_details, model.provider);
             } else {
-              output.stopReason = mapStopReason(event.delta.stop_reason);
+              output.stopReason = mapStopReason(stopReason);
             }
           }
           // Only update usage fields if present (not null).

@@ -6,6 +6,7 @@ import {
   isBillingErrorMessage,
   isOverloadedErrorMessage,
   isRateLimitErrorMessage,
+  isRefusalErrorMessage,
   isServerErrorMessage,
   isTimeoutErrorMessage,
 } from "./failover-matches.js";
@@ -114,6 +115,28 @@ describe("Chinese provider overload messages", () => {
   it("does not misclassify the GLM overload body as rate limit or auth", () => {
     expect(isRateLimitErrorMessage(ZHIPU_OVERLOAD)).toBe(false);
     expect(isAuthErrorMessage(ZHIPU_OVERLOAD)).toBe(false);
+  });
+});
+
+describe("refusal patterns (#98976)", () => {
+  it("classifies Anthropic refusal text as refusal", () => {
+    expect(isRefusalErrorMessage("Anthropic refusal (category: bio): unsafe content")).toBe(true);
+  });
+
+  it("classifies OpenAI content_filter finish_reason text as refusal", () => {
+    expect(isRefusalErrorMessage("Provider finish_reason: content_filter")).toBe(true);
+  });
+
+  it("does not misclassify generic content text as refusal", () => {
+    expect(isRefusalErrorMessage("This is my refusal to answer")).toBe(false);
+    expect(isRefusalErrorMessage("content filter triggered by proxy")).toBe(false);
+  });
+
+  it("does not misclassify refusal as transient failover", () => {
+    const raw = "Anthropic refusal (category: legal): policy violation";
+    expect(isRateLimitErrorMessage(raw)).toBe(false);
+    expect(isTimeoutErrorMessage(raw)).toBe(false);
+    expect(isServerErrorMessage(raw)).toBe(false);
   });
 });
 

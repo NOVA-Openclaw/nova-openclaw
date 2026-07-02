@@ -103,6 +103,32 @@ describe("classifyEmbeddedAgentRunResultForModelFallback", () => {
     });
   });
 
+  it("classifies provider refusal error payloads as fallback-worthy", () => {
+    const result = classifyEmbeddedAgentRunResultForModelFallback({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      result: {
+        payloads: [
+          {
+            isError: true,
+            text: "Anthropic refusal (category: bio): unsafe content",
+          },
+        ],
+        meta: {
+          durationMs: 42,
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      message:
+        "anthropic/claude-sonnet-4-6 ended with a provider error: Anthropic refusal (category: bio): unsafe content",
+      reason: "refusal",
+      code: "embedded_error_payload",
+      rawError: "Anthropic refusal (category: bio): unsafe content",
+    });
+  });
+
   it("does not classify normal visible assistant output as fallback-worthy", () => {
     const result = classifyEmbeddedAgentRunResultForModelFallback({
       provider: "claude-cli",
