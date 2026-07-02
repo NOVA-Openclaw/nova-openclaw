@@ -624,24 +624,24 @@ describe("resolveRunFailoverDecision", () => {
   });
 
   it("refusal escalates to fallback_model without profile rotation", () => {
-    expect(
-      resolveRunFailoverDecision({
-        stage: "assistant",
-        aborted: false,
-        externalAbort: false,
-        fallbackConfigured: true,
-        failoverFailure: true,
-        failoverReason: "refusal",
-        timedOut: false,
-        idleTimedOut: false,
-        timedOutDuringCompaction: false,
-        timedOutDuringToolExecution: false,
-        profileRotated: false,
-      }),
-    ).toEqual({
+    const decision = resolveRunFailoverDecision({
+      stage: "assistant",
+      aborted: false,
+      externalAbort: false,
+      fallbackConfigured: true,
+      failoverFailure: true,
+      failoverReason: "refusal",
+      timedOut: false,
+      idleTimedOut: false,
+      timedOutDuringCompaction: false,
+      timedOutDuringToolExecution: false,
+      profileRotated: false,
+    });
+    expect(decision).toEqual({
       action: "fallback_model",
       reason: "refusal",
     });
+    expect(decision.action).not.toBe("rotate_profile");
   });
 
   it("refusal surfaces when no fallback is configured", () => {

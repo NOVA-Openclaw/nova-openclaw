@@ -123,6 +123,10 @@ describe("refusal patterns (#98976)", () => {
     expect(isRefusalErrorMessage("Anthropic refusal (category: bio): unsafe content")).toBe(true);
   });
 
+  it("classifies bare Anthropic refusal text as refusal", () => {
+    expect(isRefusalErrorMessage("Anthropic refusal.")).toBe(true);
+  });
+
   it("classifies OpenAI content_filter finish_reason text as refusal", () => {
     expect(isRefusalErrorMessage("Provider finish_reason: content_filter")).toBe(true);
   });
@@ -137,6 +141,21 @@ describe("refusal patterns (#98976)", () => {
     expect(isRateLimitErrorMessage(raw)).toBe(false);
     expect(isTimeoutErrorMessage(raw)).toBe(false);
     expect(isServerErrorMessage(raw)).toBe(false);
+  });
+
+  it("gives refusal precedence over rate_limit for mixed signals (#94430 boundary)", () => {
+    const raw =
+      "Anthropic refusal (category: legal): rate limit exceeded; request was rate limited";
+    expect(classifyFailoverReason(raw)).toBe("refusal");
+    expect(isRateLimitErrorMessage(raw)).toBe(true);
+  });
+
+  it("keeps existing failover patterns unaffected", () => {
+    expect(isRateLimitErrorMessage("rate limit exceeded")).toBe(true);
+    expect(isServerErrorMessage("status: internal server error")).toBe(true);
+    expect(isAuthErrorMessage("invalid api key provided")).toBe(true);
+    expect(isBillingErrorMessage("insufficient credits")).toBe(true);
+    expect(isRefusalErrorMessage("Anthropic refusal (category: bio): unsafe content")).toBe(true);
   });
 });
 

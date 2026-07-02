@@ -144,6 +144,26 @@ describe("refusal classification (#98976)", () => {
     });
     expect(classifyAssistantFailoverReason(msg)).toBe("refusal");
   });
+
+  it("classifies Anthropic sensitive-stop refusal text as refusal, not timeout", () => {
+    expect(classifyFailoverReason("Anthropic refusal.")).toBe("refusal");
+  });
+
+  it("returns null when stopReason is not error even if errorMessage resembles refusal", () => {
+    const msg = makeAssistantMessageFixture({
+      stopReason: "stop",
+      errorMessage: "Anthropic refusal (category: bio): unsafe content",
+    });
+    expect(classifyAssistantFailoverReason(msg)).toBeNull();
+  });
+
+  it("does not rewrite generic non-refusal error text", () => {
+    const msg = makeAssistantMessageFixture({
+      stopReason: "error",
+      errorMessage: "Something went wrong internally.",
+    });
+    expect(formatAssistantErrorText(msg)).toBe("Something went wrong internally.");
+  });
 });
 
 describe("isLikelyContextOverflowError", () => {
