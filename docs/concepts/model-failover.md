@@ -88,6 +88,33 @@ process-local and clears on Gateway restart.
 The value is a TTL in milliseconds. `0` or an unset value disables the cache.
 Positive values are clamped between 1 second and 10 minutes.
 
+## Provider refusals
+
+Some providers decline to generate content instead of failing with an auth or
+rate-limit error. Anthropic returns a `refusal` (or `sensitive`) stop reason,
+and OpenAI may finish with `content_filter`. OpenClaw classifies these as the
+`refusal` failover reason and treats them differently from profile-scoped
+failures:
+
+- **No auth-profile rotation.** A refusal is about the request content, not the
+  API key or OAuth profile, so OpenClaw does not rotate auth profiles or put
+  the current profile in cooldown.
+- **Preserve the probe budget.** Refusals do not consume the transient cooldown
+  probe slot, so the normal fallback probe cadence stays intact.
+- **Surface partial output.** If the model produced visible text before the
+  refusal, OpenClaw surfaces that output instead of silently falling back.
+- **Fallback when empty.** If the refusal produced no visible output and a
+  fallback chain is configured, OpenClaw tries the next model candidate with the
+  same `refusal` reason recorded for diagnostics.
+- **User-facing copy.** When a refusal is surfaced, OpenClaw shows:
+
+  ```text
+  The model declined to generate this response. Try rephrasing your request, or switch to a different model.
+  ```
+
+This keeps content-policy blocks from being mis-bucketed as timeouts or
+rate limits and prevents them from incorrectly rotating healthy auth profiles.
+
 ## User-visible fallback notices
 
 When a session moves onto an auto-selected fallback, OpenClaw sends a status notice in the same reply surface:
