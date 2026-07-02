@@ -150,7 +150,7 @@ function classifyHarnessResult(params: {
 function classifyBusinessDenialErrorPayloadReason(
   errorText: string,
   provider: string,
-): Extract<FailoverReason, "auth" | "auth_permanent" | "billing" | "rate_limit"> | null {
+): Extract<FailoverReason, "auth" | "auth_permanent" | "billing" | "rate_limit" | "refusal"> | null {
   if (!errorText.trim()) {
     return null;
   }
@@ -160,6 +160,7 @@ function classifyBusinessDenialErrorPayloadReason(
     case "auth_permanent":
     case "billing":
     case "rate_limit":
+    case "refusal":
       return failoverReason;
     default:
       return null;

@@ -1379,6 +1379,13 @@ export function formatAssistantErrorText(
     return diskSpaceCopy;
   }
 
+  // Provider content-filter / refusal failures are terminal for this model but
+  // recoverable on another model candidate. Give the user stable guidance
+  // instead of the raw provider diagnostic.
+  if (msg.errorCode === "provider_refusal" || classifyAssistantFailoverReason(msg) === "refusal") {
+    return "The model declined to generate this response. Try rephrasing your request, or switch to a different model.";
+  }
+
   if (providerRuntimeFailureKind === "auth_refresh") {
     return "Authentication refresh failed. Re-authenticate this provider and try again.";
   }
