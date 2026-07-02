@@ -32,6 +32,7 @@ import {
   isOverloadedErrorMessage,
   isPeriodicUsageLimitErrorMessage,
   isRateLimitErrorMessage,
+  isRefusalErrorMessage,
   isServerErrorMessage,
   isTimeoutErrorMessage,
   matchesFormatErrorPattern,
@@ -68,6 +69,7 @@ export {
   isBillingErrorMessage,
   isOverloadedErrorMessage,
   isRateLimitErrorMessage,
+  isRefusalErrorMessage,
   isServerErrorMessage,
   isTimeoutErrorMessage,
 } from "./failover-matches.js";
@@ -912,6 +914,8 @@ function classifyFailoverReasonFromCode(raw: string | undefined): FailoverReason
     case "OVERLOADED":
     case "OVERLOADED_ERROR":
       return "overloaded";
+    case "PROVIDER_REFUSAL":
+      return "refusal";
     default:
       return TIMEOUT_ERROR_CODES.has(normalized) ? "timeout" : null;
   }
@@ -1013,6 +1017,9 @@ function classifyFailoverClassificationFromMessage(
   const reasonFrom402Text = classifyFailoverReasonFrom402Text(raw);
   if (reasonFrom402Text) {
     return toReasonClassification(reasonFrom402Text);
+  }
+  if (isRefusalErrorMessage(raw)) {
+    return toReasonClassification("refusal");
   }
   if (
     isOpenRouterKeyLimitExceededError(raw, provider) ||
