@@ -704,7 +704,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
           }
         } else if (event.type === "message_delta") {
           if (event.delta.stop_reason) {
-            if (event.delta.stop_reason === "refusal") {
+            if (event.delta.stop_reason === "refusal" || event.delta.stop_reason === "sensitive") {
               applyAnthropicRefusal(output, event.delta.stop_details, model.provider);
             } else {
               output.stopReason = mapStopReason(event.delta.stop_reason);
@@ -1488,8 +1488,6 @@ function mapStopReason(reason: string): StopReason {
       return "stop";
     case "stop_sequence":
       return "stop"; // We don't supply stop sequences, so this should never happen
-    case "sensitive": // Content flagged by safety filters (not yet in SDK types)
-      return "error";
     default:
       // Handle unknown stop reasons gracefully (API may add new values)
       throw new Error(`Unhandled stop reason: ${reason}`);
