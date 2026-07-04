@@ -16,6 +16,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
+import type { TranscriptRewriteReplacement } from "../../context-engine/types.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import {
   clampThinkingLevel,
   getSupportedThinkingLevels,
@@ -32,6 +34,9 @@ import type {
   TextContent,
 } from "../../llm/types.js";
 import { isContextOverflow } from "../../llm/utils/overflow.js";
+import { log } from "../embedded-agent-runner/logger.js";
+import { stripThinkingBlocksFromMessage } from "../embedded-agent-runner/thinking.js";
+import { rewriteTranscriptEntriesInSessionManager } from "../embedded-agent-runner/transcript-rewrite.js";
 import type {
   Agent,
   AgentEvent,
@@ -144,6 +149,23 @@ function extractPersistedAssistantText(content: unknown): string {
     }
   }
   return text;
+}
+
+function messageContainsThinkingBlock(message: { role?: unknown; content?: unknown }): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+  const content = message.content;
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((block) => {
+    if (!block || typeof block !== "object") {
+      return false;
+    }
+    const type = (block as { type?: unknown }).type;
+    return type === "thinking" || type === "redacted_thinking";
+  });
 }
 
 // ============================================================================
@@ -631,6 +653,16 @@ export class AgentSession {
         event.message.role === "toolResult"
       ) {
         // Regular LLM message - persist as SessionMessageEntry
+
+        // Proactively strip stale thinking blocks from prior assistant turns
+        // before saving a new assistant thinking block. The new (latest) turn
+        // is preserved verbatim so provider signature validation succeeds on
+        // replay, while older turns no longer accumulate stale/foreign-model
+        // signed thinking blocks.
+        if (event.message.role === "assistant" && messageContainsThinkingBlock(event.message)) {
+          this.stripStaleThinkingBlocksFromSessionBranch(event.message);
+        }
+
         const toolResultChangedByExtension =
           event.message.role === "toolResult" &&
           this.extensionModifiedToolResultIds.delete(event.message.toolCallId);
@@ -677,6 +709,51 @@ export class AgentSession {
       }
     }
     return false;
+  }
+
+  /**
+   * Strip thinking/redacted_thinking blocks from every existing assistant turn
+   * on the active branch before a new assistant thinking-bearing message is
+   * persisted. The incoming message is intentionally NOT part of the branch yet,
+   * so it remains untouched and becomes the sole surviving thinking-bearing
+   * assistant turn.
+   *
+   * Runs inside the session write lock already held by handleAgentEventUnlocked,
+   * and uses the non-locking rewrite variant to avoid reentrant deadlock.
+   */
+  private stripStaleThinkingBlocksFromSessionBranch(message: AgentMessage): void {
+    if (!messageContainsThinkingBlock(message)) {
+      return;
+    }
+
+    const branch = this.sessionManager.getBranch();
+    const replacements: TranscriptRewriteReplacement[] = [];
+
+    for (const entry of branch) {
+      if (entry.type !== "message" || entry.message.role !== "assistant") {
+        continue;
+      }
+      const stripped = stripThinkingBlocksFromMessage(entry.message);
+      if (stripped !== entry.message) {
+        replacements.push({ entryId: entry.id, message: stripped });
+      }
+    }
+
+    if (replacements.length === 0) {
+      return;
+    }
+
+    try {
+      rewriteTranscriptEntriesInSessionManager({
+        sessionManager: this.sessionManager,
+        replacements,
+      });
+    } catch (error) {
+      // A failed maintenance rewrite must not prevent the current assistant turn
+      // from being persisted. The missed strip self-heals on the next
+      // thinking-bearing save, bounding the damage to one turn.
+      log.warn(`[transcript-rewrite] failed: ${formatErrorMessage(error)}`);
+    }
   }
 
   /** Extract text content from a message */
