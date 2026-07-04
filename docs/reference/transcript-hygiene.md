@@ -126,6 +126,49 @@ inter-session user turns that only have provenance metadata.
 
 ---
 
+## Global rule: stale thinking-block cleanup (persist time)
+
+Unlike the rest of this page, this rule runs at **persist time**, not replay
+time. When `AgentSession` is about to save a new assistant message that
+contains a `thinking` or `redacted_thinking` block, it first strips any
+thinking/redacted-thinking blocks from every other assistant turn already on
+the active branch, then rewrites those entries in place on disk via the
+non-locking `rewriteTranscriptEntriesInSessionManager` helper. The incoming
+message being saved is not part of the branch yet, so it is left untouched:
+after the save, exactly one assistant turn on the active branch carries a
+thinking block — the newest one.
+
+This is a durable, structural fix rather than a replay-time workaround: older
+thinking blocks (which may carry stale or cross-model-invalid replay
+signatures) can no longer accumulate in the stored transcript and get resent
+to a provider on a later context rebuild (for example after a Gateway
+restart or session resume). The provider-specific signature-stripping rules
+described later on this page still apply as a second, replay-time layer of
+defense for any thinking-bearing content this persist-time pass doesn't
+cover (for example within the same turn, before a later assistant message
+has been saved).
+
+Notes:
+
+- Only the active branch is rewritten; superseded/replaced branch positions
+  in the raw JSONL are left as-is (append-only history), matching how
+  `SessionManager.getBranch()` already treats them.
+- There is no tool-turn carve-out: thinking blocks attached to assistant
+  turns that are part of a tool-call sequence are stripped the same as any
+  other older turn once superseded by a newer thinking-bearing turn.
+- If the rewrite itself fails, the current assistant turn is still persisted;
+  the failure is logged (`[transcript-rewrite] failed: ...`) and the strip is
+  retried on the next thinking-bearing save, bounding the exposure to at most
+  one extra turn.
+
+Implementation:
+
+- `stripStaleThinkingBlocksFromSessionBranch` in `src/agents/sessions/agent-session.ts`
+- `stripThinkingBlocksFromMessage` in `src/agents/embedded-agent-runner/thinking.ts`
+- `rewriteTranscriptEntriesInSessionManager` in `src/agents/embedded-agent-runner/transcript-rewrite.ts`
+
+---
+
 ## Provider matrix (current behavior)
 
 **OpenAI / OpenAI Codex**

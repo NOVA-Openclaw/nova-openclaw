@@ -220,7 +220,7 @@ Notable entry types:
 - `compaction`: persisted compaction summary with `firstKeptEntryId` and `tokensBefore`
 - `branch_summary`: persisted summary when navigating a tree branch
 
-OpenClaw intentionally does **not** "fix up" transcripts; the Gateway uses `SessionManager` to read/write them.
+OpenClaw intentionally does **not** "fix up" transcripts on a general basis; the Gateway uses `SessionManager` to read/write them. The one targeted exception is stale thinking-block cleanup: see the "Global rule: stale thinking-block cleanup (persist time)" section in [Transcript hygiene](/reference/transcript-hygiene), which rewrites prior assistant entries on disk at persist time rather than only at replay time.
 
 ---
 
