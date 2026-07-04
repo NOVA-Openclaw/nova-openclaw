@@ -36,7 +36,6 @@ import type {
 import { isContextOverflow } from "../../llm/utils/overflow.js";
 import { log } from "../embedded-agent-runner/logger.js";
 import { stripThinkingBlocksFromMessage } from "../embedded-agent-runner/thinking.js";
-import { rewriteTranscriptEntriesInSessionManager } from "../embedded-agent-runner/transcript-rewrite.js";
 import type {
   Agent,
   AgentEvent,
@@ -660,7 +659,7 @@ export class AgentSession {
         // replay, while older turns no longer accumulate stale/foreign-model
         // signed thinking blocks.
         if (event.message.role === "assistant" && messageContainsThinkingBlock(event.message)) {
-          this.stripStaleThinkingBlocksFromSessionBranch(event.message);
+          await this.stripStaleThinkingBlocksFromSessionBranch(event.message);
         }
 
         const toolResultChangedByExtension =
@@ -721,7 +720,7 @@ export class AgentSession {
    * Runs inside the session write lock already held by handleAgentEventUnlocked,
    * and uses the non-locking rewrite variant to avoid reentrant deadlock.
    */
-  private stripStaleThinkingBlocksFromSessionBranch(message: AgentMessage): void {
+  private async stripStaleThinkingBlocksFromSessionBranch(message: AgentMessage): Promise<void> {
     if (!messageContainsThinkingBlock(message)) {
       return;
     }
@@ -744,6 +743,8 @@ export class AgentSession {
     }
 
     try {
+      const { rewriteTranscriptEntriesInSessionManager } =
+        await import("../embedded-agent-runner/transcript-rewrite.js");
       rewriteTranscriptEntriesInSessionManager({
         sessionManager: this.sessionManager,
         replacements,
