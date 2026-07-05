@@ -18,7 +18,7 @@ import {
   resolveBootstrapFilesForRun,
   resolveContextInjectionMode,
 } from "./bootstrap-files.js";
-import type { WorkspaceBootstrapFile } from "./workspace.js";
+import type { WorkspaceBootstrapFile, WorkspaceBootstrapFileName } from "./workspace.js";
 
 function registerExtraBootstrapFileHook() {
   registerInternalHook("agent:bootstrap", (event) => {
@@ -877,7 +877,9 @@ describe("sanitizeBootstrapFiles — synthetic path preservation (PR #243)", () 
 
     const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
     const files = await resolveBootstrapFilesForRun({ workspaceDir });
-    const file = files.find((f) => f.name === "something.md");
+    const file = files.find(
+      (f) => f.name === ("something.md" as unknown as WorkspaceBootstrapFileName),
+    );
 
     expect(file?.path).toBe(absolutePath); // resolved absolute remains absolute
     await fs.unlink(absolutePath).catch(() => {});
@@ -996,7 +998,9 @@ describe("sanitizeBootstrapFiles — synthetic path preservation (PR #243)", () 
 
       const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-");
       const files = await resolveBootstrapFilesForRun({ workspaceDir });
-      const file = files.find((f) => f.name === "weird.md");
+      const file = files.find(
+        (f) => f.name === ("weird.md" as unknown as WorkspaceBootstrapFileName),
+      );
 
       if (file) {
         // Path must have been resolved to an absolute filesystem path, not the raw input
