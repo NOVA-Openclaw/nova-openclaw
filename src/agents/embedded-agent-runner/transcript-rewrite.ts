@@ -15,7 +15,7 @@ import {
   type SessionWriteLockAcquireTimeoutConfig,
   resolveSessionWriteLockOptions,
 } from "../session-write-lock.js";
-import { SessionManager } from "../sessions/index.js";
+import type { SessionManager } from "../sessions/session-manager.js";
 import { log } from "./logger.js";
 import {
   persistTranscriptStateMutation,
