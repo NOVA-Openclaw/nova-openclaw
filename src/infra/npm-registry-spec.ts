@@ -4,14 +4,18 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 const EXACT_SEMVER_VERSION_RE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
 const OPENCLAW_FORK_VERSION_SUFFIX = "nova";
-const OPENCLAW_STABLE_CORRECTION_VERSION_RE =
-  /^(?<year>\d{4})\.(?<month>[1-9]\d?)\.(?<patch>[1-9]\d*)(?:-nova)?-(?<correction>[1-9]\d*)$/;
-const OPENCLAW_STABLE_VERSION_RE =
-  /^(?<year>\d{4})\.(?<month>[1-9]\d?)\.(?<patch>[1-9]\d*)(?:-nova)?$/;
-const OPENCLAW_ALPHA_VERSION_RE =
-  /^(?<year>\d{4})\.(?<month>[1-9]\d?)\.(?<patch>[1-9]\d*)(?:-nova)?-alpha\.(?<alpha>[1-9]\d*)$/;
-const OPENCLAW_BETA_VERSION_RE =
-  /^(?<year>\d{4})\.(?<month>[1-9]\d?)\.(?<patch>[1-9]\d*)(?:-nova)?-beta\.(?<beta>[1-9]\d*)$/;
+const OPENCLAW_STABLE_CORRECTION_VERSION_RE = new RegExp(
+  `^(?<year>\\d{4})\\.(?<month>[1-9]\\d?)\\.(?<patch>[1-9]\\d*)(?:-${OPENCLAW_FORK_VERSION_SUFFIX})?-(?<correction>[1-9]\\d*)$`,
+);
+const OPENCLAW_STABLE_VERSION_RE = new RegExp(
+  `^(?<year>\\d{4})\\.(?<month>[1-9]\\d?)\\.(?<patch>[1-9]\\d*)(?:-${OPENCLAW_FORK_VERSION_SUFFIX})?$`,
+);
+const OPENCLAW_ALPHA_VERSION_RE = new RegExp(
+  `^(?<year>\\d{4})\\.(?<month>[1-9]\\d?)\\.(?<patch>[1-9]\\d*)(?:-${OPENCLAW_FORK_VERSION_SUFFIX})?-alpha\\.(?<alpha>[1-9]\\d*)$`,
+);
+const OPENCLAW_BETA_VERSION_RE = new RegExp(
+  `^(?<year>\\d{4})\\.(?<month>[1-9]\\d?)\\.(?<patch>[1-9]\\d*)(?:-${OPENCLAW_FORK_VERSION_SUFFIX})?-beta\\.(?<beta>[1-9]\\d*)$`,
+);
 const DIST_TAG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Parsed monthly patch OpenClaw release version used for channel-aware ordering. */
