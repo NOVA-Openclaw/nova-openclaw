@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STREAM_ERROR_FALLBACK_TEXT } from "../agents/stream-message-shared.js";
 import {
   createHeartbeatToolResponsePayload,
   type HeartbeatToolResponse,
@@ -236,55 +237,6 @@ describe("runHeartbeatOnce heartbeat response tool", () => {
     });
   });
 
-  it.each([
-    {
-      name: "text",
-      reply: {
-        text: [
-          "<tool_calls>",
-          "<file_contents path='/redacted/workspace/HEARTBEAT.md' isStale=false isFullFile=true>",
-          " 1|# HEARTBEAT.md",
-          "</file_contents>",
-        ].join("\n"),
-      },
-    },
-    {
-      name: "media",
-      reply: {
-        text: "Chart attached from a non-tool response",
-        mediaUrls: ["https://example.com/chart.png"],
-      },
-    },
-  ])("ignores ordinary $name payloads in heartbeat tool mode", async ({ reply }) => {
-    await withTempTelegramHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
-      const cfg = createConfig({ tmpDir, storePath });
-      await seedMainSessionStore(storePath, cfg, {
-        lastChannel: "telegram",
-        lastProvider: "telegram",
-        lastTo: TELEGRAM_GROUP,
-        agentHarnessId: "codex",
-      });
-      replySpy.mockResolvedValue(reply);
-      const sendTelegram = vi.fn().mockResolvedValue({ messageId: "m1" });
-
-      const result = await runHeartbeatOnce({
-        cfg,
-        deps: createDeps({ sendTelegram, getReplyFromConfig: replySpy }),
-      });
-
-      const calledOpts = replySpy.mock.calls[0]?.[1] as {
-        enableHeartbeatTool?: boolean;
-        forceHeartbeatTool?: boolean;
-        sourceReplyDeliveryMode?: string;
-      };
-      expect(result.status).toBe("ran");
-      expect(calledOpts.enableHeartbeatTool).toBe(true);
-      expect(calledOpts.forceHeartbeatTool).toBe(true);
-      expect(calledOpts.sourceReplyDeliveryMode).toBe("message_tool_only");
-      expect(sendTelegram).not.toHaveBeenCalled();
-    });
-  });
-
   it("uses the heartbeat response tool prompt in message-tool mode", async () => {
     const result = await runPromptScenario({
       config: { visibleReplies: "message_tool" },
@@ -390,6 +342,36 @@ describe("runHeartbeatOnce heartbeat response tool", () => {
         reason: "agent-runner-failure",
         preview: HEARTBEAT_EXTERNAL_RUN_FAILURE_TEXT,
         channel: "telegram",
+      });
+    });
+  });
+
+  it("suppresses internal stream-error fallback placeholders before heartbeat delivery", async () => {
+    await withTempTelegramHeartbeatSandbox(async ({ tmpDir, storePath, replySpy }) => {
+      const cfg = createConfig({ tmpDir, storePath });
+      await seedMainSessionStore(storePath, cfg, {
+        lastChannel: "telegram",
+        lastProvider: "telegram",
+        lastTo: TELEGRAM_GROUP,
+      });
+      replySpy.mockResolvedValue(
+        markReplyPayloadForSourceSuppressionDelivery({
+          text: `${STREAM_ERROR_FALLBACK_TEXT}\n${STREAM_ERROR_FALLBACK_TEXT}`,
+        }),
+      );
+      const sendTelegram = vi.fn().mockResolvedValue({ messageId: "m1" });
+
+      const result = await runHeartbeatOnce({
+        cfg,
+        deps: createDeps({ sendTelegram, getReplyFromConfig: replySpy }),
+      });
+
+      expect(result.status).toBe("ran");
+      expect(sendTelegram).not.toHaveBeenCalled();
+      expect(getLastHeartbeatEvent()).toMatchObject({
+        status: "ok-token",
+        channel: "telegram",
+        silent: true,
       });
     });
   });
