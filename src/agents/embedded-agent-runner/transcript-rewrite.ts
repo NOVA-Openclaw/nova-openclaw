@@ -17,6 +17,7 @@ import {
 } from "../session-write-lock.js";
 import type { SessionManager } from "../sessions/session-manager.js";
 import { log } from "./logger.js";
+import { stripThinkingBlocksFromMessage } from "./thinking.js";
 import {
   persistTranscriptStateMutation,
   readTranscriptFileState,
@@ -265,6 +266,46 @@ export function rewriteTranscriptEntriesInSessionManager(params: {
     bytesFreed,
     rewrittenEntries: matchedIndices.length,
   };
+}
+
+/**
+ * Strip thinking/redacted_thinking blocks from every existing assistant turn
+ * on the active branch before a new assistant message is appended. The
+ * incoming message is intentionally NOT part of the branch yet, so it remains
+ * untouched. After this strip and the subsequent append, at most the newest
+ * assistant thinking block survives on the active branch.
+ *
+ * Used by SessionManager.appendMessage for path-independent cleanup (#111).
+ */
+export function stripStaleThinkingBlocksFromSessionManagerBranch(params: {
+  sessionManager: SessionManagerLike;
+}): TranscriptRewriteResult {
+  const branch = params.sessionManager.getBranch();
+  const replacements: TranscriptRewriteReplacement[] = [];
+
+  for (const entry of branch) {
+    if (entry.type !== "message" || entry.message.role !== "assistant") {
+      continue;
+    }
+    const stripped = stripThinkingBlocksFromMessage(entry.message);
+    if (stripped !== entry.message) {
+      replacements.push({ entryId: entry.id, message: stripped });
+    }
+  }
+
+  if (replacements.length === 0) {
+    return {
+      changed: false,
+      bytesFreed: 0,
+      rewrittenEntries: 0,
+      reason: "no stale thinking blocks",
+    };
+  }
+
+  return rewriteTranscriptEntriesInSessionManager({
+    sessionManager: params.sessionManager,
+    replacements,
+  });
 }
 
 export function rewriteTranscriptEntriesInState(params: {

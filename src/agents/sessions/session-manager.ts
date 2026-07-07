@@ -39,6 +39,8 @@ import {
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
 import type { ImageContent, Message, TextContent } from "../../llm/types.js";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
+import { stripThinkingBlocksFromMessage } from "../embedded-agent-runner/thinking.js";
+import { stripStaleThinkingBlocksFromSessionManagerBranch } from "../embedded-agent-runner/transcript-rewrite.js";
 import {
   type AgentMessage,
   buildSessionContext as buildCoreSessionContext,
@@ -446,6 +448,44 @@ export function getDefaultSessionDir(cwd: string, agentDir: string = getDefaultA
 }
 
 /** Exported for testing */
+
+function stripStaleThinkingBlocksFromFileEntries(entries: FileEntry[]): FileEntry[] {
+  // Find the newest assistant message entry; preserve its thinking blocks,
+  // strip thinking blocks from all older assistant turns. This keeps the
+  // active-branch invariant (at most newest assistant thinking survives) when
+  // entries are copied raw during fork/branch operations (#111 D1).
+  let newestAssistantIndex = -1;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry.type === "message" && (entry.message as { role?: unknown }).role === "assistant") {
+      newestAssistantIndex = i;
+      break;
+    }
+  }
+  if (newestAssistantIndex === -1) {
+    return entries;
+  }
+
+  let touched = false;
+  const result = entries.map((entry, index) => {
+    if (
+      entry.type !== "message" ||
+      (entry.message as { role?: unknown }).role !== "assistant" ||
+      index === newestAssistantIndex
+    ) {
+      return entry;
+    }
+    const stripped = stripThinkingBlocksFromMessage(entry.message);
+    if (stripped === entry.message) {
+      return entry;
+    }
+    touched = true;
+    return { ...entry, message: stripped };
+  });
+
+  return touched ? result : entries;
+}
+
 export function loadEntriesFromFile(filePath: string): FileEntry[] {
   if (!existsSync(filePath)) {
     return [];
@@ -2334,6 +2374,10 @@ export class SessionManager {
     message: Message | CustomMessage | BashExecutionMessage,
     options?: AppendPersistenceOptions,
   ): string {
+    // Path-independent stale thinking-block cleanup (#111).
+    if ((message as { role?: unknown }).role === "assistant") {
+      stripStaleThinkingBlocksFromSessionManagerBranch({ sessionManager: this });
+    }
     const invalidateSerializedPrefixCache =
       options?.invalidateSerializedPrefixCache === true || messageSerializesOwnedValues(message);
     const entry: SessionMessageEntry = {
@@ -2838,7 +2882,8 @@ export class SessionManager {
         parentId = labelEntry.id;
       }
 
-      this.fileEntries = [header, ...branchPath.entries, ...labelEntries];
+      const sanitizedBranchEntries = stripStaleThinkingBlocksFromFileEntries(branchPath.entries);
+      this.fileEntries = [header, ...sanitizedBranchEntries, ...labelEntries];
       this.opaqueFileEntries = branchPath.opaqueEntries;
       this.sessionId = newSessionId;
       this.sessionFile = newSessionFile;
@@ -2879,7 +2924,8 @@ export class SessionManager {
       labelEntries.push(labelEntry);
       parentId = labelEntry.id;
     }
-    this.fileEntries = [header, ...branchPath.entries, ...labelEntries];
+    const sanitizedBranchEntries = stripStaleThinkingBlocksFromFileEntries(branchPath.entries);
+    this.fileEntries = [header, ...sanitizedBranchEntries, ...labelEntries];
     this.opaqueFileEntries = branchPath.opaqueEntries;
     this.sessionId = newSessionId;
     this.buildIndex();
@@ -2973,11 +3019,13 @@ export class SessionManager {
     };
     appendJsonlEntrySync(newSessionFile, newHeader);
 
-    // Copy all non-header entries from source
-    for (const entry of sourceEntries) {
-      if (entry.type !== "session") {
-        appendJsonlEntrySync(newSessionFile, entry);
-      }
+    // Copy all non-header entries from source, sanitizing stale thinking blocks
+    // so the fork starts with the active-branch invariant already enforced.
+    const sanitizedEntries = stripStaleThinkingBlocksFromFileEntries(
+      sourceEntries.filter((entry) => entry.type !== "session"),
+    );
+    for (const entry of sanitizedEntries) {
+      appendJsonlEntrySync(newSessionFile, entry);
     }
 
     return new SessionManager(targetCwd, dir, newSessionFile, true);

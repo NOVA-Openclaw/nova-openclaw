@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveTimestampMsToIsoString } from "@openclaw/normalization-core/number-coercion";
+import { log } from "../../agents/embedded-agent-runner/logger.js";
+import { stripThinkingBlocksFromMessage } from "../../agents/embedded-agent-runner/thinking.js";
 import type { AgentMessage } from "../../agents/runtime/index.js";
 import {
   acquireSessionWriteLock,
@@ -10,6 +12,8 @@ import {
 } from "../../agents/session-write-lock.js";
 import { redactTranscriptMessage } from "../../agents/transcript-redact.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { TranscriptRewriteReplacement } from "../../context-engine/types.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import { redactSecrets } from "../../logging/redact.js";
 import { isTranscriptOnlyOpenClawAssistantMessage } from "../../shared/transcript-only-openclaw-assistant.js";
 import { createSessionTranscriptHeader } from "./transcript-header.js";
@@ -634,6 +638,73 @@ async function appendSessionTranscriptEventLocked(
   return { serializedEntry: serializedEvent.slice(0, -1) };
 }
 
+/**
+ * Strip thinking/redacted_thinking blocks from every existing assistant turn
+ * on the active branch before a new assistant message is appended. The
+ * incoming message is intentionally NOT part of the branch yet, so it remains
+ * untouched. After this strip and the subsequent append, at most the newest
+ * assistant thinking block survives on the active branch.
+ *
+ * Runs while the caller already holds the transcript write lock.
+ */
+async function stripStaleThinkingBlocksFromTranscriptFileLocked(params: {
+  transcriptPath: string;
+  newMessage: unknown;
+}): Promise<void> {
+  const message = params.newMessage;
+  if (!isTranscriptAgentMessage(message) || message.role !== "assistant") {
+    return;
+  }
+
+  const { readTranscriptFileState, persistTranscriptStateMutation } =
+    await import("../../agents/embedded-agent-runner/transcript-file-state.js");
+  const { rewriteTranscriptEntriesInState } =
+    await import("../../agents/embedded-agent-runner/transcript-rewrite.js");
+
+  let state;
+  try {
+    state = await readTranscriptFileState(params.transcriptPath);
+  } catch {
+    // Transcript may not exist yet (e.g., first message on a new topic
+    // transcript); nothing to strip.
+    return;
+  }
+
+  const branch = state.getBranch();
+  const replacements: TranscriptRewriteReplacement[] = [];
+
+  for (const entry of branch) {
+    if (entry.type !== "message" || entry.message.role !== "assistant") {
+      continue;
+    }
+    const stripped = stripThinkingBlocksFromMessage(entry.message);
+    if (stripped !== entry.message) {
+      replacements.push({ entryId: entry.id, message: stripped });
+    }
+  }
+
+  if (replacements.length === 0) {
+    return;
+  }
+
+  try {
+    const result = rewriteTranscriptEntriesInState({ state, replacements });
+    if (result.changed) {
+      await persistTranscriptStateMutation({
+        sessionFile: params.transcriptPath,
+        state,
+        appendedEntries: result.appendedEntries,
+      });
+      log.info(
+        `[transcript-rewrite] stripped ${result.rewrittenEntries} stale thinking entr` +
+          `${result.rewrittenEntries === 1 ? "y" : "ies"} path=${path.basename(params.transcriptPath)}`,
+      );
+    }
+  } catch (error) {
+    log.warn(`[transcript-rewrite] failed: ${formatErrorMessage(error)}`);
+  }
+}
+
 async function appendSessionTranscriptMessageLocked<TMessage>(
   params: AppendSessionTranscriptMessageParams<TMessage>,
 ): Promise<AppendSessionTranscriptMessageResult<TMessage> | undefined> {
@@ -662,6 +733,21 @@ async function appendSessionTranscriptMessageLocked<TMessage>(
   }
 
   const messageId = randomUUID();
+  const finalMessage = (
+    isTranscriptAgentMessage(message)
+      ? redactTranscriptMessage(message, params.config)
+      : redactSecrets(message)
+  ) as TMessage;
+
+  // Path-independent stale thinking-block cleanup (#111). Must run before we
+  // read leafInfo because the rewrite changes entry ids on the active branch.
+  if (isTranscriptAgentMessage(finalMessage) && finalMessage.role === "assistant") {
+    await stripStaleThinkingBlocksFromTranscriptFileLocked({
+      transcriptPath: params.transcriptPath,
+      newMessage: finalMessage,
+    });
+  }
+
   const stat = await fs.stat(params.transcriptPath).catch(() => null);
   let leafInfo: TranscriptLeafInfo = await readTranscriptLeafInfo(params.transcriptPath).catch(
     () => ({
@@ -683,11 +769,6 @@ async function appendSessionTranscriptMessageLocked<TMessage>(
       nonSessionEntryCount: leafInfo.nonSessionEntryCount,
     };
   }
-  const finalMessage = (
-    isTranscriptAgentMessage(message)
-      ? redactTranscriptMessage(message, params.config)
-      : redactSecrets(message)
-  ) as TMessage;
   const entry = {
     type: "message",
     id: messageId,

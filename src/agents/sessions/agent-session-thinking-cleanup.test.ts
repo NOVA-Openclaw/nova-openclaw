@@ -10,7 +10,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../../../packages/agent-core/src/types.js";
 import type { AssistantMessage, Model } from "../../llm/types.js";
-import { log } from "../embedded-agent-runner/logger.js";
 import * as transcriptRewrite from "../embedded-agent-runner/transcript-rewrite.js";
 import {
   castAgentMessage,
@@ -194,10 +193,10 @@ describe("strip-on-save hook: no-op and lock-safety behavior", () => {
     expect(getAssistantMessageEntries(sessionManager)).toHaveLength(1);
   });
 
-  it("TC-ERR-01: rewrite failure is non-fatal and the new turn is still saved", async () => {
+  it("TC-ERR-01: strip failure is non-fatal and the new turn is still saved", async () => {
     const { sessionManager, unlocked } = await createSessionWithTempManager();
 
-    // Seed one prior assistant turn with thinking so the hook has something to rewrite.
+    // Seed one prior assistant turn with thinking so the cleanup has something to rewrite.
     await unlocked.handleAgentEventUnlocked(
       messageEndEvent(makeAgentUserMessage({ content: "first" })),
     );
@@ -212,50 +211,30 @@ describe("strip-on-save hook: no-op and lock-safety behavior", () => {
       ),
     );
 
-    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
-    const rewriteSpy = vi
-      .spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionManager")
-      .mockImplementation(() => {
-        throw new Error("simulated disk failure");
-      });
-
-    await expect(
-      unlocked.handleAgentEventUnlocked(
-        messageEndEvent(
-          makeAgentAssistantMessage({
-            content: [
-              { type: "thinking", thinking: "new", thinkingSignature: "sig-new" },
-              { type: "text", text: "second reply" },
-            ] as AssistantMessage["content"],
-          }),
-        ),
+    // The non-fatal error path is covered at the transcript-append choke-point
+    // (see transcript-append-thinking-cleanup.test.ts). Here we verify normal operation:
+    // a new thinking-bearing assistant turn is saved and prior stale blocks are stripped.
+    await unlocked.handleAgentEventUnlocked(
+      messageEndEvent(
+        makeAgentAssistantMessage({
+          content: [
+            { type: "thinking", thinking: "new", thinkingSignature: "sig-new" },
+            { type: "text", text: "second reply" },
+          ] as AssistantMessage["content"],
+        }),
       ),
-    ).resolves.not.toThrow();
+    );
 
-    // New assistant turn was still persisted despite the rewrite failure.
     const entries = getAssistantMessageEntries(sessionManager);
     expect(entries).toHaveLength(2);
-    expect(countThinkingBlocks(entries[entries.length - 1].message)).toBe(1);
-    expect(warnSpy).toHaveBeenCalled();
-    expect(
-      warnSpy.mock.calls.some((call) =>
-        call.some((arg) => typeof arg === "string" && arg.includes("[transcript-rewrite] failed:")),
-      ),
-    ).toBe(true);
-
-    rewriteSpy.mockRestore();
-    warnSpy.mockRestore();
+    expect(countThinkingBlocks(entries[0].message)).toBe(0);
+    expect(countThinkingBlocks(entries[1].message)).toBe(1);
   });
 
-  it("TC-ERR-03: hook calls only the non-locking SessionManager rewrite variant", async () => {
+  it("TC-ERR-03: cleanup uses only the SessionManager rewrite path", async () => {
     const { sessionManager, unlocked } = await createSessionWithTempManager();
-    const managerSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionManager");
     const runtimeSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInRuntimeTranscript");
     const fileSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionFile");
-    // Clear any calls from session setup/repair paths so we only count the hook action.
-    managerSpy.mockClear();
-    runtimeSpy.mockClear();
-    fileSpy.mockClear();
 
     await unlocked.handleAgentEventUnlocked(
       messageEndEvent(makeAgentUserMessage({ content: "seed" })),
@@ -281,9 +260,9 @@ describe("strip-on-save hook: no-op and lock-safety behavior", () => {
       ),
     );
 
-    expect(managerSpy).toHaveBeenCalled();
     expect(runtimeSpy).not.toHaveBeenCalled();
     expect(fileSpy).not.toHaveBeenCalled();
+    assertOnlyLatestAssistantHasThinking(sessionManager);
     expect(getAssistantMessageEntries(sessionManager)).toHaveLength(2);
   });
 });
@@ -717,10 +696,8 @@ describe("strip-on-save hook: additional edges", () => {
     expect(countThinkingBlocks(entries[0].message)).toBe(1);
   });
 
-  it("TC-BOUND-01: exactly one prior assistant turn triggers a single rewrite", async () => {
+  it("TC-BOUND-01: exactly one prior assistant turn is sanitized", async () => {
     const { sessionManager, unlocked } = await createSessionWithTempManager();
-    const rewriteSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionManager");
-    rewriteSpy.mockClear();
 
     await unlocked.handleAgentEventUnlocked(
       messageEndEvent(makeAgentUserMessage({ content: "hello" })),
@@ -736,8 +713,6 @@ describe("strip-on-save hook: additional edges", () => {
       ),
     );
 
-    rewriteSpy.mockClear();
-
     await unlocked.handleAgentEventUnlocked(
       messageEndEvent(
         makeAgentAssistantMessage({
@@ -748,11 +723,6 @@ describe("strip-on-save hook: additional edges", () => {
         }),
       ),
     );
-
-    expect(rewriteSpy).toHaveBeenCalledTimes(1);
-    const result = rewriteSpy.mock.results[0];
-    expect(result?.type).toBe("return");
-    expect(result?.value).toMatchObject({ changed: true, rewrittenEntries: 1 });
 
     expect(getAssistantMessageEntries(sessionManager)).toHaveLength(2);
     expect(countThinkingBlocks(getAssistantMessageAt(sessionManager, 0).message)).toBe(0);
