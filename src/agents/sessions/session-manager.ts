@@ -2370,14 +2370,16 @@ export class SessionManager {
    * so it is easier to find them.
    * These need to be appended via appendCompaction() and appendBranchSummary() methods.
    */
-  appendMessage(
+  /**
+   * Core message append path that persists without triggering the stale
+   * thinking-block strip. Used by maintenance rewrites that already produce
+   * stripped replacements and must not re-enter the cleanup path (#111).
+   * @internal
+   */
+  appendMessageWithoutStrip(
     message: Message | CustomMessage | BashExecutionMessage,
     options?: AppendPersistenceOptions,
   ): string {
-    // Path-independent stale thinking-block cleanup (#111).
-    if ((message as { role?: unknown }).role === "assistant") {
-      stripStaleThinkingBlocksFromSessionManagerBranch({ sessionManager: this });
-    }
     const invalidateSerializedPrefixCache =
       options?.invalidateSerializedPrefixCache === true || messageSerializesOwnedValues(message);
     const entry: SessionMessageEntry = {
@@ -2392,6 +2394,17 @@ export class SessionManager {
       invalidateSerializedPrefixCache,
     });
     return entry.id;
+  }
+
+  appendMessage(
+    message: Message | CustomMessage | BashExecutionMessage,
+    options?: AppendPersistenceOptions,
+  ): string {
+    // Path-independent stale thinking-block cleanup (#111).
+    if ((message as { role?: unknown }).role === "assistant") {
+      stripStaleThinkingBlocksFromSessionManagerBranch({ sessionManager: this });
+    }
+    return this.appendMessageWithoutStrip(message, options);
   }
 
   /** Append a thinking level change as child of current leaf, then advance leaf. Returns entry id. */

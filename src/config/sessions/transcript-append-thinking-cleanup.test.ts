@@ -204,6 +204,52 @@ describe("transcript-append thinking-block strip", () => {
     expect(rewriteSpy).not.toHaveBeenCalled();
   });
 
+  it("TC-111-U21: large branch bound at transcript-append choke-point", async () => {
+    const dir = await makeTempDir();
+    const sessionFile = await createTranscriptFile(dir, "large-session.jsonl");
+
+    let parentId = await seedUserTurn(sessionFile, null, "u1", "hello");
+    for (let i = 0; i < 200; i += 1) {
+      const content =
+        i === 0
+          ? ([
+              { type: "thinking", thinking: "stale", thinkingSignature: "sig-stale" },
+              { type: "text", text: `reply ${i}` },
+            ] as AssistantMessage["content"])
+          : ([{ type: "text", text: `reply ${i}` }] as AssistantMessage["content"]);
+      parentId = await seedAssistantTurn(sessionFile, parentId, `a${i}`, content);
+    }
+
+    const rewriteSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInState");
+
+    const start = performance.now();
+    await appendSessionTranscriptMessage({
+      transcriptPath: sessionFile,
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "new", thinkingSignature: "sig-new" },
+          { type: "text", text: "new reply" },
+        ],
+      },
+    });
+    const elapsed = performance.now() - start;
+
+    expect(rewriteSpy).toHaveBeenCalledTimes(1);
+    const result = rewriteSpy.mock.results[0]?.value as { rewrittenEntries?: number } | undefined;
+    expect(result?.rewrittenEntries).toBe(1);
+    expect(elapsed).toBeLessThan(500);
+
+    const sessionManager = SessionManager.open(sessionFile, dir, dir);
+    const entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(201);
+    expect(countThinkingBlocks(entries[0].message)).toBe(0);
+    for (let i = 1; i < entries.length - 1; i += 1) {
+      expect(countThinkingBlocks(entries[i].message)).toBe(0);
+    }
+    expect(countThinkingBlocks(entries[entries.length - 1].message)).toBe(1);
+  });
+
   it("TC-111-ERR-01: rewrite failure is non-fatal and the new turn is still saved", async () => {
     const dir = await makeTempDir();
     const sessionFile = await createTranscriptFile(dir, "session.jsonl");

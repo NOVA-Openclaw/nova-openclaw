@@ -72,6 +72,15 @@ async function createSessionWithTempManager() {
   const dir = await makeTempDir();
   const sessionFile = path.join(dir, "session.jsonl");
   const sessionManager = SessionManager.open(sessionFile, dir, dir);
+  return createSessionWithManager(sessionManager);
+}
+
+async function createSessionWithPrePoisonedManager(sessionFile: string, dir: string) {
+  const sessionManager = SessionManager.open(sessionFile, dir, dir);
+  return createSessionWithManager(sessionManager);
+}
+
+async function createSessionWithManager(sessionManager: ReturnType<typeof SessionManager.open>) {
   const { session } = await createAgentSession({
     model: testModel,
     resourceLoader: createEmptyResourceLoader(),
@@ -83,6 +92,54 @@ async function createSessionWithTempManager() {
     handleAgentEventUnlocked: (event: AgentEvent) => Promise<void>;
   };
   return { session, sessionManager, unlocked };
+}
+
+async function createTranscriptFile(dir: string, fileName: string): Promise<string> {
+  const sessionFile = path.join(dir, fileName);
+  const header = {
+    type: "session",
+    version: 2,
+    id: "test-session",
+    timestamp: new Date().toISOString(),
+    cwd: dir,
+  };
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(sessionFile, `${JSON.stringify(header)}\n`, { mode: 0o600 });
+  return sessionFile;
+}
+
+async function seedAssistantTurn(
+  sessionFile: string,
+  parentId: string | null,
+  id: string,
+  content: AssistantMessage["content"],
+): Promise<string> {
+  const entry = {
+    type: "message",
+    id,
+    parentId,
+    timestamp: new Date().toISOString(),
+    message: { role: "assistant", content },
+  };
+  await fs.appendFile(sessionFile, `${JSON.stringify(entry)}\n`);
+  return id;
+}
+
+async function seedUserTurn(
+  sessionFile: string,
+  parentId: string | null,
+  id: string,
+  text: string,
+): Promise<string> {
+  const entry = {
+    type: "message",
+    id,
+    parentId,
+    timestamp: new Date().toISOString(),
+    message: { role: "user", content: [{ type: "text", text }] },
+  };
+  await fs.appendFile(sessionFile, `${JSON.stringify(entry)}\n`);
+  return id;
 }
 
 function messageEndEvent(message: unknown): AgentEvent {
@@ -727,5 +784,212 @@ describe("strip-on-save hook: additional edges", () => {
     expect(getAssistantMessageEntries(sessionManager)).toHaveLength(2);
     expect(countThinkingBlocks(getAssistantMessageAt(sessionManager, 0).message)).toBe(0);
     expect(countThinkingBlocks(getAssistantMessageAt(sessionManager, 1).message)).toBe(1);
+  });
+});
+
+// ============================================================================
+// SessionManager-layer coverage for #111 reentrancy fix
+// ============================================================================
+
+describe("strip-on-save hook: SessionManager layer with pre-poisoned files", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("TC-111-U21: large branch with one stale entry rewrites in bounded time", async () => {
+    const dir = await makeTempDir();
+    const sessionFile = await createTranscriptFile(dir, "large-session.jsonl");
+
+    let parentId = await seedUserTurn(sessionFile, null, "u0", "start");
+    for (let i = 0; i < 200; i += 1) {
+      const content =
+        i === 0
+          ? ([
+              { type: "thinking", thinking: "stale", thinkingSignature: "sig-stale" },
+              { type: "text", text: `reply ${i}` },
+            ] as AssistantMessage["content"])
+          : ([{ type: "text", text: `reply ${i}` }] as AssistantMessage["content"]);
+      parentId = await seedAssistantTurn(sessionFile, parentId, `a${i}`, content);
+    }
+
+    const sessionManager = SessionManager.open(sessionFile, dir, dir);
+    const stripSpy = vi.spyOn(
+      transcriptRewrite,
+      "stripStaleThinkingBlocksFromSessionManagerBranch",
+    );
+
+    const start = performance.now();
+    sessionManager.appendMessage(
+      makeAgentAssistantMessage({
+        content: [
+          { type: "thinking", thinking: "fresh", thinkingSignature: "sig-fresh" },
+          { type: "text", text: "new reply" },
+        ] as AssistantMessage["content"],
+      }),
+    );
+    const elapsed = performance.now() - start;
+
+    expect(stripSpy).toHaveBeenCalledTimes(1);
+    const result = stripSpy.mock.results[0]?.value as { rewrittenEntries?: number } | undefined;
+    expect(result?.rewrittenEntries).toBe(1);
+    expect(elapsed).toBeLessThan(500);
+
+    const entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(201);
+    expect(countThinkingBlocks(entries[0].message)).toBe(0);
+    for (let i = 1; i < entries.length - 1; i += 1) {
+      expect(countThinkingBlocks(entries[i].message)).toBe(0);
+    }
+    expect(countThinkingBlocks(entries[entries.length - 1].message)).toBe(1);
+  });
+
+  it("TC-111-U18: duplicate triggering append is idempotent", async () => {
+    const dir = await makeTempDir();
+    const sessionFile = await createTranscriptFile(dir, "idempotent-session.jsonl");
+
+    let parentId = await seedUserTurn(sessionFile, null, "u0", "start");
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a0", [
+      { type: "thinking", thinking: "stale0", thinkingSignature: "sig0" },
+      { type: "text", text: "reply 0" },
+    ] as AssistantMessage["content"]);
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
+      { type: "thinking", thinking: "stale1", thinkingSignature: "sig1" },
+      { type: "text", text: "reply 1" },
+    ] as AssistantMessage["content"]);
+    await seedAssistantTurn(sessionFile, parentId, "a2", [
+      { type: "thinking", thinking: "stale2", thinkingSignature: "sig2" },
+      { type: "text", text: "reply 2" },
+    ] as AssistantMessage["content"]);
+
+    const sessionManager = SessionManager.open(sessionFile, dir, dir);
+    const stripSpy = vi.spyOn(
+      transcriptRewrite,
+      "stripStaleThinkingBlocksFromSessionManagerBranch",
+    );
+
+    const newMessage = makeAgentAssistantMessage({
+      content: [
+        { type: "thinking", thinking: "fresh", thinkingSignature: "sig-fresh" },
+        { type: "text", text: "first new reply" },
+      ] as AssistantMessage["content"],
+    });
+
+    sessionManager.appendMessage(newMessage);
+    expect(stripSpy).toHaveBeenCalledTimes(1);
+    let entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(4);
+    for (let i = 0; i < 3; i += 1) {
+      expect(countThinkingBlocks(entries[i].message)).toBe(0);
+    }
+    expect(countThinkingBlocks(entries[3].message)).toBe(1);
+
+    // Second identical append strips the previous newest assistant thinking block,
+    // preserving the invariant that only the latest assistant turn retains thinking.
+    stripSpy.mockClear();
+    sessionManager.appendMessage(newMessage);
+    expect(stripSpy).toHaveBeenCalledTimes(1);
+    const secondResult = stripSpy.mock.results[0]?.value as
+      | { rewrittenEntries?: number }
+      | undefined;
+    expect(secondResult?.rewrittenEntries).toBe(1);
+    entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(5);
+    for (let i = 0; i < 4; i += 1) {
+      expect(countThinkingBlocks(entries[i].message)).toBe(0);
+    }
+    expect(countThinkingBlocks(entries[4].message)).toBe(1);
+  });
+
+  it("TC-111-U19: third append only affects second-newest", async () => {
+    const dir = await makeTempDir();
+    const sessionFile = await createTranscriptFile(dir, "third-append-session.jsonl");
+
+    let parentId = await seedUserTurn(sessionFile, null, "u0", "start");
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a0", [
+      { type: "thinking", thinking: "stale0", thinkingSignature: "sig0" },
+      { type: "text", text: "reply 0" },
+    ] as AssistantMessage["content"]);
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
+      { type: "thinking", thinking: "stale1", thinkingSignature: "sig1" },
+      { type: "text", text: "reply 1" },
+    ] as AssistantMessage["content"]);
+    await seedAssistantTurn(sessionFile, parentId, "a2", [
+      { type: "thinking", thinking: "stale2", thinkingSignature: "sig2" },
+      { type: "text", text: "reply 2" },
+    ] as AssistantMessage["content"]);
+
+    const sessionManager = SessionManager.open(sessionFile, dir, dir);
+    const stripSpy = vi.spyOn(
+      transcriptRewrite,
+      "stripStaleThinkingBlocksFromSessionManagerBranch",
+    );
+
+    sessionManager.appendMessage(
+      makeAgentAssistantMessage({
+        content: [
+          { type: "thinking", thinking: "fresh1", thinkingSignature: "sig-fresh1" },
+          { type: "text", text: "first new reply" },
+        ] as AssistantMessage["content"],
+      }),
+    );
+    expect(stripSpy).toHaveBeenCalledTimes(1);
+
+    stripSpy.mockClear();
+    sessionManager.appendMessage(
+      makeAgentAssistantMessage({
+        content: [
+          { type: "thinking", thinking: "fresh2", thinkingSignature: "sig-fresh2" },
+          { type: "text", text: "second new reply" },
+        ] as AssistantMessage["content"],
+      }),
+    );
+    expect(stripSpy).toHaveBeenCalledTimes(1);
+    const result = stripSpy.mock.results[0]?.value as { rewrittenEntries?: number } | undefined;
+    expect(result?.rewrittenEntries).toBe(1);
+
+    const entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(5);
+    for (let i = 0; i < entries.length - 1; i += 1) {
+      expect(countThinkingBlocks(entries[i].message)).toBe(0);
+    }
+    expect(countThinkingBlocks(entries[entries.length - 1].message)).toBe(1);
+  });
+
+  it("TC-111-U07-SM: non-thinking assistant append strips prior thinking blocks via AgentSession", async () => {
+    const dir = await makeTempDir();
+    const sessionFile = await createTranscriptFile(dir, "prepoisoned-session.jsonl");
+
+    let parentId = await seedUserTurn(sessionFile, null, "u0", "start");
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a0", [
+      { type: "thinking", thinking: "stale0", thinkingSignature: "sig0" },
+      { type: "text", text: "reply 0" },
+    ] as AssistantMessage["content"]);
+    parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
+      { type: "thinking", thinking: "stale1", thinkingSignature: "sig1" },
+      { type: "text", text: "reply 1" },
+    ] as AssistantMessage["content"]);
+    await seedAssistantTurn(sessionFile, parentId, "a2", [
+      { type: "thinking", thinking: "stale2", thinkingSignature: "sig2" },
+      { type: "text", text: "reply 2" },
+    ] as AssistantMessage["content"]);
+
+    const { sessionManager, unlocked } = await createSessionWithPrePoisonedManager(
+      sessionFile,
+      dir,
+    );
+
+    await unlocked.handleAgentEventUnlocked(
+      messageEndEvent(
+        makeAgentAssistantMessage({
+          content: [{ type: "text", text: "plain reply" }],
+        }),
+      ),
+    );
+
+    const entries = getAssistantMessageEntries(sessionManager);
+    expect(entries).toHaveLength(4);
+    for (const entry of entries) {
+      expect(countThinkingBlocks(entry.message)).toBe(0);
+    }
   });
 });
