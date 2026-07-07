@@ -2364,16 +2364,15 @@ export class SessionManager {
     this.persist(entry, options);
   }
 
-  /** Append a message as child of current leaf, then advance leaf. Returns entry id.
-   * Does not allow writing CompactionSummaryMessage and BranchSummaryMessage directly.
-   * Reason: we want these to be top-level entries in the session, not message session entries,
-   * so it is easier to find them.
-   * These need to be appended via appendCompaction() and appendBranchSummary() methods.
-   */
   /**
-   * Core message append path that persists without triggering the stale
-   * thinking-block strip. Used by maintenance rewrites that already produce
-   * stripped replacements and must not re-enter the cleanup path (#111).
+   * Raw message append path that persists WITHOUT triggering the stale
+   * thinking-block strip (#111). This must ONLY be called by maintenance
+   * rewrite-replay paths (e.g. rewriteTranscriptEntriesInSessionManager) that
+   * are already replaying pre-stripped replacement messages onto the branch.
+   * Calling this from any other code path skips the path-independent cleanup
+   * that appendMessage performs and can allow stale/foreign-model signed
+   * thinking blocks to accumulate on the active branch. Use appendMessage()
+   * for all normal message persistence.
    * @internal
    */
   appendMessageWithoutStrip(
@@ -2396,6 +2395,18 @@ export class SessionManager {
     return entry.id;
   }
 
+  /**
+   * Append a message as child of current leaf, then advance leaf. Returns entry id.
+   * Does not allow writing CompactionSummaryMessage and BranchSummaryMessage directly.
+   * Reason: we want these to be top-level entries in the session, not message session entries,
+   * so it is easier to find them.
+   * These need to be appended via appendCompaction() and appendBranchSummary() methods.
+   *
+   * Before persisting a new assistant message, this strips stale
+   * thinking/redacted_thinking blocks from all older assistant turns on the
+   * active branch (#111), so at most the newest assistant thinking block
+   * survives once the append completes.
+   */
   appendMessage(
     message: Message | CustomMessage | BashExecutionMessage,
     options?: AppendPersistenceOptions,
