@@ -16,15 +16,13 @@ import {
 import { SessionManager } from "../sessions/index.js";
 import { formatContextLimitTruncationNotice } from "./context-truncation-notice.js";
 import { log } from "./logger.js";
+import { rewriteTranscriptEntriesInSessionManager } from "./strip-stale-thinking-blocks.js";
 import {
   persistTranscriptStateMutation,
   readTranscriptFileState,
   type TranscriptFileState,
 } from "./transcript-file-state.js";
-import {
-  rewriteTranscriptEntriesInSessionManager,
-  rewriteTranscriptEntriesInState,
-} from "./transcript-rewrite.js";
+import { rewriteTranscriptEntriesInState } from "./transcript-rewrite.js";
 
 /**
  * Maximum share of the context window a single tool result should occupy.

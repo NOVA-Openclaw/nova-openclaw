@@ -10,6 +10,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../../../packages/agent-core/src/types.js";
 import type { AssistantMessage, Model } from "../../llm/types.js";
+import * as stripStaleThinkingBlocks from "../embedded-agent-runner/strip-stale-thinking-blocks.js";
 import * as transcriptRewrite from "../embedded-agent-runner/transcript-rewrite.js";
 import {
   castAgentMessage,
@@ -233,7 +234,10 @@ describe("strip-on-save hook: no-op and lock-safety behavior", () => {
   it("TC-EDGE-03: assistant message with no thinking block is a strict no-op", async () => {
     const { sessionManager, unlocked } = await createSessionWithTempManager();
     // Spy only on the test action; createAgentSession may invoke session repair paths.
-    const rewriteSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionManager");
+    const rewriteSpy = vi.spyOn(
+      stripStaleThinkingBlocks,
+      "rewriteTranscriptEntriesInSessionManager",
+    );
 
     await unlocked.handleAgentEventUnlocked(
       messageEndEvent(makeAgentUserMessage({ content: "hello" })),
@@ -729,7 +733,10 @@ describe("strip-on-save hook: additional edges", () => {
 
   it("TC-EDGE-05: first assistant turn in a fresh session is saved without error", async () => {
     const { sessionManager, unlocked } = await createSessionWithTempManager();
-    const rewriteSpy = vi.spyOn(transcriptRewrite, "rewriteTranscriptEntriesInSessionManager");
+    const rewriteSpy = vi.spyOn(
+      stripStaleThinkingBlocks,
+      "rewriteTranscriptEntriesInSessionManager",
+    );
     // createAgentSession may trigger session repair/rewrite paths; clear them.
     rewriteSpy.mockClear();
 
@@ -814,7 +821,7 @@ describe("strip-on-save hook: SessionManager layer with pre-poisoned files", () 
 
     const sessionManager = SessionManager.open(sessionFile, dir, dir);
     const stripSpy = vi.spyOn(
-      transcriptRewrite,
+      stripStaleThinkingBlocks,
       "stripStaleThinkingBlocksFromSessionManagerBranch",
     );
 
@@ -863,7 +870,7 @@ describe("strip-on-save hook: SessionManager layer with pre-poisoned files", () 
 
     const sessionManager = SessionManager.open(sessionFile, dir, dir);
     const stripSpy = vi.spyOn(
-      transcriptRewrite,
+      stripStaleThinkingBlocks,
       "stripStaleThinkingBlocksFromSessionManagerBranch",
     );
 
@@ -920,7 +927,7 @@ describe("strip-on-save hook: SessionManager layer with pre-poisoned files", () 
 
     const sessionManager = SessionManager.open(sessionFile, dir, dir);
     const stripSpy = vi.spyOn(
-      transcriptRewrite,
+      stripStaleThinkingBlocks,
       "stripStaleThinkingBlocksFromSessionManagerBranch",
     );
 

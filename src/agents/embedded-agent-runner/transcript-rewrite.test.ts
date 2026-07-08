@@ -21,7 +21,7 @@ vi.mock("../session-write-lock.js", async () => {
   };
 });
 
-let rewriteTranscriptEntriesInSessionManager: typeof import("./transcript-rewrite.js").rewriteTranscriptEntriesInSessionManager;
+let rewriteTranscriptEntriesInSessionManager: typeof import("./strip-stale-thinking-blocks.js").rewriteTranscriptEntriesInSessionManager;
 let rewriteTranscriptEntriesInRuntimeTranscript: typeof import("./transcript-rewrite.js").rewriteTranscriptEntriesInRuntimeTranscript;
 let onSessionTranscriptUpdate: typeof import("../../sessions/transcript-events.js").onSessionTranscriptUpdate;
 let installSessionToolResultGuard: typeof import("../session-tool-result-guard.js").installSessionToolResultGuard;
@@ -156,8 +156,8 @@ function requireString(value: string | undefined, label: string): string {
 beforeAll(async () => {
   ({ onSessionTranscriptUpdate } = await import("../../sessions/transcript-events.js"));
   ({ installSessionToolResultGuard } = await import("../session-tool-result-guard.js"));
-  ({ rewriteTranscriptEntriesInRuntimeTranscript, rewriteTranscriptEntriesInSessionManager } =
-    await import("./transcript-rewrite.js"));
+  ({ rewriteTranscriptEntriesInRuntimeTranscript } = await import("./transcript-rewrite.js"));
+  ({ rewriteTranscriptEntriesInSessionManager } = await import("./strip-stale-thinking-blocks.js"));
 });
 
 beforeEach(() => {

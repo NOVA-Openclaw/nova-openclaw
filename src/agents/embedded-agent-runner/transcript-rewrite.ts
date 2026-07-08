@@ -16,7 +16,6 @@ import {
 } from "../session-write-lock.js";
 import type { SessionManager } from "../sessions/session-manager.js";
 import { log } from "./logger.js";
-import { stripThinkingBlocksFromMessage } from "./thinking.js";
 import {
   persistTranscriptStateMutation,
   readTranscriptFileState,
@@ -29,6 +28,13 @@ import {
   type RuntimeTranscriptScope,
 } from "./transcript-runtime-state.js";
 
+// SessionBranchEntry / SessionManagerLike / estimateMessageBytes /
+// findTranscriptRewriteMatches / remapEntryId are intentionally duplicated
+// (not imported) from strip-stale-thinking-blocks.ts here. That module needs
+// rewriteTranscriptEntriesInSessionManager (a runtime value) from this file
+// for the session-manager append path; importing shared helpers back from
+// strip-stale-thinking-blocks.ts would recreate the same runtime import
+// cycle this split exists to avoid. See #111.
 type SessionManagerLike = ReturnType<typeof SessionManager.open>;
 type SessionBranchEntry = ReturnType<SessionManagerLike["getBranch"]>[number];
 
@@ -69,62 +75,6 @@ function remapEntryId(
     return null;
   }
   return rewrittenEntryIds.get(entryId) ?? entryId;
-}
-
-function appendBranchEntry(params: {
-  sessionManager: SessionManagerLike;
-  entry: SessionBranchEntry;
-  rewrittenEntryIds: ReadonlyMap<string, string>;
-  appendMessage: SessionManagerLike["appendMessage"];
-}): string {
-  const { sessionManager, entry, rewrittenEntryIds, appendMessage } = params;
-  if (entry.type === "message") {
-    return appendMessage(entry.message as Parameters<typeof sessionManager.appendMessage>[0]);
-  }
-  if (entry.type === "compaction") {
-    return sessionManager.appendCompaction(
-      entry.summary,
-      remapEntryId(entry.firstKeptEntryId, rewrittenEntryIds) ?? entry.firstKeptEntryId,
-      entry.tokensBefore,
-      entry.details,
-      entry.fromHook,
-    );
-  }
-  if (entry.type === "thinking_level_change") {
-    return sessionManager.appendThinkingLevelChange(entry.thinkingLevel);
-  }
-  if (entry.type === "model_change") {
-    return sessionManager.appendModelChange(entry.provider, entry.modelId);
-  }
-  if (entry.type === "custom") {
-    return sessionManager.appendCustomEntry(entry.customType, entry.data);
-  }
-  if (entry.type === "custom_message") {
-    return sessionManager.appendCustomMessageEntry(
-      entry.customType,
-      entry.content,
-      entry.display,
-      entry.details,
-    );
-  }
-  if (entry.type === "session_info") {
-    if (entry.name) {
-      return sessionManager.appendSessionInfo(entry.name);
-    }
-    return sessionManager.appendSessionInfo("");
-  }
-  if (entry.type === "branch_summary") {
-    return sessionManager.branchWithSummary(
-      remapEntryId(entry.parentId, rewrittenEntryIds),
-      entry.summary,
-      entry.details,
-      entry.fromHook,
-    );
-  }
-  return sessionManager.appendLabelChange(
-    remapEntryId(entry.targetId, rewrittenEntryIds) ?? entry.targetId,
-    entry.label,
-  );
 }
 
 function appendTranscriptStateBranchEntry(params: {
@@ -179,135 +129,11 @@ function appendTranscriptStateBranchEntry(params: {
   );
 }
 
-/**
- * Safely rewrites transcript message entries on the active branch by branching
- * from the first rewritten message's parent and re-appending the suffix.
- */
-export function rewriteTranscriptEntriesInSessionManager(params: {
-  sessionManager: SessionManagerLike;
-  replacements: TranscriptRewriteReplacement[];
-}): TranscriptRewriteResult {
-  const replacementsById = new Map(
-    params.replacements
-      .filter((replacement) => replacement.entryId.trim().length > 0)
-      .map((replacement) => [replacement.entryId, replacement.message]),
-  );
-  if (replacementsById.size === 0) {
-    return {
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-      reason: "no replacements requested",
-    };
-  }
-
-  const branch = params.sessionManager.getBranch();
-  if (branch.length === 0) {
-    return {
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-      reason: "empty session",
-    };
-  }
-
-  const { matchedIndices, bytesFreed } = findTranscriptRewriteMatches(branch, replacementsById);
-
-  if (matchedIndices.length === 0) {
-    return {
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-      reason: "no matching message entries",
-    };
-  }
-
-  const firstMatchedEntry = branch[matchedIndices[0]] as
-    | Extract<SessionBranchEntry, { type: "message" }>
-    | undefined;
-  // matchedIndices only contains indices of branch "message" entries.
-  if (!firstMatchedEntry) {
-    return {
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-      reason: "invalid first rewrite target",
-    };
-  }
-
-  if (!firstMatchedEntry.parentId) {
-    params.sessionManager.resetLeaf();
-  } else {
-    params.sessionManager.branch(firstMatchedEntry.parentId);
-  }
-
-  // Maintenance rewrites should preserve the exact requested history without
-  // re-running persistence hooks or size truncation on replayed messages.
-  // Use the strip-bypassing append so that replayed assistant messages do not
-  // recursively re-trigger stale-thinking-block cleanup (#111).
-  const appendMessage = params.sessionManager.appendMessageWithoutStrip.bind(params.sessionManager);
-  const rewrittenEntryIds = new Map<string, string>();
-  for (let index = matchedIndices[0]; index < branch.length; index++) {
-    const entry = branch[index];
-    const replacement = entry.type === "message" ? replacementsById.get(entry.id) : undefined;
-    const newEntryId =
-      replacement === undefined
-        ? appendBranchEntry({
-            sessionManager: params.sessionManager,
-            entry,
-            rewrittenEntryIds,
-            appendMessage,
-          })
-        : appendMessage(replacement as Parameters<typeof params.sessionManager.appendMessage>[0]);
-    rewrittenEntryIds.set(entry.id, newEntryId);
-  }
-
-  return {
-    changed: true,
-    bytesFreed,
-    rewrittenEntries: matchedIndices.length,
-  };
-}
-
-/**
- * Strip thinking/redacted_thinking blocks from every existing assistant turn
- * on the active branch before a new assistant message is appended. The
- * incoming message is intentionally NOT part of the branch yet, so it remains
- * untouched. After this strip and the subsequent append, at most the newest
- * assistant thinking block survives on the active branch.
- *
- * Used by SessionManager.appendMessage for path-independent cleanup (#111).
- */
-export function stripStaleThinkingBlocksFromSessionManagerBranch(params: {
-  sessionManager: SessionManagerLike;
-}): TranscriptRewriteResult {
-  const branch = params.sessionManager.getBranch();
-  const replacements: TranscriptRewriteReplacement[] = [];
-
-  for (const entry of branch) {
-    if (entry.type !== "message" || entry.message.role !== "assistant") {
-      continue;
-    }
-    const stripped = stripThinkingBlocksFromMessage(entry.message);
-    if (stripped !== entry.message) {
-      replacements.push({ entryId: entry.id, message: stripped });
-    }
-  }
-
-  if (replacements.length === 0) {
-    return {
-      changed: false,
-      bytesFreed: 0,
-      rewrittenEntries: 0,
-      reason: "no stale thinking blocks",
-    };
-  }
-
-  return rewriteTranscriptEntriesInSessionManager({
-    sessionManager: params.sessionManager,
-    replacements,
-  });
-}
+// Note: rewriteTranscriptEntriesInSessionManager and
+// stripStaleThinkingBlocksFromSessionManagerBranch (#111) live in
+// strip-stale-thinking-blocks.ts, not here, to avoid a runtime import cycle
+// (session-manager.ts -> this module -> transcript-file-state.ts ->
+// session-manager.ts). See that module for the session-manager rewrite path.
 
 export function rewriteTranscriptEntriesInState(params: {
   state: TranscriptFileState;

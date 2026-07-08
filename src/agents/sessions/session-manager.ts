@@ -39,8 +39,8 @@ import {
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
 import type { ImageContent, Message, TextContent } from "../../llm/types.js";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
+import { stripStaleThinkingBlocksFromSessionManagerBranch } from "../embedded-agent-runner/strip-stale-thinking-blocks.js";
 import { stripThinkingBlocksFromMessage } from "../embedded-agent-runner/thinking.js";
-import { stripStaleThinkingBlocksFromSessionManagerBranch } from "../embedded-agent-runner/transcript-rewrite.js";
 import {
   type AgentMessage,
   buildSessionContext as buildCoreSessionContext,
