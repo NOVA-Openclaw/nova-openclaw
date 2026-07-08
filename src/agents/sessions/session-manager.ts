@@ -199,6 +199,15 @@ export type FileEntry = SessionHeader | SessionEntry;
 
 type AppendPersistenceOptions = {
   invalidateSerializedPrefixCache?: boolean;
+  /**
+   * Explicit entry ID to use instead of generating a new one. Used by
+   * maintenance rewrite-replay paths (e.g.
+   * rewriteTranscriptEntriesInSessionManager) to replay an entry that was
+   * NOT the target of a replacement without reassigning it a new ID, so
+   * that callers holding a reference to that entry's original ID (e.g. a
+   * captured firstKeptEntryId) remain valid after the replay (#111).
+   */
+  entryId?: string;
 };
 
 /** Tree node for getTree() - defensive copy of session structure */
@@ -2356,12 +2365,40 @@ export class SessionManager {
     ) {
       this.logicalParentsById.set(entry.id, this.leafId);
     }
+    // Reusing an entry ID (via options.entryId, used by maintenance
+    // rewrite-replay paths to preserve original IDs across a strip-triggered
+    // rewrite, #111 C5 fix) means a prior row for this same ID may still be
+    // sitting in fileEntries from before the branch()/resetLeaf() that
+    // preceded this replay pass -- branch()/resetLeaf() only reposition the
+    // leaf/appendParentId pointers, they do not remove or mutate fileEntries.
+    // An unconditional push would leave that prior row in place, producing an
+    // orphaned duplicate: two rows sharing one ID, one live (this one) and
+    // one stale/unreachable, both visible to any consumer that reads
+    // fileEntries directly (getEntries()/getTree(), and by extension
+    // compaction-successor-transcript's `allEntries`). Supersede: splice out
+    // the prior row (if any) before pushing the replacement, and force a full
+    // rewrite of the persisted file for this append since the incremental
+    // append-only JSONL path cannot remove earlier bytes.
+    const priorIndex = this.byId.has(entry.id)
+      ? this.fileEntries.findIndex((existing) => existing.id === entry.id)
+      : -1;
+    if (priorIndex >= 0) {
+      this.fileEntries.splice(priorIndex, 1);
+    }
     this.fileEntries.push(entry);
     this.byId.set(entry.id, entry);
     this.leafId = entry.id;
     this.appendParentId = entry.id;
     this.promptReleasedSideBranchParentId = undefined;
-    this.persist(entry, options);
+    if (priorIndex >= 0) {
+      // A superseded row changes file content earlier than the tail, so the
+      // incremental append-only persistence path (persistRecord) must not be
+      // used here -- it can only ever append new bytes, never remove the
+      // stale prior row from the on-disk JSONL. Force a full rewrite instead.
+      this.rewriteFile();
+    } else {
+      this.persist(entry, options);
+    }
   }
 
   /**
@@ -2383,7 +2420,7 @@ export class SessionManager {
       options?.invalidateSerializedPrefixCache === true || messageSerializesOwnedValues(message);
     const entry: SessionMessageEntry = {
       type: "message",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       message,
@@ -2419,10 +2456,10 @@ export class SessionManager {
   }
 
   /** Append a thinking level change as child of current leaf, then advance leaf. Returns entry id. */
-  appendThinkingLevelChange(thinkingLevel: string): string {
+  appendThinkingLevelChange(thinkingLevel: string, options?: AppendPersistenceOptions): string {
     const entry: ThinkingLevelChangeEntry = {
       type: "thinking_level_change",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       thinkingLevel,
@@ -2432,10 +2469,10 @@ export class SessionManager {
   }
 
   /** Append a model change as child of current leaf, then advance leaf. Returns entry id. */
-  appendModelChange(provider: string, modelId: string): string {
+  appendModelChange(provider: string, modelId: string, options?: AppendPersistenceOptions): string {
     const entry: ModelChangeEntry = {
       type: "model_change",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       provider,
@@ -2452,10 +2489,11 @@ export class SessionManager {
     tokensBefore: number,
     details?: unknown,
     fromHook?: boolean,
+    options?: AppendPersistenceOptions,
   ): string {
     const entry: CompactionEntry = {
       type: "compaction",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       summary,
@@ -2471,12 +2509,16 @@ export class SessionManager {
   }
 
   /** Append a custom entry (for extensions) as child of current leaf, then advance leaf. Returns entry id. */
-  appendCustomEntry(customType: string, data?: unknown): string {
+  appendCustomEntry(
+    customType: string,
+    data?: unknown,
+    options?: AppendPersistenceOptions,
+  ): string {
     const entry: CustomEntry = {
       type: "custom",
       customType,
       data,
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
     };
@@ -2485,10 +2527,10 @@ export class SessionManager {
   }
 
   /** Append a session info entry (e.g., display name). Returns entry id. */
-  appendSessionInfo(name: string): string {
+  appendSessionInfo(name: string, options?: AppendPersistenceOptions): string {
     const entry: SessionInfoEntry = {
       type: "session_info",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       name: name.trim(),
@@ -2524,6 +2566,7 @@ export class SessionManager {
     content: string | (TextContent | ImageContent)[],
     display: boolean,
     details?: unknown,
+    options?: AppendPersistenceOptions,
   ): string {
     const entry: CustomMessageEntry = {
       type: "custom_message",
@@ -2531,7 +2574,7 @@ export class SessionManager {
       content,
       display,
       details,
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
     };
@@ -2582,13 +2625,17 @@ export class SessionManager {
    * Labels are user-defined markers for bookmarking/navigation.
    * Pass undefined or empty string to clear the label.
    */
-  appendLabelChange(targetId: string, label: string | undefined): string {
+  appendLabelChange(
+    targetId: string,
+    label: string | undefined,
+    options?: AppendPersistenceOptions,
+  ): string {
     if (!this.byId.has(targetId)) {
       throw new Error(`Entry ${targetId} not found`);
     }
     const entry: LabelEntry = {
       type: "label",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: this.appendParentId,
       timestamp: new Date().toISOString(),
       targetId,
@@ -2745,6 +2792,7 @@ export class SessionManager {
     summary: string,
     details?: unknown,
     fromHook?: boolean,
+    options?: AppendPersistenceOptions,
   ): string {
     const branchTargetId = branchFromId === null ? null : this.resolveBranchTargetId(branchFromId);
     if (branchTargetId === undefined) {
@@ -2754,7 +2802,7 @@ export class SessionManager {
     this.appendParentId = branchTargetId;
     const entry: BranchSummaryEntry = {
       type: "branch_summary",
-      id: generateId(this.byId),
+      id: options?.entryId ?? generateId(this.byId),
       parentId: branchTargetId,
       timestamp: new Date().toISOString(),
       fromId: branchTargetId ?? "root",

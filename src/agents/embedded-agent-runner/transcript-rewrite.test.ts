@@ -223,9 +223,14 @@ describe("rewriteTranscriptEntriesInSessionManager", () => {
     expect(sessionManager.getBranch().map((entry) => entry.type)).toContain("label");
   });
 
-  it("remaps compaction keep markers when rewritten entries change ids", () => {
-    // Re-appending entries changes ids; compaction records must follow the new
-    // first-kept entry or future branch reconstruction points at stale ids.
+  it("preserves compaction keep markers when replayed entries are not themselves rewritten", () => {
+    // Only entries actually being replaced (present in replacementsById) may
+    // change id; every other replayed entry must keep its original id so a
+    // captured firstKeptEntryId (or any other external reference) survives an
+    // unrelated sibling entry's rewrite (#111 C5 fix). Previously this replay
+    // reassigned a fresh id to every replayed entry -- including entries with
+    // no content change -- silently invalidating markers like
+    // compaction.firstKeptEntryId across intervening rewrites.
     const {
       sessionManager,
       toolResultEntryId,
@@ -259,8 +264,9 @@ describe("rewriteTranscriptEntriesInSessionManager", () => {
     if (compaction.type !== "compaction") {
       throw new Error("expected compaction entry");
     }
+    expect(keptAssistant.id).toBe(keptAssistantEntryId);
     expect(compaction.firstKeptEntryId).toBe(keptAssistant.id);
-    expect(compaction.firstKeptEntryId).not.toBe(keptAssistantEntryId);
+    expect(compaction.firstKeptEntryId).toBe(keptAssistantEntryId);
   });
 
   it("bypasses persistence hooks when replaying rewritten messages", () => {
@@ -299,6 +305,109 @@ describe("rewriteTranscriptEntriesInSessionManager", () => {
       throw new Error("expected rewritten suffix to replay the assistant summary");
     }
     expect(replayedAssistant.content).toEqual([{ type: "text", text: "summarized" }]);
+  });
+
+  it("TC-111-U22: keeps replayed entry ids stable across a second strip-triggered rewrite", () => {
+    // #111 C5 fix: appendEntry() must supersede (not duplicate) a prior
+    // fileEntries row when an id is reused via options.entryId, and a second
+    // strip-triggered rewrite of the same session must not corrupt or
+    // duplicate ids assigned by an earlier rewrite. Without the supersede
+    // fix, this reproduces the exact orphaned-duplicate-row bug traced in
+    // the r8/r9 handoff: a stale row for a reused id lingers in fileEntries
+    // (and the persisted JSONL) after the second rewrite.
+    const sessionManager = SessionManager.inMemory();
+    const entryIds = appendSessionMessages(sessionManager, [
+      asAppendMessage({ role: "user", content: "first", timestamp: 1 }),
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "exec",
+        content: createTextContent("stale result one"),
+        isError: false,
+        timestamp: 2,
+      }),
+      asAppendMessage({ role: "assistant", content: createTextContent("middle"), timestamp: 3 }),
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_2",
+        toolName: "exec",
+        content: createTextContent("stale result two"),
+        isError: false,
+        timestamp: 4,
+      }),
+      asAppendMessage({ role: "assistant", content: createTextContent("tail"), timestamp: 5 }),
+    ]);
+    const [, firstToolResultId, middleAssistantId, secondToolResultId, tailAssistantId] = entryIds;
+
+    const firstRewrite = rewriteTranscriptEntriesInSessionManager({
+      sessionManager,
+      replacements: [
+        {
+          entryId: firstToolResultId,
+          message: createToolResultReplacement("exec", "[replaced result one]", 2),
+        },
+      ],
+    });
+    expect(firstRewrite.changed).toBe(true);
+
+    // The middle assistant/second-tool-result/tail entries were replayed
+    // (not replaced) by the first rewrite; per the fix they must keep their
+    // original ids.
+    const afterFirstRewrite = sessionManager.getBranch();
+    const middleAfterFirst = requireValue(
+      afterFirstRewrite.find((entry) => entry.id === middleAssistantId),
+      "middle assistant entry (unchanged id after first rewrite)",
+    );
+    expect(middleAfterFirst.id).toBe(middleAssistantId);
+
+    const secondRewrite = rewriteTranscriptEntriesInSessionManager({
+      sessionManager,
+      replacements: [
+        {
+          entryId: secondToolResultId,
+          message: createToolResultReplacement("exec", "[replaced result two]", 4),
+        },
+      ],
+    });
+    expect(secondRewrite.changed).toBe(true);
+
+    const branch = sessionManager.getBranch();
+    const allEntries = sessionManager.getEntries();
+
+    // No id should appear more than once anywhere in the persisted entry set
+    // -- a duplicate means a prior row was left behind instead of superseded.
+    const idCounts = new Map<string, number>();
+    for (const entry of allEntries) {
+      idCounts.set(entry.id, (idCounts.get(entry.id) ?? 0) + 1);
+    }
+    for (const [id, count] of idCounts) {
+      expect(count, `entry id ${id} must appear exactly once in fileEntries`).toBe(1);
+    }
+
+    // The middle assistant (never replaced, replayed across both rewrites)
+    // must still carry its original id, and must be reachable on the live
+    // branch (not an orphaned duplicate).
+    expect(branch.some((entry) => entry.id === middleAssistantId)).toBe(true);
+    expect(sessionManager.getBranch().map((entry) => entry.id)).not.toContain("__orphan__");
+
+    // The tail assistant (also never replaced, replayed only by the second
+    // rewrite since it comes after secondToolResultId) must also keep its id.
+    expect(branch.some((entry) => entry.id === tailAssistantId)).toBe(true);
+
+    const branchMessages = getBranchMessages(sessionManager);
+    expect(branchMessages.map((message) => message.role)).toEqual([
+      "user",
+      "toolResult",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+    expect((branchMessages[1] as Extract<AgentMessage, { role: "toolResult" }>).content).toEqual([
+      { type: "text", text: "[replaced result one]" },
+    ]);
+    expect((branchMessages[3] as Extract<AgentMessage, { role: "toolResult" }>).content).toEqual([
+      { type: "text", text: "[replaced result two]" },
+    ]);
   });
 });
 

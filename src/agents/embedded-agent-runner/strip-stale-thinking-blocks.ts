@@ -67,8 +67,19 @@ function appendBranchEntry(params: {
   appendMessage: SessionManagerLike["appendMessage"];
 }): string {
   const { sessionManager, entry, rewrittenEntryIds, appendMessage } = params;
+  // Every branch below replays an entry that is NOT the target of a
+  // replacement (see caller: matched entries take the `replacement !==
+  // undefined` path instead) and is simply being replayed unchanged onto the
+  // rebuilt branch. Preserve each entry's original ID (via the `entryId`
+  // override on the corresponding append* method) so that any external
+  // caller holding a reference to it (e.g. a captured firstKeptEntryId, or a
+  // label's targetId) remains valid after this replay (#111 C5 fix). Without
+  // this, every unmatched sibling entry silently gets a new ID as a side
+  // effect of an unrelated entry's rewrite.
   if (entry.type === "message") {
-    return appendMessage(entry.message as Parameters<typeof sessionManager.appendMessage>[0]);
+    return appendMessage(entry.message as Parameters<typeof sessionManager.appendMessage>[0], {
+      entryId: entry.id,
+    });
   }
   if (entry.type === "compaction") {
     return sessionManager.appendCompaction(
@@ -77,16 +88,17 @@ function appendBranchEntry(params: {
       entry.tokensBefore,
       entry.details,
       entry.fromHook,
+      { entryId: entry.id },
     );
   }
   if (entry.type === "thinking_level_change") {
-    return sessionManager.appendThinkingLevelChange(entry.thinkingLevel);
+    return sessionManager.appendThinkingLevelChange(entry.thinkingLevel, { entryId: entry.id });
   }
   if (entry.type === "model_change") {
-    return sessionManager.appendModelChange(entry.provider, entry.modelId);
+    return sessionManager.appendModelChange(entry.provider, entry.modelId, { entryId: entry.id });
   }
   if (entry.type === "custom") {
-    return sessionManager.appendCustomEntry(entry.customType, entry.data);
+    return sessionManager.appendCustomEntry(entry.customType, entry.data, { entryId: entry.id });
   }
   if (entry.type === "custom_message") {
     return sessionManager.appendCustomMessageEntry(
@@ -94,13 +106,11 @@ function appendBranchEntry(params: {
       entry.content,
       entry.display,
       entry.details,
+      { entryId: entry.id },
     );
   }
   if (entry.type === "session_info") {
-    if (entry.name) {
-      return sessionManager.appendSessionInfo(entry.name);
-    }
-    return sessionManager.appendSessionInfo("");
+    return sessionManager.appendSessionInfo(entry.name ?? "", { entryId: entry.id });
   }
   if (entry.type === "branch_summary") {
     return sessionManager.branchWithSummary(
@@ -108,11 +118,13 @@ function appendBranchEntry(params: {
       entry.summary,
       entry.details,
       entry.fromHook,
+      { entryId: entry.id },
     );
   }
   return sessionManager.appendLabelChange(
     remapEntryId(entry.targetId, rewrittenEntryIds) ?? entry.targetId,
     entry.label,
+    { entryId: entry.id },
   );
 }
 
