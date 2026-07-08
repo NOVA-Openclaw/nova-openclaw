@@ -9,17 +9,71 @@
  * session-manager.ts cannot import anything from transcript-rewrite.ts at
  * runtime without closing a cycle. This module has no dependency on
  * transcript-file-state.ts, so it is safe for session-manager.ts to import.
+ *
+ * SessionManagerLike below is an explicit structural interface (not derived
+ * via `ReturnType<typeof SessionManager.open>`) so this module does not
+ * import the SessionManager class/value at all -- doing so, even as
+ * `import type`, would close a second cycle: session-manager.ts imports this
+ * module at runtime (for stripStaleThinkingBlocksFromSessionManagerBranch),
+ * and pnpm check:architecture's madge-based cycle check does not distinguish
+ * type-only import edges from value edges. Keep this interface's method
+ * signatures in sync with SessionManager's when either changes.
  */
 import type {
   TranscriptRewriteReplacement,
   TranscriptRewriteResult,
 } from "../../context-engine/types.js";
+import type { ImageContent, Message, TextContent } from "../../llm/types.js";
 import type { AgentMessage } from "../runtime/index.js";
-import type { SessionManager } from "../sessions/session-manager.js";
+import type { BashExecutionMessage, CustomMessage } from "../sessions/messages.js";
+import type { AppendPersistenceOptions, SessionEntry } from "../sessions/session-entry-types.js";
 import { stripThinkingBlocksFromMessage } from "./thinking.js";
 
-type SessionManagerLike = ReturnType<typeof SessionManager.open>;
-type SessionBranchEntry = ReturnType<SessionManagerLike["getBranch"]>[number];
+interface SessionManagerLike {
+  getBranch(fromId?: string): SessionEntry[];
+  resetLeaf(): void;
+  branch(branchFromId: string): void;
+  appendMessageWithoutStrip(
+    message: Message | CustomMessage | BashExecutionMessage,
+    options?: AppendPersistenceOptions,
+  ): string;
+  appendMessage(
+    message: Message | CustomMessage | BashExecutionMessage,
+    options?: AppendPersistenceOptions,
+  ): string;
+  appendCompaction(
+    summary: string,
+    firstKeptEntryId: string,
+    tokensBefore: number,
+    details?: unknown,
+    fromHook?: boolean,
+    options?: AppendPersistenceOptions,
+  ): string;
+  appendThinkingLevelChange(thinkingLevel: string, options?: AppendPersistenceOptions): string;
+  appendModelChange(provider: string, modelId: string, options?: AppendPersistenceOptions): string;
+  appendCustomEntry(customType: string, data?: unknown, options?: AppendPersistenceOptions): string;
+  appendCustomMessageEntry(
+    customType: string,
+    content: string | (TextContent | ImageContent)[],
+    display: boolean,
+    details?: unknown,
+    options?: AppendPersistenceOptions,
+  ): string;
+  appendSessionInfo(name: string, options?: AppendPersistenceOptions): string;
+  branchWithSummary(
+    branchFromId: string | null,
+    summary: string,
+    details?: unknown,
+    fromHook?: boolean,
+    options?: AppendPersistenceOptions,
+  ): string;
+  appendLabelChange(
+    targetId: string,
+    label: string | undefined,
+    options?: AppendPersistenceOptions,
+  ): string;
+}
+type SessionBranchEntry = SessionEntry;
 
 function estimateMessageBytes(message: AgentMessage): number {
   return Buffer.byteLength(JSON.stringify(message), "utf8");
