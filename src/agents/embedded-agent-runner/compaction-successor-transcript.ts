@@ -116,8 +116,19 @@ function buildSuccessorEntries(params: {
   const { allEntries, branch, latestCompactionIndex } = params;
   const compaction = branch[latestCompactionIndex] as CompactionEntry;
 
+  // File-order index of every entry across all branches, used below to make
+  // the thinking-signature-strip decision branch-agnostic (#111 C5 fix): a
+  // side-branch message that predates the compaction in file order is just
+  // as "pre-compaction" as an active-branch one, even though it is never
+  // visited by the active-branch-only loop that builds summarizedBranchIds
+  // below (which is derived from getBranch(), the active branch only).
+  const allEntryOriginalIndexById = new Map<string, number>();
+  for (let index = 0; index < allEntries.length; index += 1) {
+    allEntryOriginalIndexById.set(allEntries[index].id, index);
+  }
+  const compactionOriginalIndex = allEntryOriginalIndexById.get(compaction.id) ?? -1;
+
   const summarizedBranchIds = new Set<string>();
-  const preCompactionKeptBranchIds = new Set<string>();
   let foundFirstKept = false;
   for (let index = 0; index < latestCompactionIndex; index += 1) {
     const entry = branch[index];
@@ -127,9 +138,7 @@ function buildSuccessorEntries(params: {
     if (compaction.firstKeptEntryId && entry.id === compaction.firstKeptEntryId) {
       foundFirstKept = true;
     }
-    if (foundFirstKept) {
-      preCompactionKeptBranchIds.add(entry.id);
-    } else {
+    if (!foundFirstKept) {
       summarizedBranchIds.add(entry.id);
     }
   }
@@ -222,11 +231,12 @@ function buildSuccessorEntries(params: {
       removedIds.add(entry.id);
     }
   }
-  // The preserved assistant reply is pre-compaction content that needs thinking
-  // signature stripping, same as other pre-compaction kept entries.
-  for (const entryId of preservedPreCompactionIds) {
-    preCompactionKeptBranchIds.add(entryId);
-  }
+  // Note: the preserved assistant reply (preservedPreCompactionIds) is pre-compaction
+  // content that also needs thinking-signature stripping, same as other pre-compaction
+  // kept entries. This is now handled automatically by the branch-agnostic, file-order
+  // based strip decision below (allEntryOriginalIndexById) rather than requiring an
+  // explicit membership addition here, since the preserved assistant's original index
+  // is always < compactionOriginalIndex.
   for (const entry of allEntries) {
     if (entry.type === "label" && removedIds.has(entry.targetId)) {
       removedIds.add(entry.id);
@@ -234,12 +244,12 @@ function buildSuccessorEntries(params: {
   }
 
   const entryById = new Map<string, SessionEntry>();
-  const originalIndexById = new Map<string, number>();
-  for (let index = 0; index < allEntries.length; index += 1) {
-    const entry = allEntries[index];
+  for (const entry of allEntries) {
     entryById.set(entry.id, entry);
-    originalIndexById.set(entry.id, index);
   }
+  // Reuse allEntryOriginalIndexById (built above) instead of recomputing an
+  // identical file-order index map.
+  const originalIndexById = allEntryOriginalIndexById;
   const activeBranchIds = new Set<string>();
   for (const entry of branch) {
     activeBranchIds.add(entry.id);
@@ -263,12 +273,31 @@ function buildSuccessorEntries(params: {
     // Post-compaction entries were generated in the new context and have valid signatures.
     // Move the compaction boundary back to the preserved turn so its complete
     // assistant/tool-result sequence is included in the successor context.
+    //
+    // The strip decision is intentionally branch-agnostic (#111 C5 fix): it is based on
+    // file-order position relative to the compaction entry (allEntryOriginalIndexById),
+    // not membership in an active-branch-derived kept-set (summarizedBranchIds/
+    // foundFirstKept above are built from getBranch(), the active branch only). A
+    // side-branch assistant message with a stale thinking signature that predates the
+    // compaction is just as pre-compaction as an active-branch one and must have its
+    // signature stripped even though it is never walked by that active-branch-only loop.
+    // This mirrors the existing timestamp-relative-to-compaction pattern in
+    // stripStaleThinkingSignaturesForCompactionReplay (thinking.ts), using file append
+    // order instead of wall-clock timestamps since entries appended in the same
+    // rewrite/replay burst can share an identical ISO timestamp.
     let transformed: SessionEntry = reparented;
-    if (reparented.type === "message" && preCompactionKeptBranchIds.has(reparented.id)) {
-      transformed = {
-        ...reparented,
-        message: stripThinkingSignaturesFromMessage(reparented.message),
-      };
+    if (reparented.type === "message") {
+      const entryOriginalIndex = allEntryOriginalIndexById.get(reparented.id) ?? -1;
+      const isPreCompaction =
+        entryOriginalIndex >= 0 &&
+        compactionOriginalIndex >= 0 &&
+        entryOriginalIndex < compactionOriginalIndex;
+      if (isPreCompaction) {
+        transformed = {
+          ...reparented,
+          message: stripThinkingSignaturesFromMessage(reparented.message),
+        };
+      }
     }
     if (
       reparented.type === "compaction" &&

@@ -129,14 +129,40 @@ inter-session user turns that only have provenance metadata.
 ## Global rule: stale thinking-block cleanup (persist time)
 
 Unlike the rest of this page, this rule runs at **persist time**, not replay
-time. When `AgentSession` is about to save a new assistant message that
-contains a `thinking` or `redacted_thinking` block, it first strips any
-thinking/redacted-thinking blocks from every other assistant turn already on
-the active branch, then rewrites those entries in place on disk via the
-non-locking `rewriteTranscriptEntriesInSessionManager` helper. The incoming
-message being saved is not part of the branch yet, so it is left untouched:
-after the save, exactly one assistant turn on the active branch carries a
-thinking block — the newest one.
+time. It is applied at the shared append choke-points rather than a single
+event hook, so the invariant holds path-independently for every way an
+assistant message can land in a session: normal turns, topic-bound
+transcripts, and fork/branch copies.
+
+Whenever a new assistant message is appended, OpenClaw first strips any
+`thinking`/`redacted_thinking` blocks from every other assistant turn already
+on the active branch, then rewrites those entries in place. The incoming
+message being appended is not part of the branch yet, so it is left
+untouched: after the append, at most one assistant turn on the active branch
+carries a thinking block — the newest one. The strip is unconditional on any
+assistant append (not gated on the incoming message itself containing a
+thinking block), which prevents stale blocks from accumulating indefinitely
+across interleaved non-thinking replies.
+
+This runs at three choke-points:
+
+- **Transcript file append** — `appendSessionTranscriptMessageLocked` strips
+  stale thinking blocks from the on-disk transcript branch before appending,
+  under the existing transcript write lock. This covers main-session and
+  topic-bound transcripts alike.
+- **In-memory `SessionManager.appendMessage`** — strips stale thinking blocks
+  from the in-memory branch before appending, so `SessionManager` consumers
+  get the same invariant independent of the transcript-file path.
+- **Fork / branch copy** — `SessionManager.forkFrom` and
+  `createBranchedSession` sanitize copied entries so a fork or branch starts
+  with the invariant already satisfied, instead of carrying over whatever
+  stale thinking blocks existed in the source session.
+
+Maintenance rewrites (for example replaying entries during the strip itself)
+use `SessionManager.appendMessageWithoutStrip`, a raw append path that
+bypasses the strip check. This exists solely so that rewrite-replay does not
+recursively re-trigger the strip while replaying already-stripped
+replacement messages; it must not be used for normal message persistence.
 
 This is a durable, structural fix rather than a replay-time workaround: older
 thinking blocks (which may carry stale or cross-model-invalid replay
@@ -152,20 +178,24 @@ Notes:
 
 - Only the active branch is rewritten; superseded/replaced branch positions
   in the raw JSONL are left as-is (append-only history), matching how
-  `SessionManager.getBranch()` already treats them.
+  `SessionManager.getBranch()`/`getBranch()` on transcript file state already
+  treats them.
 - There is no tool-turn carve-out: thinking blocks attached to assistant
   turns that are part of a tool-call sequence are stripped the same as any
   other older turn once superseded by a newer thinking-bearing turn.
+- Trajectory recorder files are deliberately excluded — they are inert
+  diagnostic records, not replayed session state.
 - If the rewrite itself fails, the current assistant turn is still persisted;
   the failure is logged (`[transcript-rewrite] failed: ...`) and the strip is
-  retried on the next thinking-bearing save, bounding the exposure to at most
-  one extra turn.
+  retried on the next assistant append, bounding the exposure to at most one
+  extra turn.
 
 Implementation:
 
-- `stripStaleThinkingBlocksFromSessionBranch` in `src/agents/sessions/agent-session.ts`
+- `stripStaleThinkingBlocksFromTranscriptFileLocked` in `src/config/sessions/transcript-append.ts`
+- `stripStaleThinkingBlocksFromSessionManagerBranch` and `appendMessageWithoutStrip`-based rewrite-replay in `src/agents/embedded-agent-runner/transcript-rewrite.ts`
+- `appendMessage` / `appendMessageWithoutStrip` in `src/agents/sessions/session-manager.ts`
 - `stripThinkingBlocksFromMessage` in `src/agents/embedded-agent-runner/thinking.ts`
-- `rewriteTranscriptEntriesInSessionManager` in `src/agents/embedded-agent-runner/transcript-rewrite.ts`
 
 ---
 

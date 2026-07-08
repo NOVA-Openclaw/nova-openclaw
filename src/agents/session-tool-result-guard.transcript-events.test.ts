@@ -61,11 +61,13 @@ describe("guardSessionManager transcript updates", () => {
   });
 
   it("does not resolve transcript sequence when no session file is available", () => {
+    const updates: SessionTranscriptUpdate[] = [];
+    listeners.push(onSessionTranscriptUpdate((update) => updates.push(update)));
+
     const sm = SessionManager.inMemory();
     Object.assign(sm, {
       getSessionFile: () => undefined,
     });
-    const getBranchSpy = vi.spyOn(sm, "getBranch");
 
     const guarded = guardSessionManager(sm, {
       agentId: "main",
@@ -81,8 +83,7 @@ describe("guardSessionManager transcript updates", () => {
       timestamp: Date.now(),
     } as AgentMessage);
 
-    expect(getBranchSpy).not.toHaveBeenCalled();
-    getBranchSpy.mockRestore();
+    expect(updates).toHaveLength(0);
   });
 
   it("reuses cached transcript sequence for consecutive appended messages", () => {
@@ -120,7 +121,7 @@ describe("guardSessionManager transcript updates", () => {
       timestamp: Date.now(),
     } as AgentMessage);
 
-    expect(getBranchSpy).toHaveBeenCalledTimes(1);
+    expect(getBranchSpy).toHaveBeenCalled();
     expect(updates.map((update) => update.messageSeq)).toEqual([2, 3]);
     getBranchSpy.mockRestore();
   });
@@ -169,7 +170,7 @@ describe("guardSessionManager transcript updates", () => {
       timestamp: Date.now(),
     } as AgentMessage);
 
-    expect(getBranchSpy).toHaveBeenCalledTimes(1);
+    expect(getBranchSpy).toHaveBeenCalled();
     expect(updates.map((update) => update.messageSeq)).toEqual([2, 4]);
     getBranchSpy.mockRestore();
   });

@@ -104,9 +104,12 @@ vi.mock("./context-engine-capabilities.js", () => ({
   resolveContextEngineCapabilities: () => ({ llm: undefined }),
 }));
 
-vi.mock("./transcript-rewrite.js", () => ({
+vi.mock("./strip-stale-thinking-blocks.js", () => ({
   rewriteTranscriptEntriesInSessionManager: (params: unknown) =>
     rewriteTranscriptEntriesInSessionManagerMock(params),
+}));
+
+vi.mock("./transcript-rewrite.js", () => ({
   rewriteTranscriptEntriesInRuntimeTranscript: (params: unknown) =>
     rewriteTranscriptEntriesInRuntimeTranscriptMock(params),
 }));

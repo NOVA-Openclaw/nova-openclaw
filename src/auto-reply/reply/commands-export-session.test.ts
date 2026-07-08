@@ -41,9 +41,13 @@ vi.mock("./commands-system-prompt.js", () => ({
   resolveCommandsSystemPromptBundle: hoisted.resolveCommandsSystemPromptBundleMock,
 }));
 
-vi.mock("../../infra/fs-safe.js", () => ({
-  pathExists: hoisted.pathExistsMock,
-}));
+vi.mock("../../infra/fs-safe.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../infra/fs-safe.js")>();
+  return {
+    ...actual,
+    pathExists: hoisted.pathExistsMock,
+  };
+});
 
 vi.mock("../../agents/sessions/session-manager.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../agents/sessions/session-manager.js")>();

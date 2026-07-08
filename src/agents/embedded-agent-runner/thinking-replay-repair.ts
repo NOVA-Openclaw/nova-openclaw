@@ -4,8 +4,8 @@
 import { emitSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import type { AgentMessage } from "../runtime/index.js";
 import { log } from "./logger.js";
+import { rewriteTranscriptEntriesInSessionManager } from "./strip-stale-thinking-blocks.js";
 import { stripThinkingBlocksFromMessage } from "./thinking.js";
-import { rewriteTranscriptEntriesInSessionManager } from "./transcript-rewrite.js";
 
 type RewritableSessionManager = Parameters<
   typeof rewriteTranscriptEntriesInSessionManager

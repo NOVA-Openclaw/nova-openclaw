@@ -33,10 +33,8 @@ import {
 import { findActiveSessionTask } from "../session-async-task-status.js";
 import { resolveContextEngineCapabilities } from "./context-engine-capabilities.js";
 import { log } from "./logger.js";
-import {
-  rewriteTranscriptEntriesInRuntimeTranscript,
-  rewriteTranscriptEntriesInSessionManager,
-} from "./transcript-rewrite.js";
+import { rewriteTranscriptEntriesInSessionManager } from "./strip-stale-thinking-blocks.js";
+import { rewriteTranscriptEntriesInRuntimeTranscript } from "./transcript-rewrite.js";
 
 const TURN_MAINTENANCE_TASK_KIND = "context_engine_turn_maintenance";
 const TURN_MAINTENANCE_TASK_LABEL = "Context engine turn maintenance";

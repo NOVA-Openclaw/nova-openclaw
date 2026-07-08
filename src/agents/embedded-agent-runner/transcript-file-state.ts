@@ -17,7 +17,7 @@ import {
   type SessionContext,
   type SessionEntry,
   type SessionHeader,
-} from "../sessions/index.js";
+} from "../sessions/session-manager.js";
 
 // Mutable view over a session JSONL transcript. The runner uses this layer to
 // tolerate old or partially malformed rows before appending new canonical rows.

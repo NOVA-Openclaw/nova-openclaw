@@ -635,4 +635,95 @@ describe("rotateTranscriptAfterCompaction — thinking signature stripping", () 
     expect(contextText).toContain("kept answer");
     expect(contextText).toContain("post answer");
   });
+
+  it("TC-111-U23: strips thinkingSignature from a side-branch assistant message that survives rotation", async () => {
+    // #111 C5 fix (Gem adjudication section 3.3): the signature-strip decision
+    // in buildSuccessorEntries must not be scoped to active-branch-only
+    // membership. A side-branch assistant message with a stale thinking
+    // signature, created before the compaction on the active branch, is just
+    // as pre-compaction as an active-branch message and must have its
+    // signature stripped even though it is never walked by the
+    // active-branch-only summarizedBranchIds/foundFirstKept loop -- it is
+    // preserved (not summarized) per the existing sibling-branch-preservation
+    // behavior covered by "preserves unsummarized sibling branches..." above.
+    const dir = await createTmpDir();
+    const manager = SessionManager.create(dir, dir);
+
+    manager.appendMessage({ role: "user", content: "hello", timestamp: 1 });
+    const branchFromId = manager.appendMessage(
+      makeThinkingAssistant("hi there", "stale_sig_branch_point", 2),
+    );
+
+    // Side branch: a thinking-bearing assistant message that predates the
+    // compaction in file order and must survive rotation with its signature
+    // stripped.
+    manager.appendMessage({ role: "user", content: "do task B instead", timestamp: 3 });
+    manager.appendMessage(makeThinkingAssistant("done B", "stale_sig_side_branch", 4));
+
+    // Active branch: compaction happens here.
+    manager.branch(branchFromId);
+    manager.appendMessage({ role: "user", content: "do task A", timestamp: 5 });
+    const firstKeptId = manager.appendMessage(makeThinkingAssistant("done A", "stale_sig_kept", 6));
+    manager.appendCompaction("Summary of main branch.", firstKeptId, 5000);
+    manager.appendMessage({ role: "user", content: "next", timestamp: 7 });
+    manager.appendMessage(makeThinkingAssistant("post answer", "fresh_sig", 8));
+
+    const sessionFile = requireString(manager.getSessionFile(), "source session file");
+    const result = await rotateTranscriptAfterCompaction({
+      sessionManager: manager,
+      sessionFile,
+      now: () => new Date("2026-07-08T00:00:00.000Z"),
+    });
+
+    expect(result.rotated).toBe(true);
+    const successor = SessionManager.open(
+      requireString(result.sessionFile, "successor session file"),
+    );
+    const entries = successor.getEntries();
+
+    function getThinkingSignatureForText(text: string): unknown {
+      for (const entry of entries) {
+        if (entry.type !== "message" || entry.message.role !== "assistant") {
+          continue;
+        }
+        const content = (entry.message as { content?: unknown[] }).content ?? [];
+        const hasText = content.some(
+          (block) =>
+            (block as { type?: unknown; text?: unknown }).type === "text" &&
+            (block as { text?: unknown }).text === text,
+        );
+        if (!hasText) {
+          continue;
+        }
+        for (const block of content) {
+          if ((block as { type?: unknown }).type === "thinking") {
+            return (block as { thinkingSignature?: unknown }).thinkingSignature;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    // The side-branch message survives (per existing sibling-preservation
+    // behavior) ...
+    const sideBranchMessage = entries.find(
+      (entry) =>
+        entry.type === "message" &&
+        "content" in entry.message &&
+        Array.isArray(entry.message.content) &&
+        entry.message.content.some(
+          (part) =>
+            (part as { type?: unknown; text?: unknown }).type === "text" &&
+            (part as { text?: unknown }).text === "done B",
+        ),
+    );
+    expect(sideBranchMessage).toBeDefined();
+    // ... and its stale thinking signature must be stripped, not preserved.
+    expect(getThinkingSignatureForText("done B")).toBeUndefined();
+
+    // Active-branch pre-compaction kept message: also stripped (existing behavior).
+    expect(getThinkingSignatureForText("done A")).toBeUndefined();
+    // Post-compaction message: signature preserved intact (existing behavior).
+    expect(getThinkingSignatureForText("post answer")).toBe("fresh_sig");
+  });
 });

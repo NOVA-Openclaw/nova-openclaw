@@ -92,6 +92,11 @@ describe("repairRejectedThinkingReplayInSessionManager", () => {
     sessionManager.appendMessage(
       asAppendMessage({ role: "user", content: "follow-up", timestamp: 3 }),
     );
+
+    const result = repairRejectedThinkingReplayInSessionManager({ sessionManager });
+
+    expect(result).toMatchObject({ repaired: true, repairedCount: 1 });
+
     sessionManager.appendMessage(
       asAppendMessage({
         role: "assistant",
@@ -100,9 +105,6 @@ describe("repairRejectedThinkingReplayInSessionManager", () => {
       }),
     );
 
-    const result = repairRejectedThinkingReplayInSessionManager({ sessionManager });
-
-    expect(result).toMatchObject({ repaired: true, repairedCount: 1 });
     expect(branchMessages(sessionManager).map((message) => message.role)).toEqual([
       "user",
       "assistant",
