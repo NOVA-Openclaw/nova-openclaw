@@ -42,8 +42,7 @@ vi.mock("./commands-system-prompt.js", () => ({
 }));
 
 vi.mock("../../infra/fs-safe.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../infra/fs-safe.js")>("../../infra/fs-safe.js");
+  const actual = await importOriginal<typeof import("../../infra/fs-safe.js")>();
   return {
     ...actual,
     pathExists: hoisted.pathExistsMock,
