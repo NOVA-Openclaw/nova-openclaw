@@ -111,11 +111,11 @@ describe("transcript-append thinking-block strip", () => {
     parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
       { type: "thinking", thinking: "old1", thinkingSignature: "sig1" },
       { type: "text", text: "first reply" },
-    ] as AssistantMessage["content"]);
+    ]);
     await seedAssistantTurn(sessionFile, parentId, "a2", [
       { type: "thinking", thinking: "old2", thinkingSignature: "sig2" },
       { type: "text", text: "second reply" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     const result = await appendSessionTranscriptMessage({
       transcriptPath: sessionFile,
@@ -150,15 +150,15 @@ describe("transcript-append thinking-block strip", () => {
     parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
       { type: "thinking", thinking: "old1", thinkingSignature: "sig1" },
       { type: "text", text: "first reply" },
-    ] as AssistantMessage["content"]);
+    ]);
     parentId = await seedAssistantTurn(sessionFile, parentId, "a2", [
       { type: "thinking", thinking: "old2", thinkingSignature: "sig2" },
       { type: "text", text: "second reply" },
-    ] as AssistantMessage["content"]);
+    ]);
     await seedAssistantTurn(sessionFile, parentId, "a3", [
       { type: "thinking", thinking: "old3", thinkingSignature: "sig3" },
       { type: "text", text: "third reply" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     await appendSessionTranscriptMessage({
       transcriptPath: sessionFile,
@@ -210,13 +210,13 @@ describe("transcript-append thinking-block strip", () => {
 
     let parentId = await seedUserTurn(sessionFile, null, "u1", "hello");
     for (let i = 0; i < 200; i += 1) {
-      const content =
+      const content: AssistantMessage["content"] =
         i === 0
-          ? ([
+          ? [
               { type: "thinking", thinking: "stale", thinkingSignature: "sig-stale" },
               { type: "text", text: `reply ${i}` },
-            ] as AssistantMessage["content"])
-          : ([{ type: "text", text: `reply ${i}` }] as AssistantMessage["content"]);
+            ]
+          : [{ type: "text", text: `reply ${i}` }];
       parentId = await seedAssistantTurn(sessionFile, parentId, `a${i}`, content);
     }
 
@@ -258,7 +258,7 @@ describe("transcript-append thinking-block strip", () => {
     await seedAssistantTurn(sessionFile, parentId, "a1", [
       { type: "thinking", thinking: "old", thinkingSignature: "sig-old" },
       { type: "text", text: "first reply" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
     const rewriteSpy = vi
@@ -304,12 +304,12 @@ describe("transcript-append thinking-block strip", () => {
       parentId = await seedAssistantTurn(sessionFile, parentId, `stale-${i}`, [
         { type: "thinking", thinking: `stale ${i}`, thinkingSignature: `sig-stale-${i}` },
         { type: "text", text: `reply ${i}` },
-      ] as AssistantMessage["content"]);
+      ]);
     }
     await seedAssistantTurn(sessionFile, parentId, `stale-108`, [
       { type: "thinking", thinking: "stale 108", thinkingSignature: "sig-stale-108" },
       { type: "text", text: "reply 108" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     await appendSessionTranscriptMessage({
       transcriptPath: sessionFile,
@@ -338,11 +338,11 @@ describe("transcript-append thinking-block strip", () => {
     parentId = await seedAssistantTurn(sourceFile, parentId, "a1", [
       { type: "thinking", thinking: "old1", thinkingSignature: "sig1" },
       { type: "text", text: "first" },
-    ] as AssistantMessage["content"]);
+    ]);
     await seedAssistantTurn(sourceFile, parentId, "a2", [
       { type: "thinking", thinking: "old2", thinkingSignature: "sig2" },
       { type: "text", text: "second" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     const targetDir = await makeTempDir();
     const forkedManager = SessionManager.forkFrom(sourceFile, targetDir);
@@ -364,11 +364,11 @@ describe("transcript-append thinking-block strip", () => {
     parentId = await seedAssistantTurn(sessionFile, parentId, "a1", [
       { type: "thinking", thinking: "old1", thinkingSignature: "sig1" },
       { type: "text", text: "first" },
-    ] as AssistantMessage["content"]);
+    ]);
     const leafId = await seedAssistantTurn(sessionFile, parentId, "a2", [
       { type: "thinking", thinking: "old2", thinkingSignature: "sig2" },
       { type: "text", text: "second" },
-    ] as AssistantMessage["content"]);
+    ]);
 
     const sourceManager = SessionManager.open(sessionFile, dir, dir);
     const branchedFile = sourceManager.createBranchedSession(leafId)!;
