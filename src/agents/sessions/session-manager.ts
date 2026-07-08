@@ -72,7 +72,6 @@ import type {
 } from "./session-entry-types.js";
 
 export type {
-  AppendPersistenceOptions,
   BranchSummaryEntry,
   CompactionEntry,
   CustomEntry,
