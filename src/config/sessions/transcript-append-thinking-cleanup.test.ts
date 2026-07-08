@@ -374,7 +374,7 @@ describe("transcript-append thinking-block strip", () => {
     const branchedFile = sourceManager.createBranchedSession(leafId)!;
     expect(branchedFile).toBeDefined();
 
-    const reopened = SessionManager.open(branchedFile!, dir, dir);
+    const reopened = SessionManager.open(branchedFile, dir, dir);
     const entries = getAssistantMessageEntries(reopened);
     expect(entries).toHaveLength(2);
     expect(countThinkingBlocks(entries[0].message)).toBe(0);
