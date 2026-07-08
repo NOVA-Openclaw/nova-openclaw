@@ -6,19 +6,20 @@ import path from "node:path";
 import type { AgentMessage } from "openclaw/plugin-sdk/agent-core";
 import { SessionManager } from "openclaw/plugin-sdk/agent-sessions";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildSessionWriteLockModuleMock } from "../../test-utils/session-write-lock-module-mock.js";
-
 const acquireSessionWriteLockReleaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const acquireSessionWriteLockMock = vi.hoisted(() =>
   vi.fn(async (_params?: unknown) => ({ release: acquireSessionWriteLockReleaseMock })),
 );
 
-vi.mock("../session-write-lock.js", () =>
-  buildSessionWriteLockModuleMock(
-    () => vi.importActual<typeof import("../session-write-lock.js")>("../session-write-lock.js"),
-    (params) => acquireSessionWriteLockMock(params),
-  ),
-);
+vi.mock("../session-write-lock.js", async () => {
+  const original = await vi.importActual<typeof import("../session-write-lock.js")>(
+    "../session-write-lock.js",
+  );
+  return {
+    ...original,
+    acquireSessionWriteLock: (params?: unknown) => acquireSessionWriteLockMock(params),
+  };
+});
 
 let rewriteTranscriptEntriesInSessionManager: typeof import("./transcript-rewrite.js").rewriteTranscriptEntriesInSessionManager;
 let rewriteTranscriptEntriesInRuntimeTranscript: typeof import("./transcript-rewrite.js").rewriteTranscriptEntriesInRuntimeTranscript;
