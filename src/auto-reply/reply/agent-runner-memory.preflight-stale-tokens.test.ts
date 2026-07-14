@@ -30,6 +30,7 @@ function createReplyOperation(): ReplyOperation {
     updateSessionId: vi.fn(),
     attachBackend: vi.fn(),
     detachBackend: vi.fn(),
+    freezeAbort: vi.fn(),
     retainFailureUntilComplete: vi.fn(),
     complete: vi.fn(),
     completeThen: vi.fn((afterClear: () => void) => {

@@ -19,10 +19,7 @@ import {
   applyUnknownConfigKeyStep,
 } from "./doctor/shared/config-flow-steps.js";
 import { applyDoctorConfigMutation } from "./doctor/shared/config-mutation-state.js";
-import {
-  collectMissingDefaultAccountBindingWarnings,
-  collectMissingExplicitDefaultAccountWarnings,
-} from "./doctor/shared/default-account-warnings.js";
+
 import { normalizeCompatibilityConfigValues } from "./doctor/shared/legacy-config-core-migrate.js";
 
 function hasLegacyInternalHookHandlers(raw: unknown): boolean {
@@ -287,16 +284,6 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
         fixHint: `Run "${doctorFixCommand}" to remove stale channel plugin references.`,
       }));
     }
-  }
-
-  const missingDefaultAccountBindingWarnings =
-    collectMissingDefaultAccountBindingWarnings(candidate);
-  if (missingDefaultAccountBindingWarnings.length > 0) {
-    note(missingDefaultAccountBindingWarnings.join("\n"), "Doctor warnings");
-  }
-  const missingExplicitDefaultWarnings = collectMissingExplicitDefaultAccountWarnings(candidate);
-  if (missingExplicitDefaultWarnings.length > 0) {
-    note(missingExplicitDefaultWarnings.join("\n"), "Doctor warnings");
   }
 
   const { repairHooksTokenReuseGatewayAuth } =

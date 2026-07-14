@@ -231,6 +231,14 @@ describe("normalizeOpenAICompatibleReasoningPayload", () => {
 
     expect(payload).toEqual({});
   });
+
+  it("defensively normalizes logical Ultra for generic compatible payloads", () => {
+    const payload: Record<string, unknown> = {};
+
+    normalizeOpenAICompatibleReasoningPayload(payload, "ultra");
+
+    expect(payload).toEqual({ reasoning: { effort: "xhigh" } });
+  });
 });
 
 describe("createDeepSeekV4OpenAICompatibleThinkingWrapper", () => {
@@ -372,8 +380,15 @@ describe("createPlainTextToolCallCompatWrapper", () => {
     expect(events.map((event) => (event as { type?: string }).type)).toEqual([
       "toolcall_start",
       "toolcall_delta",
+      "toolcall_end",
       "done",
     ]);
+    const toolCallEnd = requireRecord(events.at(-2), "tool call end");
+    expect(requireRecord(toolCallEnd.toolCall, "completed tool call")).toMatchObject({
+      type: "toolCall",
+      name: "read",
+      arguments: { path: "/tmp/file.txt" },
+    });
     const done = events.at(-1) as { message?: { content?: unknown; stopReason?: unknown } };
     expect(done.message?.stopReason).toBe("toolUse");
     expect(done.message?.content).toEqual([
@@ -385,7 +400,7 @@ describe("createPlainTextToolCallCompatWrapper", () => {
     ]);
   });
 
-  it("promotes complete under-cap text tool calls for non-stop terminal reasons", async () => {
+  it("does not promote complete-looking text tool calls after a length stop", async () => {
     const rawToolText = '[tool:read] {"path":"/tmp/file.txt"}';
     const baseStreamFn: StreamFn = () =>
       createEventStream([
@@ -410,14 +425,13 @@ describe("createPlainTextToolCallCompatWrapper", () => {
       events.push(event);
     }
 
-    expect(events.map((event) => (event as { type?: string }).type)).toEqual([
-      "toolcall_start",
-      "toolcall_delta",
-      "done",
-    ]);
-    const done = events.at(-1) as { reason?: unknown; message?: { stopReason?: unknown } };
-    expect(done.reason).toBe("toolUse");
-    expect(done.message?.stopReason).toBe("toolUse");
+    expect(events.map((event) => (event as { type?: string }).type)).toEqual(["done"]);
+    const done = events.at(-1) as {
+      reason?: unknown;
+      message?: { content?: unknown; stopReason?: unknown };
+    };
+    expect(done.reason).toBe("length");
+    expect(done.message).toMatchObject({ content: rawToolText, stopReason: "length" });
   });
 
   it("passes through bracketed text when no configured tool names match", async () => {
@@ -622,6 +636,7 @@ describe("createPlainTextToolCallCompatWrapper", () => {
       "thinking_delta",
       "toolcall_start",
       "toolcall_delta",
+      "toolcall_end",
       "done",
     ]);
     const thinkingEvent = requireRecord(events[0], "thinking event");
@@ -680,6 +695,7 @@ describe("createPlainTextToolCallCompatWrapper", () => {
       "thinking_delta",
       "toolcall_start",
       "toolcall_delta",
+      "toolcall_end",
       "done",
     ]);
     const thinkingEvent = requireRecord(events[0], "thinking event");

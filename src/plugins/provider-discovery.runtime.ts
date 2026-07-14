@@ -52,7 +52,7 @@ function resolveProviderDiscoveryDependencyRoot(rootDir: string): string {
   return rootDir;
 }
 
-export function clearProviderDiscoveryModuleLoaders(): void {
+function clearProviderDiscoveryModuleLoaders(): void {
   providerDiscoveryModuleLoaders.clear();
   for (const [modulePath, rootDir] of providerDiscoveryModuleRoots) {
     clearNativeRequireJavaScriptModuleCache(modulePath, { dependencyRoot: rootDir });
@@ -181,6 +181,7 @@ function modelDefinitionFromManifestRow(
     contextWindow: row.contextWindow,
     ...(row.contextTokens ? { contextTokens: row.contextTokens } : {}),
     maxTokens: row.maxTokens,
+    ...(row.thinkingLevelMap ? { thinkingLevelMap: { ...row.thinkingLevelMap } } : {}),
     ...(row.headers ? { headers: row.headers } : {}),
     ...(row.compat ? { compat: row.compat } : {}),
     ...(row.mediaInput ? { mediaInput: row.mediaInput } : {}),

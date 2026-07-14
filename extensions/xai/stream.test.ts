@@ -270,6 +270,7 @@ describe("xai stream wrappers", () => {
       "start",
       "toolcall_start",
       "toolcall_delta",
+      "toolcall_end",
       "done",
     ]);
     const done = events.find((event) => event.type === "done") as {
@@ -622,6 +623,33 @@ describe("xai stream wrappers", () => {
         type: "function_call_output",
         call_id: "call_1",
         output: "(see attached image)",
+      },
+    ]);
+  });
+
+  it("uses audio fallback text for audio-only tool outputs", () => {
+    const payload: Record<string, unknown> = {
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_audio",
+          output: [
+            {
+              type: "input_audio",
+              mimeType: "audio/wav",
+              data: "QUJDRA==",
+            },
+          ],
+        },
+      ],
+    };
+    runXaiToolPayloadWrapper({ payload, input: ["text"] });
+
+    expect(payload.input).toEqual([
+      {
+        type: "function_call_output",
+        call_id: "call_audio",
+        output: "(see attached audio)",
       },
     ]);
   });

@@ -1,5 +1,5 @@
 /** Tests secret target registry matching and docs coverage. */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   buildTalkTestProviderConfig,
@@ -13,6 +13,10 @@ import {
 } from "./target-registry.js";
 
 describe("secret target registry", () => {
+  beforeAll(() => {
+    resolveConfigSecretTargetByPath(["channels", "googlechat", "serviceAccount"]);
+  });
+
   it("supports filtered discovery by target ids", () => {
     const config = {
       ...buildTalkTestProviderConfig({ source: "env", provider: "default", id: "TALK_API_KEY" }),

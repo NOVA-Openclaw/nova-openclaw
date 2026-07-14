@@ -50,6 +50,8 @@ type PromptDecisionParams = {
   failoverFailure: boolean;
   failoverReason: FailoverReason | null;
   harnessOwnsTransport?: boolean;
+  promptTimeoutFallbackSafe?: boolean;
+  timedOutByRunBudget?: boolean;
   profileRotated: boolean;
 };
 
@@ -66,6 +68,7 @@ type AssistantDecisionParams = {
   timedOutDuringCompaction: boolean;
   timedOutDuringToolExecution: boolean;
   harnessOwnsTransport?: boolean;
+  timedOutByRunBudget?: boolean;
   profileRotated: boolean;
   hasVisibleOutput?: boolean;
 };
@@ -77,11 +80,7 @@ type RunFailoverDecisionParams =
 
 function shouldEscalateRetryLimit(reason: FailoverReason | null): boolean {
   return Boolean(
-    reason &&
-    reason !== "timeout" &&
-    reason !== "model_not_found" &&
-    reason !== "format" &&
-    reason !== "session_expired",
+    reason && reason !== "timeout" && reason !== "format" && reason !== "session_expired",
   );
 }
 
@@ -96,6 +95,9 @@ function isTerminalFormatFailure(params: {
 }
 
 function shouldRotatePrompt(params: PromptDecisionParams): boolean {
+  if (params.timedOutByRunBudget) {
+    return false;
+  }
   return (
     params.failoverFailure &&
     params.failoverReason !== "timeout" &&
@@ -122,6 +124,9 @@ function shouldRotateAssistant(params: AssistantDecisionParams): boolean {
   }
   // Refusals are content-scoped, not profile-scoped; never rotate auth profiles.
   if (params.failoverReason === "refusal") {
+    return false;
+  }
+  if (params.timedOutByRunBudget) {
     return false;
   }
   const timeoutFailure = isAssistantTimeoutFailure(params);
@@ -183,7 +188,21 @@ export function resolveRunFailoverDecision(params: RunFailoverDecisionParams): R
         reason: params.failoverReason,
       };
     }
+    if (params.timedOutByRunBudget) {
+      return {
+        action: "surface_error",
+        reason: params.failoverReason,
+      };
+    }
     if (params.harnessOwnsTransport && params.failoverReason === "timeout") {
+      // Plugin harness lifecycle timeouts must stay inside the harness boundary;
+      // only prompt request timeouts proven replay-safe may enter model fallback.
+      if (params.promptTimeoutFallbackSafe === true && params.fallbackConfigured) {
+        return {
+          action: "fallback_model",
+          reason: "timeout",
+        };
+      }
       return {
         action: "surface_error",
         reason: params.failoverReason,

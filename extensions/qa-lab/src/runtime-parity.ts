@@ -31,6 +31,10 @@ export type RuntimeParityUsage = {
   cacheWrite?: number;
 };
 
+export type RuntimeParityUsagePolicy =
+  | { expectation: "assistant-message-required" }
+  | { expectation: "not-applicable"; reason: string };
+
 export type RuntimeParityCell = {
   runtime: RuntimeId;
   transcriptBytes: string;
@@ -54,6 +58,7 @@ export type RuntimeParityDrift =
 
 export type RuntimeParityResult = {
   scenarioId: string;
+  runtimeParityUsage?: RuntimeParityUsagePolicy;
   cells: {
     openclaw: RuntimeParityCell;
     codex: RuntimeParityCell;
@@ -61,6 +66,22 @@ export type RuntimeParityResult = {
   drift: RuntimeParityDrift;
   driftDetails?: string;
 };
+
+export function resolveRuntimeParityUsagePolicy(value: unknown): RuntimeParityUsagePolicy {
+  // Legacy or malformed summaries must not silently disable live-usage proof.
+  if (!value || typeof value !== "object") {
+    return { expectation: "assistant-message-required" };
+  }
+  const candidate = value as { expectation?: unknown; reason?: unknown };
+  if (
+    candidate.expectation === "not-applicable" &&
+    typeof candidate.reason === "string" &&
+    candidate.reason.trim()
+  ) {
+    return { expectation: "not-applicable", reason: candidate.reason.trim() };
+  }
+  return { expectation: "assistant-message-required" };
+}
 
 export type RuntimeParityScenarioExecution = {
   scenarioStatus: "pass" | "fail";
@@ -93,6 +114,7 @@ type QaGatewayLike = {
 type QaSuiteScenarioLike = {
   details?: string;
   status: "pass" | "fail";
+  steps?: Array<{ details?: string; status?: "pass" | "fail" | "skip" }>;
 };
 
 type RuntimeParityCaptureParams = {
@@ -740,21 +762,66 @@ function hasMissingToolResult(toolCalls: readonly RuntimeParityToolCall[]) {
   return toolCalls.some((toolCall) => toolCall.errorClass === TOOL_RESULT_MISSING_ERROR_CLASS);
 }
 
+function hasProvenTerminalImageResult(scenarioResult: QaSuiteScenarioLike) {
+  return (
+    scenarioResult.status === "pass" &&
+    (scenarioResult.steps ?? []).some(
+      (step) =>
+        step.status === "pass" &&
+        /(?:^|\n)image_generate=true\r?\nMEDIA:\S+/u.test(step.details ?? ""),
+    )
+  );
+}
+
+const PROVEN_TERMINAL_IMAGE_RESULT_HASH = stableHash({ kind: "media", status: "success" });
+
 function resolveRuntimeParityToolCalls(params: {
   mockToolCalls: RuntimeParityToolCall[] | null;
   transcriptToolCalls: RuntimeParityToolCall[];
+  terminalImageResultProven?: boolean;
 }): RuntimeParityToolCall[] {
+  const mockImageCalls = (params.mockToolCalls ?? []).filter(
+    (toolCall) => toolCall.tool === "image_generate",
+  );
+  const transcriptImageCalls = params.transcriptToolCalls.filter(
+    (toolCall) => toolCall.tool === "image_generate",
+  );
+  const imageCaptureIsUnambiguous =
+    mockImageCalls.length <= 1 &&
+    transcriptImageCalls.length <= 1 &&
+    (mockImageCalls.length === 0 ||
+      transcriptImageCalls.length === 0 ||
+      compareToolCallShape(mockImageCalls, transcriptImageCalls) === undefined);
+  let selected: RuntimeParityToolCall[];
   if (!params.mockToolCalls) {
-    return params.transcriptToolCalls;
-  }
-  if (
+    selected = params.transcriptToolCalls;
+  } else if (
     hasMissingToolResult(params.mockToolCalls) &&
     !hasMissingToolResult(params.transcriptToolCalls) &&
     compareToolCallShape(params.mockToolCalls, params.transcriptToolCalls) === undefined
   ) {
-    return params.transcriptToolCalls;
+    selected = params.transcriptToolCalls;
+  } else {
+    selected = params.mockToolCalls;
   }
-  return params.mockToolCalls;
+  const imageCalls = selected.filter((toolCall) => toolCall.tool === "image_generate");
+  if (params.terminalImageResultProven && imageCaptureIsUnambiguous && imageCalls.length === 1) {
+    selected = selected.map((toolCall) => {
+      if (
+        toolCall.tool !== "image_generate" ||
+        (toolCall.errorClass !== undefined &&
+          toolCall.errorClass !== TOOL_RESULT_MISSING_ERROR_CLASS)
+      ) {
+        return toolCall;
+      }
+      return {
+        ...toolCall,
+        resultHash: PROVEN_TERMINAL_IMAGE_RESULT_HASH,
+        errorClass: undefined,
+      };
+    });
+  }
+  return selected;
 }
 
 function filterMockRequestsForParentPrompt(
@@ -1041,12 +1108,22 @@ export async function captureRuntimeParityCell(
     ...scanGatewayLogSentinels(gatewayLogs),
     ...scanDirectReplyTranscriptSentinels(transcriptBytes),
   ];
-  const scenarioErrorClass = classifyScenarioError(params.scenarioResult.details);
+  // Retry passes retain first-attempt diagnostics; only terminal failures may
+  // classify that historical text as the cell's runtime error.
+  const scenarioErrorClass =
+    params.scenarioResult.status === "fail"
+      ? classifyScenarioError(params.scenarioResult.details)
+      : undefined;
   const sentinelErrorClass = summarizeSentinelErrorClass(sentinelFindings);
+  const terminalImageResultProven = hasProvenTerminalImageResult(params.scenarioResult);
   return {
     runtime: params.runtime,
     transcriptBytes,
-    toolCalls: resolveRuntimeParityToolCalls({ mockToolCalls, transcriptToolCalls }),
+    toolCalls: resolveRuntimeParityToolCalls({
+      mockToolCalls,
+      transcriptToolCalls,
+      terminalImageResultProven,
+    }),
     finalText: extractFinalAssistantText(transcriptRecords),
     usage: aggregateUsage(transcriptRecords),
     wallClockMs: params.wallClockMs,
@@ -1060,6 +1137,7 @@ export async function captureRuntimeParityCell(
 
 export async function runRuntimeParityScenario(params: {
   scenarioId: string;
+  runtimeParityUsage?: RuntimeParityUsagePolicy;
   runCell: (runtime: RuntimeId) => Promise<RuntimeParityScenarioExecution>;
 }): Promise<RuntimeParityResult> {
   const openclaw = await params.runCell("openclaw");
@@ -1072,6 +1150,7 @@ export async function runRuntimeParityScenario(params: {
   });
   return {
     scenarioId: params.scenarioId,
+    runtimeParityUsage: resolveRuntimeParityUsagePolicy(params.runtimeParityUsage),
     cells: {
       openclaw: openclaw.cell,
       codex: codex.cell,
@@ -1084,6 +1163,7 @@ export async function runRuntimeParityScenario(params: {
 export const testing = {
   classifyRuntimeParityCells,
   filterMockRequestsForParentPrompt,
+  hasProvenTerminalImageResult,
   resolveRuntimeParityToolCalls,
   resolveToolCallOrderFromMockRequests,
 };

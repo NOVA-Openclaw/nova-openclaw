@@ -456,27 +456,6 @@ export function createChannelIngressQueue<
     return rows.map((row) => claimedRecord<TPayload, TMetadata>(row));
   };
 
-  const recoverStaleClaims: ChannelIngressQueue<
-    TPayload,
-    TMetadata,
-    TCompletedMetadata
-  >["recoverStaleClaims"] = async (recoverOptions) => {
-    const current = recoverOptions?.now ?? now();
-    const staleMs = Math.max(0, Math.floor(recoverOptions?.staleMs ?? 0));
-    const cutoff = current - staleMs;
-    const claims = (await listClaims()).filter((claim) => claim.claim.claimedAt <= cutoff);
-    let recovered = 0;
-    for (const claim of claims) {
-      if (recoverOptions?.shouldRecover && !(await recoverOptions.shouldRecover(claim))) {
-        continue;
-      }
-      if (await releaseClaimIfStillStale(claim, { cutoff, releasedAt: current })) {
-        recovered += 1;
-      }
-    }
-    return recovered;
-  };
-
   const claimNext: ChannelIngressQueue<
     TPayload,
     TMetadata,
@@ -677,6 +656,27 @@ export function createChannelIngressQueue<
       },
       { path: database.path },
     );
+  };
+
+  const recoverStaleClaims: ChannelIngressQueue<
+    TPayload,
+    TMetadata,
+    TCompletedMetadata
+  >["recoverStaleClaims"] = async (recoverOptions) => {
+    const current = recoverOptions?.now ?? now();
+    const staleMs = Math.max(0, Math.floor(recoverOptions?.staleMs ?? 0));
+    const cutoff = current - staleMs;
+    const staleClaims = (await listClaims()).filter((claimed) => claimed.claim.claimedAt <= cutoff);
+    let recovered = 0;
+    for (const staleClaim of staleClaims) {
+      if (recoverOptions?.shouldRecover && !(await recoverOptions.shouldRecover(staleClaim))) {
+        continue;
+      }
+      if (await releaseClaimIfStillStale(staleClaim, { cutoff, releasedAt: current })) {
+        recovered += 1;
+      }
+    }
+    return recovered;
   };
 
   const complete: ChannelIngressQueue<TPayload, TMetadata, TCompletedMetadata>["complete"] = async (
