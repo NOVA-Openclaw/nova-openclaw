@@ -7,7 +7,6 @@ import {
   updateAmbientTranscriptWatermark,
   type AmbientTranscriptWatermarkScope,
 } from "../config/sessions/ambient-transcript-watermark.js";
-import { resolveStorePath as resolveSessionStorePath } from "../config/sessions/paths.js";
 import {
   cleanupSessionLifecycleArtifacts as cleanupAccessorSessionLifecycleArtifacts,
   listSessionEntries as listAccessorSessionEntries,
