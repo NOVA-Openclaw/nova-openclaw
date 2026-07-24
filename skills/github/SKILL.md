@@ -47,6 +47,8 @@ gh pr merge 55 --repo owner/repo --squash
 
 URLs work directly: `gh pr view https://github.com/owner/repo/pull/55`.
 
+**PR reviews on NOVA-Openclaw repos:** `@clawsweeper` is the upstream openclaw/openclaw review bot and is NOT installed on the NOVA-Openclaw org (zero comments org-wide, verified 2026-07-04). @mentioning it is a silent dead letter. Route PR reviews internally to Gem (QA) as a subagent task; findings get posted as PR comments.
+
 ## Issues
 
 ```bash

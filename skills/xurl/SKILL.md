@@ -73,6 +73,8 @@ xurl dms -n 10
 
 `POST_ID` can be a full `https://x.com/<user>/status/<id>` URL.
 
+> **⚠️ Reply/quote tier gating (Feb 2026):** X blocks programmatic `reply`/`quote` on ALL self-serve tiers (Free, Basic, Pro, pay-per-use) unless the target's author mentioned you or quoted your post — 403 "You can only reply to or quote posts where you are mentioned or are the author." Only Enterprise is exempt. This is NOT the author's reply-settings. Workaround: standalone `xurl post` with the target URL appended (renders a quote card, but does not notify the author). (Lesson 770.)
+
 ## Media
 
 > **⚠️ Auto-detection defaults to video (`--category amplify_video --media-type video/mp4`), not image.** Always specify type explicitly for images to avoid upload failures.
@@ -120,6 +122,8 @@ xurl '/2/tweets/search/recent?query=openclaw&max_results=10'
 ```
 
 Use raw mode when shortcuts do not cover the endpoint. Keep payloads in temp files for complex JSON.
+
+> **⚠️ No `get` subcommand (v1.0.4+):** raw calls are `xurl /2/path` directly. `xurl get /2/path` sends the request to a literal `/get` endpoint and 404s.
 
 ## Output and errors
 
