@@ -3540,7 +3540,7 @@ async function runEmbeddedAgentInternal(
             );
           }
 
-          const assistantVisibleText = resolveFinalAssistantVisibleText(assistantForFailover);
+          const assistantVisibleText = resolveFinalAssistantVisibleText(attemptAssistant);
           const assistantHasVisibleOutput =
             typeof assistantVisibleText === "string" && assistantVisibleText.length > 0;
           const assistantFailoverDecision = resolveRunFailoverDecision({
