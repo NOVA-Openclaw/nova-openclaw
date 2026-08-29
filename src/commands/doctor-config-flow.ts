@@ -19,7 +19,6 @@ import {
   applyUnknownConfigKeyStep,
 } from "./doctor/shared/config-flow-steps.js";
 import { applyDoctorConfigMutation } from "./doctor/shared/config-mutation-state.js";
-
 import { normalizeCompatibilityConfigValues } from "./doctor/shared/legacy-config-core-migrate.js";
 
 function hasLegacyInternalHookHandlers(raw: unknown): boolean {
@@ -249,6 +248,16 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   });
   if (pluginToolAllowlistWarnings.length > 0) {
     note(sanitizeDoctorNote(pluginToolAllowlistWarnings.join("\n")), "Doctor warnings");
+  }
+
+  const { collectMediaUnderstandingModelWarnings } =
+    await import("./doctor/shared/media-understanding-model-warnings.js");
+  const mediaUnderstandingModelWarnings = collectMediaUnderstandingModelWarnings({
+    cfg: candidate,
+    env: process.env,
+  });
+  if (mediaUnderstandingModelWarnings.length > 0) {
+    note(sanitizeDoctorNote(mediaUnderstandingModelWarnings.join("\n")), "Doctor warnings");
   }
 
   const hasConfiguredChannels = collectConfiguredChannelIds(candidate).length > 0;
