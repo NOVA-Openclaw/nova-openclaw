@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { expect, it, vi } from "vitest";
+import { classifyAssistantFailoverReason } from "../../../../src/agents/embedded-agent-helpers/assistant-message-failures.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { makeOpenAIProviderModel } from "./openai-provider.test-support.js";
 import {
@@ -42,7 +43,7 @@ it.each(
         headers: { "content-type": http ? "application/json" : "text/event-stream" },
       });
     });
-    const client = new OpenAI({ apiKey: "test", fetch: fetchMock, maxRetries: 0 });
+    const client = new OpenAI({ apiKey: "***", fetch: fetchMock, maxRetries: 0 });
     const output = createResponsesAssistantOutput(model);
     await runResponsesStreamLifecycle({
       stream: new AssistantMessageEventStream(),
@@ -52,7 +53,13 @@ it.each(
       buildParams: () => ({ model: model.id, input: [], stream: true }),
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(output).toMatchObject({ api: "openai-responses", stopReason: "error", errorCode: code });
+    // The transport projects the raw provider code first, then re-stamps
+    // errorCode with the stable refusal marker for misalignment refusals.
+    expect(output).toMatchObject({
+      api: "openai-responses",
+      stopReason: "error",
+      errorCode: code === "misalignment_policy_violation" ? "provider_refusal" : error.code,
+    });
     if (code !== "misalignment_policy_violation") {
       expect(output.diagnostics?.some((entry) => entry.type === "provider_refusal")).not.toBe(true);
       return;
@@ -69,5 +76,12 @@ it.each(
         },
       },
     ]);
+    // The failover classifier reads errorCode="provider_refusal" together with
+    // the provider_refusal diagnostic, so it routes stream-emitted failures
+    // to the refusal bucket for model fallback. The http 403 wrapper is
+    // classified as auth upstream; that path is outside this finding.
+    if (failureShape !== "http") {
+      expect(classifyAssistantFailoverReason(output)).toBe("refusal");
+    }
   },
 );

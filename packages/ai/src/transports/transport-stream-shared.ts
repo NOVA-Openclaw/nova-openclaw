@@ -692,9 +692,11 @@ export function failTransportStream(params: {
   error: unknown;
   diagnostic?: TransportFailureDiagnostic;
   cleanup?: () => void;
+  onProjected?: (projection: ProviderErrorProjection) => void;
 }): void {
-  const { stream, output, signal, error, cleanup } = params;
-  const projection = assignTransportErrorDetails(output, error, signal, params.diagnostic);
+  const { stream, output, signal, error, cleanup, diagnostic, onProjected } = params;
+  const projection = assignTransportErrorDetails(output, error, signal, diagnostic);
+  onProjected?.(projection);
   cleanup?.();
   stream.push({ type: "error", reason: projection.stopReason, error: output });
   stream.end();
