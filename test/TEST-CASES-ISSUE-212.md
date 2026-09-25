@@ -23,9 +23,9 @@ disabled/reverted — proves the test isn't vacuously green).
 
 ## 1. Agent-identity exec-env plugin (`resolve_exec_env` hook)
 
-Target: a new self-contained `extensions/<name>/` plugin (name TBD at
-implementation; suggest `extensions/agent-identity-env/`) registering
-`resolve_exec_env`. Reference behavior: old patch `861e4e63823`. Contract:
+Target: a new self-contained `extensions/agent-identity-env/` plugin
+(decided name, Step 4 review 2026-09-24) registering `resolve_exec_env`.
+Reference behavior: old patch `861e4e63823`. Contract:
 `src/agents/bash-tools.exec-request-preparation.ts` (`prepareParamsWithResolvedExecEnv`
 ~L262-285, `filterPluginExecEnv` ~L104, merge at
 `resolvePreparedExecEnvironment` ~L389), hook types in `src/plugins/hook-types.ts`
@@ -174,6 +174,49 @@ implementation; suggest `extensions/agent-identity-env/`) registering
   construction, not just that the plugin function returns the right object in
   isolation.
 
+### 1.7 Plugin activation on a fresh install — added per Step 4 review (gap B)
+
+Confirmed via `src/plugins/gateway-startup-plugin-config.ts:246`
+(`shouldConsiderForGatewayStartup`) and `docs/plugins/manifest/capabilities.md:177`:
+"Omitting `onStartup` no longer startup-loads the plugin implicitly." A
+hook-only plugin with no channel/provider/command/route/config-path surface to
+hang narrower activation off of (per the `onProviders`/`onCommands`/
+`onChannels`/`onRoutes`/`onConfigPaths`/`onCapabilities` fields at
+`docs/plugins/manifest/capabilities.md:193-202`) has no other trigger path — it
+must set `activation.onStartup: true` explicitly in
+`extensions/agent-identity-env/openclaw.plugin.json`, or it silently never
+loads on a real gateway even though its code, hook registration, and every
+unit test above are otherwise correct. This is exactly the silent-fallback
+failure mode item 1 exists to prevent, one layer up the stack from where the
+unit tests above look.
+
+- **TC-212-1-U-16 [manifest]**: `extensions/agent-identity-env/openclaw.plugin.json`
+  is present, parses, matches the manifest shape used by other bundled
+  hook-only plugins (e.g. `active-memory`'s manifest as a reference example),
+  and declares `activation.onStartup === true` literally — not merely absent,
+  per the confirmed doc language that absence means startup-lazy, not
+  startup-by-default.
+- **TC-212-1-INT-05 [real loader, not JSON-only]**: drive the actual plugin
+  discovery/activation-planning path (the function(s) that call
+  `shouldConsiderForGatewayStartup`, or the public loader entry point used by
+  `test/cli-json-stdout.plugins.e2e.test.ts`'s `plugins list --json`
+  invocation) against a fixture installation containing this plugin with **no
+  user config at all** (fresh install, no `plugins.*` block, no explicit
+  enable), and assert the plugin appears in the resulting startup/load plan.
+  This must exercise the real planner function, not just read the JSON file
+  and assert a boolean field — the planner has its own precedence rules
+  (context-engine slot, dreaming-plugin startup set, etc.) that a hand-read of
+  the manifest cannot verify.
+- **TC-212-1-KILL-02**: `activation.onStartup` flipped to `false` (or omitted)
+  in the manifest → TC-212-1-INT-05 must fail (plugin absent from the
+  fresh-install startup plan). Confirms the test actually exercises
+  activation, not just manifest-file presence.
+- **TC-212-1-STAGE-01**: on the staged gateway (STAGE-02 below), run
+  `openclaw plugins list --json` (or the gateway's equivalent loaded-plugins
+  surface) and confirm the new plugin id appears in the loaded/active list —
+  the true end-to-end version of TC-212-1-INT-05, against the real staged
+  install rather than a test harness.
+
 ---
 
 ## 2. Provider refusal → configured fallback chain
@@ -188,7 +231,26 @@ and the assistant/auth-controller wiring so `"refusal"` behaves as
 content-scoped (no auth-profile rotation, straight to next model) per the
 Step 2 I)ruid decision.
 
-### 2.1 `FAILOVER_REASONS` / type surface
+**Step 4 review resolution (2026-09-24) for the seam conflict (former
+Ambiguity #1, now CONFIRMED):** `src/agents/embedded-agent-helpers/assistant-message-failures.ts:33`
+returns `null` when `isTerminalAssistantError(msg)`, and `src/llm/utils/retry.ts:37`
+makes every provider refusal terminal via `isProviderRefusalAssistantError`.
+DECISION: option (a) — carve refusals out of the early return inside
+`classifyAssistantFailoverReason` only. `isTerminalAssistantError` itself
+stays unchanged everywhere else (it has a legitimate, different job for the
+_retry_ classifier — deciding whether the same turn can be retried in place,
+which a refusal correctly answers "no" to). TC-212-2-U-11 (below) remains the
+first/sharpest test to implement.
+
+**Additionally confirmed (Step 4 review):** refusal is also consumed as
+terminal by `src/agents/embedded-agent-runner/run/terminal-outcome.ts:33`,
+`run/incomplete-turn-resolution.ts:142,341`,
+`run/overflow-context-recovery.ts:99`, and `run/provider-refusal.ts`. The
+classifier-level fix (2.5 below) is necessary but not sufficient on its own —
+these downstream consumers format/short-circuit a refusal for user-facing
+display and incomplete-turn detection _before_ a model-fallback decision would
+normally be reached in the run loop. Section 2.5b below adds the true
+end-to-end runner-level acceptance test this requires.
 
 - **TC-212-2-U-01**: `FAILOVER_REASONS` (packages/gateway-protocol) includes
   `"refusal"` exactly once, and the array order/existing 16 entries are
@@ -284,20 +346,21 @@ Step 2 I)ruid decision.
   through to `null`/`"unclassified"`, which — per the original bug report —
   surfaces as generic "LLM request failed" instead of triggering fallback.
   Named test must fail with the mechanism reverted.
-- **TC-212-2-U-11 [does not double-count with `isTerminalAssistantError`]**:
+- **TC-212-2-U-11 [does not double-count with `isTerminalAssistantError`, DECISION CONFIRMED]**:
   `isTerminalAssistantError` already returns `true` for any message where
   `isProviderRefusalAssistantError` is true (existing code,
   `src/llm/utils/retry.ts:37`) — this makes a refusal message a "terminal
   assistant error" for the _retry_ classifier, which is a **different**
   question from the _failover_ classifier (`classifyAssistantFailoverReason`,
   gated on `msg.stopReason !== "error" || isTerminalAssistantError(msg)` at
-  `assistant-message-failures.ts:32` — **this early-return means a refusal
+  `assistant-message-failures.ts:32` — this early-return means a refusal
   message currently returns `null` from `classifyAssistantFailoverReason`
-  before ever reaching `classifyFailoverSignal`!**). **This is a real seam
-  conflict, not a hypothetical** — flag prominently in the Ambiguities
-  section: the fix must either (a) special-case refusals to bypass this early
-  return, or (b) the early return needs its own carve-out for `"refusal"`.
-  Write this as a failing-until-fixed test: assert
+  before ever reaching `classifyFailoverSignal`). Per the Step 4 review
+  decision, the fix carves refusals out of this early return **inside
+  `classifyAssistantFailoverReason` only** — `isTerminalAssistantError` itself
+  is unchanged for every other caller (the retry classifier's "can this exact
+  turn be retried in place" question legitimately still says "no" for a
+  refusal). Write this as a failing-until-fixed test: assert
   `classifyAssistantFailoverReason(refusalFixture)` returns `"refusal"`, not
   `null`, despite `isTerminalAssistantError` also being `true` for the same
   message. **[KILL]**: without the fix, this test fails today against
@@ -305,10 +368,128 @@ Step 2 I)ruid decision.
   and `retry.ts:27-39` together) — this is the sharpest edge case in the whole
   item and should be the first test implemented, since it may change the
   re-apply strategy (patch audit N2 did not call this seam out explicitly).
+- **TC-212-2-U-12 [auth-profile cooldown exemption, added per Step 4 review
+  gap E]**: `resolveAuthProfileFailureReason` (`src/agents/embedded-agent-runner/run/auth-profile-failure-policy.ts:14`)
+  already returns `null` (no cooldown/health-penalty bookkeeping) for a fixed
+  set of content/transport-scoped reasons — `overloaded`, `server_error`,
+  `tls_certificate`, `empty_response`, `context_overflow`, `format` — with the
+  file's own comment explaining why: "one bad transcript or connection should
+  not cool down an otherwise healthy provider profile." `"refusal"` must be
+  added to this same list. Assert
+  `resolveAuthProfileFailureReason({ failoverReason: "refusal", providerStarted: true })`
+  returns `null` — a content refusal is not a credential failure and must not
+  mark the auth profile, consistent with how `tls_certificate` is already
+  exempted. **[KILL]**: omit `"refusal"` from this list → the test fails
+  (returns `"refusal"` instead of `null`), proving a refusal would otherwise
+  incorrectly cool down a healthy credential shared across sessions (the exact
+  failure mode #77228 describes for `format`).
+
+### 2.5b Runner-level end-to-end acceptance test — added per Step 4 review (gap A, the true acceptance test)
+
+NOVA's review point stands: the classifier-level tests above (2.1–2.5) prove
+`classifyAssistantFailoverReason` returns `"refusal"` in isolation. They do
+**not** prove a real run with a configured multi-model chain actually produces
+an attempt on rung 2 after a non-cyber refusal on rung 1 — several downstream
+consumers (`terminal-outcome.ts:33`, `incomplete-turn-resolution.ts:142,341`,
+`overflow-context-recovery.ts:99`, `provider-refusal.ts`) also branch on
+`isProviderRefusalAssistantError` and could short-circuit before a fallback
+decision is reached, independent of whatever the classifier now returns. This
+is the true acceptance test for item 2; the classifier tests are supporting
+evidence, not the proof.
+
+- **TC-212-2-INT-02 [runner-level, real fallback chain]**: build on the
+  pattern already established in `run.empty-error-retry.test-support.ts`
+  (which already constructs `provider_refusal` diagnostics fixtures via
+  `emptyErrorAttempt`/`makeAssistantMessageFixture` and drives the real
+  `runEmbeddedAgent`/`loadSharedRunIntegrationHarness` harness — see its
+  `"ignores a historical refusal after compaction"` and
+  `"preserves a completed current refusal..."` cases for the exact fixture
+  shape to reuse). Configure a run with a **2-model fallback chain** (e.g.
+  `anthropic/claude-opus-5` primary, `anthropic/claude-sonnet-5` fallback, or
+  reuse whatever fixture provider pair the harness already supports), mock
+  rung 1 to return a **non-cyber** Anthropic refusal
+  (`diagnostics: [{ type: "provider_refusal", details: { category: "violence" } }]`,
+  or `category: undefined`) via `mockedRunEmbeddedAttempt.mockResolvedValueOnce(...)`,
+  and mock rung 2 to return a normal success. Assert:
+  1. `mockedRunEmbeddedAttempt` is called **twice** (rung 1 refused, rung 2
+     attempted) — the harness actually advanced to the next model, not just
+     that a classifier function returned a string.
+  2. The final `result.payloads` reflect rung 2's successful content, not the
+     refusal text.
+  3. No auth-profile rotation/cooldown call fired for rung 1's profile (ties
+     to TC-212-2-U-12).
+- **TC-212-2-KILL-02**: with the classifier-level fix from TC-212-2-U-11
+  reverted (early return not carved out) but every other item-2 change in
+  place, TC-212-2-INT-02 must fail — `mockedRunEmbeddedAttempt` called only
+  **once**, because the refusal never reaches the point where a fallback
+  decision gets made. This is the test that would have caught the seam
+  conflict before it shipped; it must exist precisely because the
+  classifier-only tests above cannot catch it.
+- **TC-212-2-INT-03 [chain exhausted by refusals, added per Step 4 review gap C]**:
+  every rung in the configured chain returns a refusal (mock 2+ rungs, all
+  non-cyber Anthropic refusals, no success anywhere). Assert:
+  1. The run does **not** loop indefinitely or re-attempt the same rung twice
+     — exactly one attempt per configured rung, matching how
+     `model-fallback-runner.ts`'s `exhaustionResult`/`outcome: "exhausted"`
+     path already caps attempts for other reasons.
+  2. The final surfaced error/payload is the **last rung's refusal text**
+     (with its category/explanation, via `formatUserFacingAssistantErrorText`
+     per `terminal-outcome.ts:33`), not a generic "LLM request failed" or an
+     `unclassified`/`unknown` fallback message — the whole point of item 2 is
+     that a refusal-caused exhaustion still reads as a refusal to the caller.
+
+### 2.5c Provider-emission coverage matrix — added per Step 4 review (gap D)
+
+Confirmed via source read (2026-09-24): the `provider_refusal` diagnostic is
+currently emitted from exactly three call sites:
+`packages/ai/src/transports/anthropic-stream-reducer.ts` (calls
+`applyAnthropicRefusal`, i.e. **direct Anthropic only**),
+`packages/ai/src/providers/openai-chatgpt-responses.ts:617`, and
+`packages/ai/src/providers/openai-responses-shared.ts:326` (both **OpenAI
+Responses-family transports only**). **Confirmed gap, not hypothetical**: the
+OpenRouter plugin (`extensions/openrouter/index.ts`) hardcodes
+`api: "openai-completions"` for every model it proxies, regardless of the
+underlying upstream model — and grep across
+`packages/ai/src/providers/openai-completions*.ts` and
+`packages/ai/src/internal/openai-completions-compat.ts` shows **zero**
+`provider_refusal`/`applyAnthropicRefusal`/`stop_details` handling anywhere in
+that transport family. This means **an OpenRouter-proxied Anthropic refusal
+(NOVA's current primary route, `openrouter/anthropic/claude-opus-5.5`) does
+NOT currently emit a classifiable `provider_refusal` diagnostic at all** —
+item 2's fix, as scoped by the issue and patch audit, does not reach this
+path. This is now a **confirmed, documented gap** (see updated Ambiguities
+section), not an open question — flagging it as out of scope for this run's
+implementation, but it must not be silently assumed to already be covered.
+
+- **TC-212-2-U-13 [direct Anthropic emits]**: a fixture streamed through
+  `anthropic-stream-reducer.ts`'s real reduction path (or as close to it as
+  the existing `anthropic.test.ts`/`anthropic-transport-stream.test.ts`
+  harnesses allow) with a `stop_details` payload produces a `provider_refusal`
+  diagnostic — confirms this path (already covered indirectly by 2.2's unit
+  tests) is the one genuinely fixed path.
+- **TC-212-2-U-14 [OpenAI Responses-family emits]**: a fixture through
+  `openai-chatgpt-responses.ts` and, separately, `openai-responses-shared.ts`
+  (both call sites) produces a `provider_refusal` diagnostic — confirms the
+  OpenAI Responses path (used by the existing cyber-escalation feature) is
+  unaffected by/compatible with the new generic classifier.
+- **TC-212-2-U-15 [OpenRouter-proxied Anthropic does NOT emit — documented
+  negative result, not a defect in this fix]**: a fixture through the
+  `openai-completions` transport (the family OpenRouter always uses per
+  `extensions/openrouter/index.ts`'s `api: "openai-completions"`) carrying
+  whatever raw refusal-shaped content an OpenRouter-proxied Anthropic response
+  actually returns (research the real wire shape before writing this fixture
+  — it will NOT be a `stop_details` field, since that's Anthropic-native) does
+  **not** produce a `provider_refusal` diagnostic and therefore does not
+  classify as `"refusal"`. This test exists to make the gap executable and
+  visible in the suite (so it surfaces the first time someone tries to close
+  it) rather than leaving it as prose alone. If the implementer decides this
+  gap is in-scope after all, this test flips from a documented-negative to a
+  real coverage requirement — do not silently delete it either way without
+  updating the Ambiguities section.
 
 ### 2.6 Non-regression: OpenAI cyber-policy escalation untouched
 
-- **TC-212-2-INT-02**: a **cyber-category OpenAI refusal** (provider="openai",
+- **TC-212-2-INT-04**: a **cyber-category OpenAI refusal** (provider="openai",
   category="cyber") still takes the existing Daybreak-retry path
   (`isReplaySafeEmbeddedOpenAiCyberRefusal` returns `true`, per
   `embedded-cyber-failover.ts`) and does **not** additionally get routed
@@ -317,13 +498,13 @@ Step 2 I)ruid decision.
   fixture shape (OpenAI+cyber), per `docs/concepts/model-failover.md`'s "does
   not send ordinary provider failures to Daybreak" / "general model fallback
   ordering is unchanged" language.
-- **TC-212-2-U-12**: an **OpenAI refusal with category != "cyber"** (e.g.
+- **TC-212-2-U-16**: an **OpenAI refusal with category != "cyber"** (e.g.
   `"violence"` or no category) is NOT eligible for Daybreak
   (`isReplaySafeEmbeddedOpenAiCyberRefusal` returns `false` since
   `refusal.category !== "cyber"`) and instead goes through the new generic
   `"refusal"` fallback path — confirms the two paths partition correctly by
   category, not just by provider.
-- **TC-212-2-U-13 [strict selection non-regression]**: a locked/strict model
+- **TC-212-2-U-17 [strict selection non-regression]**: a locked/strict model
   selection (`fallbacksOverride: []` per `isEmbeddedModelSelectionStrict`)
   receiving a non-cyber refusal → refusal remains terminal (surfaces the
   error), does NOT force a fallback the operator explicitly disabled. Mirrors
@@ -461,22 +642,18 @@ present and unchanged in v2026.9.6 (`src/hooks/internal-hooks.js`,
 Target: `skills/xurl/SKILL.md`. Old patch: `d950e917e4c`. Doc-only — a
 presence check is sufficient per the task brief.
 
-- **TC-212-4-STAGE-01 [presence check, desk review]**: `skills/xurl/SKILL.md`
-  "## Media" section contains the warning line about `--category amplify_video`
-  auto-detection defaulting incorrectly for images, and includes explicit
-  `--category tweet_image --media-type image/...` examples for at least
-  jpeg/png. This is not a unit test candidate (no code under test); implement
-  as a lightweight `test/scripts/`-style content-assertion test if the repo
-  has precedent for asserting skill-doc content in CI (check whether any
-  existing `skills/*/SKILL.md` content is asserted anywhere in `test/` before
-  deciding; if no precedent exists, this stays a manual desk-review checklist
-  item for step 5/6, not a new CI test pattern introduced solely for this doc
-  file).
-- **TC-212-4-U-01 [regression guard, cheap]**: if a content-assertion test is
-  added, it should also assert the **Troubleshooting** section's existing
-  final bullet mentions `--category tweet_image` (per the old diff's last
-  hunk) so a future doc edit can't silently drop just the troubleshooting
-  half while leaving the Media-section warning intact.
+**Step 4 review (2026-09-24): AGREED, desk-review checklist item, no new CI
+test category.**
+
+- **TC-212-4-STAGE-01 [presence check, desk review checklist line]**:
+  `skills/xurl/SKILL.md` "## Media" section contains the warning line about
+  `--category amplify_video` auto-detection defaulting incorrectly for
+  images, includes explicit `--category tweet_image --media-type image/...`
+  examples for at least jpeg/png, **and** the Troubleshooting section's final
+  bullet still mentions `--category tweet_image` (per the old diff's last
+  hunk — folded into this single checklist line rather than a separate test,
+  per Step 4 review). No CI content-assertion test introduced for this
+  doc-only item.
 
 ---
 
@@ -499,19 +676,59 @@ does **not** accept `-nova`).
   changelog-side assertions (existing test file
   `test/scripts/package-changelog.test.ts` already covers most of these —
   confirm no regression by re-running, don't just re-derive from scratch).
-- **TC-212-5-U-02**: `"2026.9.6-nova"` is now **accepted** by
+- **TC-212-5-U-02 [RESOLVED per Step 4 review gap A — concrete answer, not a
+  branch pick]**: `"2026.9.6-nova"` is now **accepted** by
   `RELEASE_VERSION_PATTERN` (`scripts/package-changelog.mjs`) and by all three
-  diagnostics.mjs regex sites. `resolvePackageChangelogVersions("2026.9.6-nova")`
-  returns a sane heading-candidate list (decide: does `-nova` get the
-  "prerelease" treatment like `-alpha.N`/`-beta.N` — i.e. does it fall back to
-  `[version, match[1], "Unreleased"]` — or the plain-suffix treatment like
-  `-N` — i.e. `[version]` only, no fallback? **This is an ambiguity to flag**:
-  `-nova` is not a prerelease in the semantic sense (it's a permanent fork
-  marker on an otherwise-stable release), so the "correction release" `-N`
-  branch semantics seem more correct than the "prerelease" `-alpha/beta`
-  branch, but confirm the implementer's regex actually produces
-  `match[1] = "2026.9.6"` either way and pick one deliberately rather than by
-  regex-branch accident).
+  diagnostics.mjs regex sites. Tracing `resolvePackageChangelogVersions` through
+  to its actual consumers (`extractCurrentPackageChangelog`/
+  `readCurrentPackageChangelog`, `scripts/package-changelog.mjs:56-131`) shows
+  neither existing branch is correct: v2026.9.6 ships `CHANGELOG/2026.9.6.md`
+  with **no** `2026.9.6-nova` section, so the plain `-N`-style branch
+  (`[version]` only, matching e.g. `-1` correction releases) would pass the
+  regex and then fail packing with "does not contain a release section"; the
+  prerelease branch would also wrongly append `Unreleased` as a fallback
+  candidate, which is semantically wrong for a stable-release fork suffix.
+  **Requirement**: `resolvePackageChangelogVersions("2026.9.6-nova")` must
+  return `["2026.9.6-nova", "2026.9.6"]` (i.e. `[version, match[1]]`, the base
+  version as a fallback heading candidate, no `Unreleased`), plus `Unreleased`
+  appended only when `options.allowUnreleased` is set — mirroring the existing
+  `-N` correction-release branch's shape but explicitly returning 2 elements
+  (`[version, match[1]]`) rather than reusing that branch's exact code path,
+  since `-nova` is not a correction release either; write the implementation's
+  own dedicated branch.
+  1. Unit test: `resolvePackageChangelogVersions("2026.9.6-nova")` equals
+     exactly `["2026.9.6-nova", "2026.9.6"]` (no `allowUnreleased`), and
+     `["2026.9.6-nova", "2026.9.6", "Unreleased"]` with `allowUnreleased: true`.
+  2. **TC-212-5-INT-01 [real-data seam, the test that actually proves #167 is
+     fixed]**: `readCurrentPackageChangelog(<worktree root>, "2026.9.6-nova")`
+     succeeds against the **real** `CHANGELOG/2026.9.6.md` /
+     `CHANGELOG/records/2026.9.6.md` in this checkout (confirmed present) —
+     not a synthetic fixture like the rest of `package-changelog.test.ts`. This
+     is the concrete proof that a `2026.9.6-nova` packaged build actually
+     resolves to the real `2026.9.6` release section instead of throwing.
+  3. **TC-212-5-KILL-02**: patch the two acceptance regexes but leave
+     `resolvePackageChangelogVersions`'s heading-fallback branch unadded (i.e.
+     `-nova` still resolves to `[version]` only, no base-version fallback) →
+     TC-212-5-INT-01 must fail with "does not contain a release section for
+     2026.9.6-nova." This is exactly the failure mode a partial, regex-only
+     patch would produce and ship silently green on every other test above.
+  4. **TC-212-5-U-16 [tag-link flag — checked, currently dormant but must stay
+     tested]**: `extractCurrentPackageChangelog`'s >500KB compaction path
+     (`scripts/package-changelog.mjs:83`) builds a source link to tag
+     `` `v${packageVersion}` `` verbatim — for a `-nova` build this produces
+     `v2026.9.6-nova`, a tag that will not exist upstream. **Checked**:
+     `CHANGELOG/2026.9.6.md` is ~116KB and `CHANGELOG/records/2026.9.6.md` is
+     ~73KB — well under the 500KB `MAX_PACKAGED_CHANGELOG_BYTES` limit, so this
+     path is **not reachable for the current 2026.9.6 release** and TC-212-5-INT-01
+     will not exercise it. Add a regression test asserting the packaged output
+     for `2026.9.6-nova` does NOT contain a `v2026.9.6-nova` tag link (proves
+     the dormant path stayed dormant), and separately, a synthetic-content unit
+     test (oversized fixture, same pattern as `package-changelog.test.ts`'s
+     `oversizedContributionRecord`) that forces the compaction path with a
+     `-nova` version and asserts whatever link format ships there is
+     intentional — if it's the broken `v2026.9.6-nova` form, flag that as a
+     known follow-up defect rather than letting a future oversized release
+     silently ship a dead link.
 
 ### 5.2 Adversarial — malformed/garbage versions must still be REJECTED
 
@@ -555,14 +772,11 @@ does **not** accept `-nova`).
   `"2026.9.6-nova"` (simple presence/format assertion — confirms the base
   version wasn't left as bare `2026.9.6` after the rebase, and wasn't
   mistakenly written as `2026.9.6-Nova` or `2026.9.6_nova`).
-- **TC-212-5-U-08**: `npm-shrinkwrap.json`'s version (companion fix from old
-  commit `3281e88ba18`, "sync npm-shrinkwrap.json version with package.json
-  -nova suffix") matches `package.json`'s version exactly. Confirm this
-  companion sync is still needed / still wired into the same release process
-  in v2026.9.6 before writing this as a hard assertion — flag if
-  `npm-shrinkwrap.json` no longer exists or is generated differently now (this
-  repo uses `pnpm-lock.yaml`, not npm; verify whether `npm-shrinkwrap.json`
-  is even still present before finalizing this test — see Ambiguities).
+- **TC-212-5-U-08: DROPPED per Step 4 review.** `npm-shrinkwrap.json` is
+  confirmed absent in v2026.9.6 (this repo uses `pnpm-lock.yaml` /
+  `pnpm-workspace.yaml`; the old companion fix `3281e88ba18` targeted a file
+  that no longer exists on this base). No replacement test needed — there is
+  no lockfile-version-sync requirement to re-apply.
 
 ### 5.4 Kill-check
 
@@ -612,80 +826,117 @@ suite delivered by this step.
 
 ## Requirement ambiguities and contradictions found
 
-Numbered for easy reference in review.
+Revised after Step 4 review (NOVA ↔ Gem, round 1, 2026-09-24). Resolved items
+kept for traceability; new/still-open items appended at the end.
 
-1. **Item 2 / refusal-terminal seam conflict (see TC-212-2-U-11).**
+### Resolved in round 1
+
+1. **Item 2 / refusal-terminal seam conflict — RESOLVED, CONFIRMED real.**
    `classifyAssistantFailoverReason` early-returns `null` whenever
    `isTerminalAssistantError(msg)` is true, and `isTerminalAssistantError`
    already treats **any** provider-refusal message as terminal
-   (`isProviderRefusalAssistantError` check at `retry.ts:37`, unconditional,
-   pre-dating this fix). This means, as things stand today, a refusal message
-   never reaches the failover classifier at all — it's filtered out one layer
-   up. The patch audit (N2) describes re-wiring `classifyFailoverReasonFromCode`
-   and `FAILOVER_REASONS`, but does not mention this earlier gate. Re-applying
-   only the audit's described changes would produce code that still doesn't
-   fix the bug, because the new `"refusal"` case in `classifyFailoverReasonFromCode`
-   is unreachable for refusals through this call path. **This needs an
-   explicit design decision before implementation**: either (a) refusals must
-   bypass `isTerminalAssistantError`'s early return in
-   `classifyAssistantFailoverReason` specifically (leaving `isTerminalAssistantError`
-   itself unchanged for the _retry_ classifier, which has a different,
-   legitimately-terminal-for-retry semantics), or (b) some other seam I
-   haven't found reaches the classifier by a different path. Flagging this
-   now rather than discovering it during test review.
+   (`isProviderRefusalAssistantError` at `retry.ts:37`, unconditional,
+   pre-dating this fix). NOVA independently verified this against
+   `assistant-message-failures.ts:33` and `retry.ts:37` and confirmed the
+   conflict is real, not a hypothetical. **DECISION: option (a)** — carve
+   refusals out of the early return inside `classifyAssistantFailoverReason`
+   only; `isTerminalAssistantError` stays unchanged for the retry classifier
+   everywhere else. TC-212-2-U-11 is the first test to implement.
+   **Additionally surfaced by the same review**: refusal is _also_ consumed as
+   terminal by `terminal-outcome.ts:33`, `incomplete-turn-resolution.ts:142,341`,
+   `overflow-context-recovery.ts:99`, and `provider-refusal.ts` — meaning the
+   classifier fix alone is necessary but not sufficient. Section 2.5b
+   (TC-212-2-INT-02/KILL-02/INT-03) now carries the true runner-level
+   acceptance test that proves a refusal on rung 1 actually reaches rung 2 of
+   a real configured chain, not just that a classifier function returns a
+   string in isolation.
 
-2. **Item 5 / `-nova` chained-suffix acceptance is explicitly asked for a
-   "sensible" decision but the issue text gives no criteria.** I've designed
-   tests (TC-212-5-U-03) assuming **rejection** of `2026.9.6-2-nova` and
-   `2026.9.6-beta.1-nova` on the grounds that: (a) none of the 9 historical
-   `-nova`-suffix commits in the patch audit ever combined `-nova` with a
-   correction (`-N`) or prerelease (`-alpha/beta.N`) suffix — every historical
-   example is a bare `YYYY.M.P-nova`; (b) the issue's own Option-A framing
-   ("Keep `-nova`... patch `RELEASE_VERSION_PATTERN`... so it also accepts
-   `-nova`") reads as "accept one more terminal form," not "accept `-nova` as
-   composable with the existing suffix grammar." This is a **recommendation,
-   not a confirmed decision** — needs I)ruid/NOVA sign-off before the
-   implementer treats TC-212-5-U-03's chained-suffix cases as hard rejects
-   rather than a widened-grammar accept.
+2. **Item 5 / `-nova` chained-suffix acceptance — RESOLVED: AGREED reject.**
+   `2026.9.6-2-nova` and `2026.9.6-beta.1-nova` are rejected. Grammar is
+   exactly `YYYY.M.P-nova` as one more terminal alternative, not composable
+   with the existing `-N`/`-alpha.N`/`-beta.N` suffixes. TC-212-5-U-03's
+   chained-suffix cases are hard rejects, confirmed.
 
-3. **Item 5 / case-sensitivity of `-nova` is not specified anywhere in the
-   issue.** I've recommended case-sensitive lowercase-only
-   (`-nova`, reject `-NOVA`/`-Nova`) per the same historical-precedent
-   argument above. Flagging as a recommendation needing confirmation, not an
-   assumption to build on silently.
+3. **Item 5 / case-sensitivity — RESOLVED: AGREED lowercase only.**
+   `-NOVA`/`-Nova` rejected; only lowercase `-nova` accepted.
 
-4. **Item 5 / `npm-shrinkwrap.json` existence unconfirmed in v2026.9.6.**
-   The old companion fix (`3281e88ba18`) assumed an `npm-shrinkwrap.json` file
-   synced to `package.json`'s version. This repo's lockfile is `pnpm-lock.yaml`
-   (`pnpm-workspace.yaml` is present at the repo root). Before implementing
-   TC-212-5-U-08, confirm whether `npm-shrinkwrap.json` is still produced/
-   committed anywhere in the v2026.9.6 tree, or whether this companion-fix
-   requirement is now obsolete/moot. I did not locate the file during this
-   review pass; flagging rather than asserting either way without deeper
-   packaging-pipeline research that's out of scope for test design.
+4. **Item 5 / `npm-shrinkwrap.json` — RESOLVED: confirmed ABSENT in
+   v2026.9.6.** TC-212-5-U-08 dropped; no replacement test (see 5.3).
 
-5. **Item 4 / no existing precedent found for CI-asserting `SKILL.md`
-   prose content.** I looked for but did not find any existing `test/`
-   pattern that regex-checks a `skills/*/SKILL.md` file's body text. If none
-   exists, introducing one just for this single doc-only item may be
-   disproportionate — recommend treating TC-212-4-STAGE-01 as a desk-review
-   checklist line (Step 5/6) rather than forcing a new CI-test category.
-   Flagging so the implementer doesn't feel obligated to invent test
-   infrastructure the brief didn't ask for ("a presence check is enough").
+5. **Item 4 / SKILL.md CI-assertion precedent — RESOLVED: AGREED, desk-review
+   checklist item, no new CI test category.** TC-212-4-STAGE-01 kept as a
+   single checklist line covering both the Media-section warning and the
+   Troubleshooting bullet; the separate regression-guard test dropped/folded
+   in, per Step 4 review.
 
-6. **Item 1 / plugin location and package name not decided by the issue.**
-   The issue says "a self-contained `extensions/` dir" but does not name it.
-   I've suggested `extensions/agent-identity-env/` in this document for
-   test-path purposes only — this is not a requirement, just a placeholder so
-   test file paths in the implementation can be referenced consistently. Not
-   a blocking ambiguity, just noting the name is unconfirmed.
+6. **Item 1 / plugin name — RESOLVED: `extensions/agent-identity-env/`
+   adopted as the decided name**, not just a placeholder.
 
-7. **Item 1 / CJK or non-ASCII `agentId`/`sessionKey` values were not
-   explicitly requested by the brief**, but NOVA-ecosystem agent names are
-   currently all ASCII lowercase identifiers (per `GLOBAL/DATABASE_ACCESS`
-   examples: nova, newhart, graybeard, gem, gidget, etc.) — I did not add a
-   dedicated non-ASCII-agentId adversarial case since it doesn't reflect a
-   realistic production input for this specific mechanism, unlike the
-   refusal-message CJK patterns in item 2 (which cover real provider-facing
-   text, a different kind of input). Noting the omission is deliberate, not
-   an oversight, in case reviewers expected symmetric coverage.
+7. **Item 1 / non-ASCII agentId — RESOLVED: AGREED, fine as documented
+   (deliberate omission, not a gap).**
+
+### New gaps identified in round 1 (now designed above, see cross-references)
+
+A. **Item 5 / changelog heading resolution for `-nova` — answered concretely,
+not left as an open branch-pick.** `resolvePackageChangelogVersions("2026.9.6-nova")`
+must return `["2026.9.6-nova", "2026.9.6"]` (plus `Unreleased` only when
+`allowUnreleased`), verified against the **real** `CHANGELOG/2026.9.6.md`
+in this checkout (TC-212-5-INT-01), not a synthetic fixture — this is the
+test that actually proves #167 is fixed. See revised 5.1 (TC-212-5-U-02,
+TC-212-5-INT-01, TC-212-5-KILL-02, TC-212-5-U-16). The >500KB
+compaction-path tag-link risk (`v${packageVersion}` → `v2026.9.6-nova`,
+a nonexistent tag) is checked: the real 2026.9.6 changelog/record files
+are ~116KB/~73KB, well under the 500KB limit, so this path is **not
+reachable today** — confirmed dormant, not just assumed, and covered by a
+regression test plus a synthetic-oversized unit test so it stays visible
+if a future release grows past the limit.
+
+B. **Item 1 / plugin activation on a fresh install — now covered, section
+1.7.** A bundled plugin that is present but not activated by default
+reproduces exactly the silent-fallback failure item 1 exists to prevent.
+`activation.onStartup: true` is required in the manifest (confirmed via
+`gateway-startup-plugin-config.ts:246` and
+`docs/plugins/manifest/capabilities.md:177`, since this plugin has no
+channel/provider/command surface to hang narrower activation off of).
+TC-212-1-U-16/INT-05/KILL-02/STAGE-01 added; STAGE-02 now explicitly
+checks the plugin appears in the loaded-plugin list via `plugins list --json`.
+
+C. **Item 2 / refusal on every rung, chain exhausted — now covered,
+TC-212-2-INT-03.** Every rung refusing must surface the _last rung's_
+refusal text (not a generic "LLM request failed") and must not loop or
+re-attempt a rung twice.
+
+D. **Item 2 / which providers actually emit a classifiable refusal — now
+covered and CONFIRMED AS A REAL GAP, section 2.5c
+(TC-212-2-U-13/U-14/U-15).** Verified by direct source read: the
+`provider_refusal` diagnostic is emitted from exactly three call sites —
+`anthropic-stream-reducer.ts` (direct Anthropic only, via
+`applyAnthropicRefusal`) and two OpenAI Responses-family sites
+(`openai-chatgpt-responses.ts:617`, `openai-responses-shared.ts:326`).
+**Confirmed**: `extensions/openrouter/index.ts` hardcodes
+`api: "openai-completions"` for every proxied model regardless of the
+underlying upstream model, and a repo-wide grep of
+`packages/ai/src/providers/openai-completions*.ts` /
+`packages/ai/src/internal/openai-completions-compat.ts` shows **zero**
+refusal handling anywhere in that transport family. **This means an
+OpenRouter-proxied Anthropic refusal — NOVA's current primary route,
+`openrouter/anthropic/claude-opus-5.5` — does NOT currently emit a
+classifiable `provider_refusal` diagnostic, and item 2's fix as scoped by
+the issue/patch-audit does not reach this path.** This is now a
+**documented, executable gap** (TC-212-2-U-15 makes it visible as a
+negative-result test rather than leaving it as prose) and is explicitly
+**out of scope for this run's implementation** per the issue's stated
+targets (which name `anthropic-refusal.ts` and the OpenAI stop-reason
+mapper only, not any OpenRouter/openai-completions file). Flagging for
+I)ruid/NOVA awareness: NOVA's own primary model route is not covered by
+this fix.
+
+E. **Item 2 / refusal must not rotate auth profiles or record a cooldown —
+now covered, TC-212-2-U-12.** Mirrors the existing `tls_certificate`
+exemption in `resolveAuthProfileFailureReason`
+(`auth-profile-failure-policy.ts:14`), which already documents "one bad
+transcript or connection should not cool down an otherwise healthy
+provider profile" for a fixed list of content/transport-scoped reasons.
+`"refusal"` must join that list; a kill-check proves its omission would
+incorrectly cool down a shared credential (the same failure class as
+#77228).
