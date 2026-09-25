@@ -15,8 +15,8 @@ const PACKAGED_BACKUP_PATH = path.join(".artifacts", "package-changelog", "CHANG
 const MAX_PACKAGED_CHANGELOG_BYTES = 500 * 1024;
 const MIN_RELEASE_SECTION_BODY_BYTES = 32;
 const UNRELEASED_HEADING = "Unreleased";
-const RELEASE_VERSION_PATTERN =
-  /^([0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*)(?:(?:-(?:alpha|beta)\.[1-9][0-9]*)|(?:-[1-9][0-9]*))?$/u;
+export const RELEASE_VERSION_PATTERN =
+  /^([0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*)(?:(?:-(?:alpha|beta)\.[1-9][0-9]*)|(?:-[1-9][0-9]*)|(?:-nova))?$/u;
 const PRERELEASE_VERSION_PATTERN =
   /^([0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*)-(?:alpha|beta)\.[1-9][0-9]*$/u;
 
@@ -32,6 +32,11 @@ export function resolvePackageChangelogVersions(packageVersion, options = {}) {
   }
   if (PRERELEASE_VERSION_PATTERN.test(packageVersion)) {
     return [packageVersion, match[1], UNRELEASED_HEADING];
+  }
+  if (packageVersion.endsWith("-nova")) {
+    return options.allowUnreleased
+      ? [packageVersion, match[1], UNRELEASED_HEADING]
+      : [packageVersion, match[1]];
   }
   return options.allowUnreleased ? [packageVersion, UNRELEASED_HEADING] : [packageVersion];
 }

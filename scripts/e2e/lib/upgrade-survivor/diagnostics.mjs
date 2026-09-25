@@ -390,7 +390,9 @@ function doctorObservation({ started, exited }, sanitize = (text) => text) {
     !Number.isSafeInteger(started.parentPid) ||
     started.parentPid <= 0 ||
     typeof started.packageVersion !== "string" ||
-    !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(started.packageVersion) ||
+    !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+|nova))?$/.test(
+      started.packageVersion,
+    ) ||
     ["pid", "parentPid", "packageVersion"].some((key) => started[key] !== exited[key]) ||
     !Number.isInteger(exited.exitCode) ||
     exited.exitCode < 0 ||
@@ -933,7 +935,7 @@ function armUpgradeProcessCapture() {
     }
     if (
       typeof version !== "string" ||
-      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(version)
+      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+|nova))?$/.test(version)
     ) {
       return;
     }
@@ -1625,7 +1627,7 @@ function publishedSuccessSummary(artifactRoot, sanitize) {
     if (
       !["@openclaw/discord", "@openclaw/msteams"].includes(companion.package) ||
       typeof companion.version !== "string" ||
-      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(companion.version) ||
+      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+|nova))?$/.test(companion.version) ||
       !["available", "unavailable"].includes(companion.availability) ||
       (companion.availability === "available"
         ? companion.reason !== null

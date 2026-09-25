@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const VERSION =
-  /^(?:Unreleased|\d{4}\.[1-9]\d*\.[1-9]\d*(?:-(?:(?:alpha|beta)\.[1-9]\d*|[1-9]\d*))?)$/u;
+  /^(?:Unreleased|\d{4}\.[1-9]\d*\.[1-9]\d*(?:-(?:(?:alpha|beta)\.[1-9]\d*|[1-9]\d*|nova))?)$/u;
 const INDEX_MARKER = "<!-- openclaw:split-changelog -->";
 
 /** @typedef {{ rootDir: string, ref?: string }} ChangelogSource */
