@@ -145,6 +145,8 @@ describe("resolveAuthProfileFailureReason", () => {
   it("does not persist provider content refusals as auth-profile health", () => {
     // A refusal is a model-policy decision about the specific content, not a
     // shared credential reliability signal (TC-212-2-U-12).
+    // Expected: null, because the implementation adds "refusal" to the same
+    // content/transport-scoped exemption list as "format" and "tls_certificate".
     expect(
       resolveAuthProfileFailureReason({
         failoverReason: "refusal",

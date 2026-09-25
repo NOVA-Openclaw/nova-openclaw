@@ -67,6 +67,8 @@ describe("refusal classification", () => {
   });
 
   describe("TC-212-2-U-05: isRefusalErrorMessage matches provider-shaped refusal text", () => {
+    // Expected literals are the exact output shapes produced by
+    // `formatAnthropicRefusalMessage` in packages/ai/src/providers/anthropic-refusal.ts.
     it.each([
       {
         label: "category + explanation",
@@ -76,8 +78,10 @@ describe("refusal classification", () => {
       { label: "bare refusal", raw: "Anthropic refusal." },
       { label: "explanation only", raw: "Anthropic refusal: I cannot help with that." },
     ])("matches $label", ({ raw }) => {
+      // Tight anchored prefix match: must be true for the provider-shaped message.
       expect(isRefusalErrorMessage(raw)).toBe(true);
-      // The classifier must also route the message to the refusal bucket.
+      // The classifier must also route the message to the refusal bucket when no
+      // errorCode is present.
       expect(
         classifyAssistantFailoverReason(
           makeRefusalFixture({ errorMessage: raw, errorCode: undefined, diagnostics: undefined }),
@@ -98,6 +102,8 @@ describe("refusal classification", () => {
       { label: "empty string", raw: "" },
       { label: " substring without prefix", raw: "provider refusal: out of policy" },
     ])("rejects $label", ({ raw }) => {
+      // The anchored /^anthropic refusal\b/i regex must reject any text that is
+      // not prefixed with the exact provider refusal shape.
       expect(isRefusalErrorMessage(raw)).toBe(false);
     });
   });
@@ -115,6 +121,8 @@ describe("refusal classification", () => {
 
   describe("TC-212-2-U-13/14/15: provider emission coverage matrix", () => {
     it("TC-212-2-U-13: direct Anthropic emits provider_refusal diagnostic + errorCode", () => {
+      // Expected "refusal" because direct Anthropic sets errorCode="provider_refusal"
+      // and a provider_refusal diagnostic (see anthropic-refusal.ts).
       const fixture = makeRefusalFixture({
         api: "messages",
         provider: "anthropic",
@@ -131,6 +139,8 @@ describe("refusal classification", () => {
     });
 
     it("TC-212-2-U-14: OpenAI Responses-family emits provider_refusal diagnostic + errorCode", () => {
+      // Expected "refusal" because OpenAI Responses-family paths also set
+      // errorCode="provider_refusal" with a provider_refusal diagnostic.
       const fixture = makeRefusalFixture({
         api: "openai-responses",
         provider: "openai",
@@ -151,6 +161,8 @@ describe("refusal classification", () => {
       // transport surfaces refusal content as visible assistant text (stopReason
       // "stop"), not as a stopReason "error" with a provider_refusal diagnostic.
       // This is a documented negative — do not "fix" it in this change.
+      // Expected: not "refusal" because the message has no error stopReason,
+      // no errorCode, and no provider_refusal diagnostic.
       const fixture = makeRefusalFixture({
         api: "openai-completions",
         provider: "openrouter",
