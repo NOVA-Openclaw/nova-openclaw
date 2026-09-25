@@ -430,6 +430,7 @@ const SETUP_STATUS_BY_FAILOVER_REASON = {
   no_error_details: "unknown",
   unclassified: "unknown",
   unknown: "unknown",
+  refusal: "unknown",
 } satisfies Record<FailoverReason, SetupInferenceFailureStatus>;
 
 export function mapFailoverReasonToSetupStatus(

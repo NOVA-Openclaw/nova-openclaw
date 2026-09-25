@@ -37,6 +37,7 @@ const RECOVERY_BY_REASON = {
   no_error_details: true,
   unclassified: true,
   unknown: true,
+  refusal: false,
 } satisfies Record<FailoverReason, boolean>;
 
 describe("renderAuthProfileFailoverCopy", () => {

@@ -1,3 +1,4 @@
+import { isProviderRefusalAssistantError } from "@openclaw/llm-core/diagnostics";
 import type { AssistantMessage } from "../../llm/types.js";
 import { isTerminalAssistantError } from "../../llm/utils/retry.js";
 import { extractErrorHttpStatus } from "../../shared/assistant-error-format.js";
@@ -30,7 +31,12 @@ export function classifyAssistantFailoverReason(
   msg: AssistantMessage | undefined,
   opts?: { provider?: string; providerOwner?: PreparedProviderFailoverOwner | null },
 ): FailoverReason | null {
-  if (!msg || msg.stopReason !== "error" || isTerminalAssistantError(msg)) {
+  if (!msg || msg.stopReason !== "error") {
+    return null;
+  }
+  // Refusals are terminal for in-place retry but still need model failover.
+  // Carve them out here so the failover classifier can see them.
+  if (isTerminalAssistantError(msg) && !isProviderRefusalAssistantError(msg)) {
     return null;
   }
   // Runtime preparation carries the resolved owner here so packaged runs do

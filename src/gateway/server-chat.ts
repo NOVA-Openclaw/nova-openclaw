@@ -204,6 +204,7 @@ const CHAT_ERROR_KIND_BY_FAILOVER_REASON = {
   no_error_details: undefined,
   unclassified: undefined,
   unknown: undefined,
+  refusal: undefined,
 } satisfies Record<FailoverReason, ChatErrorKind | undefined>;
 
 function readChatErrorKind(value: unknown): ChatErrorKind | undefined {

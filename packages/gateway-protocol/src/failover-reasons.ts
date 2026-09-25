@@ -15,6 +15,7 @@ export const FAILOVER_REASONS = [
   "no_error_details",
   "unclassified",
   "unknown",
+  "refusal",
 ] as const;
 
 export type FailoverReason = (typeof FAILOVER_REASONS)[number];

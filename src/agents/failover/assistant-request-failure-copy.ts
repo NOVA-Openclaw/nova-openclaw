@@ -66,6 +66,7 @@ const ASSISTANT_REQUEST_FAILURE_REASON = {
   no_error_details: "",
   unclassified: "",
   unknown: "",
+  refusal: "model refused",
 } satisfies Record<FailoverReason, string>;
 
 /** Render classified facts without exposing raw provider response text. */

@@ -673,7 +673,7 @@ describe("cli-session helpers", () => {
     const error = new FailoverError("failover", { reason, provider: "claude-cli" });
     const invalidatesSession = reason === "session_expired";
 
-    expect(FAILOVER_REASONS).toHaveLength(16);
+    expect(FAILOVER_REASONS).toHaveLength(17);
     expect(isCliSessionInvalidatingFailoverReason(reason)).toBe(invalidatesSession);
     expect(shouldClearFailedCliSessionBinding({ error, binding: { sessionId: "reused" } })).toBe(
       invalidatesSession,

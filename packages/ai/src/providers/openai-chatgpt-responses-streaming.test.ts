@@ -260,7 +260,7 @@ describe("OpenAI ChatGPT Responses inference streaming", () => {
           reason: "error",
           error: {
             stopReason: "error",
-            errorCode: code,
+            errorCode: "provider_refusal",
             diagnostics: [
               {
                 type: "provider_refusal",

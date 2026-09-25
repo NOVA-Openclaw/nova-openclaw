@@ -30,6 +30,7 @@ const ERROR_TYPE_BY_REASON = {
   no_error_details: undefined,
   unclassified: undefined,
   unknown: undefined,
+  refusal: undefined,
 } satisfies Record<FailoverReason, string | undefined>;
 
 function statusForReason(reason: FailoverReason, status: number | undefined): number {

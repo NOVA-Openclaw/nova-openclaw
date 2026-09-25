@@ -327,6 +327,7 @@ export async function runResponsesStreamLifecycle<TApi extends Api>(params: {
         timestamp: Date.now(),
         details: { provider: "openai", category: "misalignment", ...(review ? { review } : {}) },
       });
+      output.errorCode = "provider_refusal";
     }
     failTransportStream({
       stream,

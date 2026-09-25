@@ -139,6 +139,7 @@ const FAILOVER_REASON_BASE_COPY = {
   no_error_details: () => "LLM request failed with an unknown error.",
   unclassified: () => "LLM request failed.",
   unknown: () => "LLM request failed with an unknown error.",
+  refusal: () => "The model refused this request. Try rephrasing or switching models.",
 } satisfies Record<FailoverReason, FailoverBaseCopyRenderer>;
 
 function renderFailoverBaseCopy(
@@ -594,6 +595,7 @@ const AUTH_PROFILE_COOLDOWN_COPY = {
   no_error_details: authProfileUnavailableCopy,
   unclassified: authProfileUnavailableCopy,
   unknown: authProfileUnavailableCopy,
+  refusal: authProfileUnavailableCopy,
 } satisfies Record<FailoverReason, (provider: string) => string>;
 
 type AuthProfileReasonPolicy = {
@@ -621,6 +623,7 @@ const AUTH_PROFILE_REASON_POLICY = {
   no_error_details: { direct: undefined, recovery: true },
   unclassified: { direct: undefined, recovery: true },
   unknown: { direct: undefined, recovery: true },
+  refusal: { direct: undefined, recovery: false },
 } satisfies Record<FailoverReason, AuthProfileReasonPolicy>;
 
 export function renderAuthProfileFailoverCopy(params: AuthProfileFailureCopyParams): string {

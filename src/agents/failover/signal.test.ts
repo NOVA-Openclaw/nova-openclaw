@@ -20,6 +20,7 @@ describe("FAILOVER_REASONS", () => {
       "no_error_details",
       "unclassified",
       "unknown",
+      "refusal",
     ]);
   });
 });

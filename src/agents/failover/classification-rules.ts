@@ -328,6 +328,8 @@ export function classifyFailoverReasonFromCode(raw: string | undefined): Failove
     case "OVERLOADED":
     case "OVERLOADED_ERROR":
       return "overloaded";
+    case "PROVIDER_REFUSAL":
+      return "refusal";
     default:
       return FAILOVER_TIMEOUT_ERROR_CODES.has(normalized) ||
         isTransientNetworkError({ code: normalized })

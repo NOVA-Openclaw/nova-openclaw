@@ -4,6 +4,7 @@ import type { AssistantMessageDiagnostic } from "../types.js";
 type AnthropicRefusalOutput = {
   stopReason: string;
   errorMessage?: string;
+  errorCode?: string;
   diagnostics?: AssistantMessageDiagnostic[];
 };
 
@@ -37,6 +38,7 @@ export function applyAnthropicRefusal(
   const details = readAnthropicRefusalDetails(stopDetails);
   output.stopReason = "error";
   output.errorMessage = formatAnthropicRefusalMessage(details);
+  output.errorCode = "provider_refusal";
   output.diagnostics = [
     ...(output.diagnostics ?? []),
     {
