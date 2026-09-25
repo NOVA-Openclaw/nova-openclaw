@@ -40,6 +40,7 @@ export type BootstrapContextMode = "full" | "lightweight";
 const CONTINUATION_SCAN_MAX_RECORDS = 500;
 export const FULL_BOOTSTRAP_COMPLETED_CUSTOM_TYPE = "openclaw:bootstrap-context:full";
 const BOOTSTRAP_WARNING_DEDUPE_LIMIT = 1024;
+
 const seenBootstrapWarnings = new Set<string>();
 
 /** Resolves the effective bootstrap injection mode for a session agent. */
