@@ -1055,6 +1055,240 @@ describe("makeBootstrapWarn", () => {
   });
 });
 
+describe("TC-212-3: synthetic bootstrap path identifiers", () => {
+  beforeEach(() => clearInternalHooks());
+  afterEach(() => clearInternalHooks());
+
+  function registerSyntheticPathHook(pathValue: string, name = "SYNTHETIC.md") {
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as AgentBootstrapHookContext;
+      context.bootstrapFiles = [
+        ...context.bootstrapFiles,
+        {
+          name,
+          path: pathValue,
+          content: "synthetic",
+          missing: false,
+        } as unknown as WorkspaceBootstrapFile,
+      ];
+    });
+  }
+
+  it("TC-212-3-U-01: preserves db:AGENT/HEARTBEAT.md synthetic path unchanged", async () => {
+    registerSyntheticPathHook("db:AGENT/HEARTBEAT.md", "HEARTBEAT_DB.md");
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const heartbeat = files.find((f) => f.path === "db:AGENT/HEARTBEAT.md");
+
+    expect(heartbeat?.path).toBe("db:AGENT/HEARTBEAT.md");
+    // Kill-check proxy: if the synthetic bypass were removed, path.resolve would turn this
+    // into an absolute filesystem path like <workspaceRoot>/db:AGENT/HEARTBEAT.md.
+    expect(heartbeat?.path).not.toMatch(/^\//);
+    expect(heartbeat?.path).not.toContain(workspaceDir);
+  });
+
+  it.each([
+    ["db:UNIVERSAL/USER.md", "USER_UNIVERSAL.md"],
+    ["db:GLOBAL/COMMUNICATION.md", "COMMUNICATION.md"],
+    ["db:DOMAIN:Quality Assurance/AB_TESTING_METHODOLOGY.md", "AB_TESTING.md"],
+    ["db:WORKFLOW:SE-openclaw-test/WORKFLOW.md", "WORKFLOW_SYNTH.md"],
+    ["db:agent/SOUL.md", "SOUL_AGENT.md"],
+  ])("TC-212-3-U-02: preserves synthetic path %s unchanged", async (syntheticPath, uniqueName) => {
+    registerSyntheticPathHook(syntheticPath, uniqueName);
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const file = files.find((f) => f.path === syntheticPath);
+
+    expect(file).toBeDefined();
+    expect(file?.path).toBe(syntheticPath);
+    expect(file?.path).not.toMatch(/^\//);
+  });
+
+  it("TC-212-3-U-03: preserves fallback:UNIVERSAL_SEED.md synthetic path unchanged", async () => {
+    registerSyntheticPathHook("fallback:UNIVERSAL_SEED.md", "UNIVERSAL_SEED.md");
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const file = files.find((f) => f.path === "fallback:UNIVERSAL_SEED.md");
+
+    expect(file?.path).toBe("fallback:UNIVERSAL_SEED.md");
+  });
+
+  it("TC-212-3-U-04: preserves emergency:RECOVERY.md synthetic path unchanged", async () => {
+    registerSyntheticPathHook("emergency:RECOVERY.md", "RECOVERY.md");
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const file = files.find((f) => f.path === "emergency:RECOVERY.md");
+
+    expect(file?.path).toBe("emergency:RECOVERY.md");
+  });
+
+  it("TC-212-3-U-05: still resolves normal workspace-relative path AGENTS.md normally", async () => {
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "rules", "utf8");
+
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const agents = files.find((f) => f.name === "AGENTS.md");
+
+    expect(agents?.path).toBe(path.join(workspaceDir, "AGENTS.md"));
+    expect(path.isAbsolute(agents?.path ?? "")).toBe(true);
+  });
+
+  it.each([["foo/db:bar.md"], [":leading.md"], ["1db:thing.md"]])(
+    "TC-212-3-U-06/07/08: non-synthetic path %s goes through filesystem resolution",
+    async (nonSyntheticPath) => {
+      registerSyntheticPathHook(nonSyntheticPath, "weird.md");
+      const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+      const files = await resolveBootstrapFilesForRun({ workspaceDir });
+      const file = files.find((f) => f.name === "weird.md");
+
+      if (file) {
+        // Path must have been resolved to an absolute filesystem path, not the raw input.
+        expect(path.isAbsolute(file.path)).toBe(true);
+        expect(file.path).not.toBe(nonSyntheticPath);
+      }
+      // If the sanitizer dropped the file, that is also acceptable — the key point is it
+      // did NOT pass through as an opaque synthetic identifier.
+    },
+  );
+
+  it.each([
+    ["C:\\Users\\druid\\file.md"],
+    ["C:/Users/druid/file.md"],
+    ["c:\\Users\\druid\\file.md"],
+  ])(
+    "TC-212-3-U-09: Windows drive-letter path %s is not treated as synthetic",
+    async (windowsPath) => {
+      registerSyntheticPathHook(windowsPath, "windows.md");
+      const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+      const files = await resolveBootstrapFilesForRun({ workspaceDir });
+      const file = files.find((f) => f.name === "windows.md");
+
+      if (file) {
+        // On POSIX test runners this resolves under the workspace root; on Windows it would
+        // be an absolute drive path. Either way it is NOT the raw synthetic-looking string.
+        expect(file.path).not.toBe(windowsPath);
+      }
+    },
+  );
+
+  it("TC-212-3-U-09: db:\\foo remains synthetic because the prefix is two characters", async () => {
+    registerSyntheticPathHook("db:\\foo", "db-slash.md");
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const file = files.find((f) => f.name === "db-slash.md");
+
+    expect(file?.path).toBe("db:\\foo");
+  });
+
+  it("TC-212-3-U-10/11: missing/empty/whitespace paths hit the existing guard before synthetic check", async () => {
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as AgentBootstrapHookContext;
+      context.bootstrapFiles = [
+        ...context.bootstrapFiles,
+        { name: "UNDEFINED.md", path: undefined, content: "bad", missing: false },
+        { name: "NULL.md", path: null, content: "bad", missing: false },
+        { name: "NUMBER.md", path: 123, content: "bad", missing: false },
+        { name: "EMPTY.md", path: "", content: "bad", missing: false },
+        { name: "SPACE.md", path: "   ", content: "bad", missing: false },
+      ] as unknown as WorkspaceBootstrapFile[];
+    });
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const warnings: string[] = [];
+    const files = await resolveBootstrapFilesForRun({
+      workspaceDir,
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(files.map((f) => f.name)).not.toContain("UNDEFINED.md");
+    expect(files.map((f) => f.name)).not.toContain("NULL.md");
+    expect(files.map((f) => f.name)).not.toContain("NUMBER.md");
+    expect(files.map((f) => f.name)).not.toContain("EMPTY.md");
+    expect(files.map((f) => f.name)).not.toContain("SPACE.md");
+    expect(warnings.filter((w) => w.includes('missing or invalid "path" field'))).toHaveLength(5);
+  });
+
+  it("TC-212-3-U-12: deduplicates identical synthetic paths on the literal string", async () => {
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as AgentBootstrapHookContext;
+      context.bootstrapFiles = [
+        ...context.bootstrapFiles,
+        {
+          name: "HEARTBEAT_DB.md",
+          path: "db:AGENT/HEARTBEAT.md",
+          content: "first",
+          missing: false,
+        },
+        {
+          name: "HEARTBEAT_DB.md",
+          path: "db:AGENT/HEARTBEAT.md",
+          content: "second",
+          missing: false,
+        },
+      ] as unknown as WorkspaceBootstrapFile[];
+    });
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const heartbeats = files.filter((f) => f.path === "db:AGENT/HEARTBEAT.md");
+
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]?.content).toBe("first");
+  });
+
+  it("TC-212-3-U-13: does not collapse synthetic path and workspace-relative path with same-looking filename", async () => {
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as AgentBootstrapHookContext;
+      context.bootstrapFiles = [
+        ...context.bootstrapFiles,
+        {
+          name: "HEARTBEAT.md",
+          path: "db:AGENT/HEARTBEAT.md",
+          content: "db content",
+          missing: false,
+        },
+        {
+          name: "HEARTBEAT.md",
+          path: path.join(context.workspaceDir, "HEARTBEAT.md"),
+          content: "fs content",
+          missing: false,
+        },
+      ] as unknown as WorkspaceBootstrapFile[];
+    });
+
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    await fs.writeFile(path.join(workspaceDir, "HEARTBEAT.md"), "fs content", "utf8");
+
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const syntheticEntry = files.find((f) => f.path === "db:AGENT/HEARTBEAT.md");
+    const fsEntry = files.find((f) => f.path === path.join(workspaceDir, "HEARTBEAT.md"));
+
+    expect(syntheticEntry).toBeDefined();
+    expect(fsEntry).toBeDefined();
+  });
+
+  it("TC-212-3-INT-01: real agent:bootstrap hook pipeline preserves synthetic path end-to-end", async () => {
+    registerInternalHook("agent:bootstrap", (event) => {
+      const context = event.context as AgentBootstrapHookContext;
+      context.bootstrapFiles = [
+        ...context.bootstrapFiles,
+        {
+          name: "SOUL_DB.md",
+          path: "db:AGENT/SOUL.md",
+          content: "synthetic soul",
+          missing: false,
+        },
+      ] as unknown as WorkspaceBootstrapFile[];
+    });
+
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-synthetic-");
+    const files = await resolveBootstrapFilesForRun({ workspaceDir });
+    const synthetic = files.find((f) => f.path === "db:AGENT/SOUL.md");
+
+    expect(synthetic).toBeDefined();
+    expect(synthetic?.path).toBe("db:AGENT/SOUL.md");
+    expect(synthetic?.content).toBe("synthetic soul");
+  });
+});
+
 describe("resolveContextInjectionMode", () => {
   it("defaults to always when config is missing", () => {
     expect(resolveContextInjectionMode(undefined)).toBe("always");
