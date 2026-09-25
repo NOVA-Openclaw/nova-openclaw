@@ -314,12 +314,12 @@ export async function runResponsesStreamLifecycle<TApi extends Api>(params: {
   } catch (error) {
     const response = error instanceof ResponsesStreamFailure ? error.response : error;
     const rawError = isRecord(response) && isRecord(response.error) ? response.error : response;
-    if (
+    const isMisalignmentRefusal =
       params.model.provider === "openai" &&
       params.model.api === "openai-responses" &&
       isRecord(rawError) &&
-      rawError.code === "misalignment_policy_violation"
-    ) {
+      rawError.code === "misalignment_policy_violation";
+    if (isMisalignmentRefusal) {
       // The ordinary API has no reviewed-continuation contract. Preserve findings only.
       const review = readOpenAIMisalignmentReview(rawError.misalignment, false);
       appendAssistantMessageDiagnostic(output, {
@@ -327,7 +327,6 @@ export async function runResponsesStreamLifecycle<TApi extends Api>(params: {
         timestamp: Date.now(),
         details: { provider: "openai", category: "misalignment", ...(review ? { review } : {}) },
       });
-      output.errorCode = "provider_refusal";
     }
     failTransportStream({
       stream,
@@ -335,6 +334,15 @@ export async function runResponsesStreamLifecycle<TApi extends Api>(params: {
       signal: options?.signal,
       error,
       cleanup: () => cleanStreamingScratchBuffers(output),
+      onProjected: () => {
+        // assignTransportErrorDetails projects the raw provider code into
+        // errorCode. Re-stamp the stable refusal marker afterwards so the
+        // failover classifier sees a refusal, matching the ChatGPT Responses
+        // path (openai-chatgpt-responses.ts).
+        if (isMisalignmentRefusal) {
+          output.errorCode = "provider_refusal";
+        }
+      },
     });
   } finally {
     firstEventAbort?.dispose();
