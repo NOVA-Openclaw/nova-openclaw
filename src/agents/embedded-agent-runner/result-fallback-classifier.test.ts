@@ -93,25 +93,107 @@ describe("classifyEmbeddedAgentRunResultForModelFallback", () => {
   });
 
   it.each([
-    { label: "another provider", provider: "anthropic", harness: "openclaw", replayInvalid: false },
-    { label: "another harness", provider: "openai", harness: "codex", replayInvalid: false },
-    { label: "replay-unsafe work", provider: "openai", harness: "openclaw", replayInvalid: true },
+    {
+      label: "another provider",
+      provider: "anthropic",
+      harness: "openclaw",
+      replayInvalid: false,
+      expectRefusal: true,
+    },
+    {
+      label: "another harness",
+      provider: "openai",
+      harness: "codex",
+      replayInvalid: false,
+      expectRefusal: true,
+    },
+    {
+      label: "replay-unsafe work",
+      provider: "openai",
+      harness: "openclaw",
+      replayInvalid: true,
+      expectRefusal: false,
+    },
   ])(
     "keeps $label out of embedded cyber policy failover",
-    ({ provider, harness, replayInvalid }) => {
+    ({ provider, harness, replayInvalid, expectRefusal }) => {
       const result = cyberRefusalResult();
       result.meta.agentMeta.provider = provider;
       result.meta.agentMeta.agentHarnessId = harness;
       Object.assign(result.meta, replayInvalid ? { replayInvalid: true } : {});
-      expect(
-        classifyEmbeddedAgentRunResultForModelFallback({
-          provider,
-          model: "gpt-general",
-          result,
-        }),
-      ).toBeNull();
+      const classification = classifyEmbeddedAgentRunResultForModelFallback({
+        provider,
+        model: "gpt-general",
+        result,
+      });
+      // Derivation: the OpenAI cyber failover is provider/harness/replay-specific, so none of
+      // these cases may return OPENAI_CYBER_POLICY_REFUSAL. Replay-unsafe work is terminal
+      // regardless of refusal; otherwise the generic refusal fallback path applies.
+      if (expectRefusal) {
+        expect(classification).toMatchObject({
+          reason: "refusal",
+          code: "provider_refusal",
+          preserveResultOnExhaustion: true,
+        });
+      } else {
+        expect(classification).toBeNull();
+      }
     },
   );
+
+  const nonCyberRefusalResult = () => ({
+    payloads: [
+      {
+        isError: true,
+        text: "The provider refused this request (category: violence). Revise the request and try again.",
+      },
+    ],
+    meta: {
+      durationMs: 1,
+      agentMeta: {
+        sessionId: "session-violence",
+        provider: "anthropic",
+        model: "claude-opus-5",
+        agentHarnessId: "openclaw",
+        providerRefusal: { provider: "anthropic", category: "violence" },
+      },
+      error: {
+        kind: "incomplete_turn" as const,
+        message: "provider refusal",
+        fallbackSafe: false,
+      },
+    },
+  });
+
+  it("classifies a non-cyber Anthropic provider refusal for model fallback", () => {
+    const classification = classifyEmbeddedAgentRunResultForModelFallback({
+      provider: "anthropic",
+      model: "claude-opus-5",
+      result: nonCyberRefusalResult(),
+    });
+    // Derivation: refusal is present and isReplaySafeEmbeddedOpenAiCyberRefusal returns false
+    // (provider is anthropic), so the generic refusal fallback path applies.
+    expect(classification).toMatchObject({
+      reason: "refusal",
+      code: "provider_refusal",
+      preserveResultOnExhaustion: true,
+      preserveResultPriority: 100,
+    });
+  });
+
+  it("does not fallback on a normal completed result without a provider refusal", () => {
+    const result = classifyEmbeddedAgentRunResultForModelFallback({
+      provider: "anthropic",
+      model: "claude-opus-5",
+      result: {
+        payloads: [{ text: "Hello!" }],
+        meta: { durationMs: 1 },
+      },
+    });
+    // Derivation: a visible assistant payload with no provider refusal is a successful
+    // completion, so fallback must not be triggered.
+    expect(result).toBeNull();
+  });
 
   it("does not fallback when sessions_spawn accepted a child session", () => {
     // Accepted child sessions mean the turn made progress even if the parent did

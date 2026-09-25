@@ -236,6 +236,22 @@ export function classifyEmbeddedAgentRunResultForModelFallback(params: {
       preserveResultPriority: 100,
     };
   }
+  const refusal = params.result.meta.agentMeta?.providerRefusal;
+  if (
+    refusal &&
+    !isReplaySafeEmbeddedOpenAiCyberRefusal({
+      provider: params.provider,
+      result: params.result,
+    })
+  ) {
+    return {
+      message: `${params.provider}/${params.model} refused the request (${refusal.category})`,
+      reason: "refusal",
+      code: "provider_refusal",
+      preserveResultOnExhaustion: true,
+      preserveResultPriority: 100,
+    };
+  }
   if (incompleteTurn && !fallbackSafeIncompleteTurn) {
     return null;
   }
