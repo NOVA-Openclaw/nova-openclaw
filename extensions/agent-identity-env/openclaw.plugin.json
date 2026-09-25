@@ -1,0 +1,15 @@
+{
+  "id": "agent-identity-env",
+  "categories": ["infrastructure"],
+  "activation": {
+    "onStartup": true
+  },
+  "enabledByDefault": true,
+  "name": "Agent Identity Environment",
+  "description": "Injects OPENCLAW_AGENT_ID, CLAWDBOT_AGENT_ID, and OPENCLAW_SESSION_KEY into exec child processes so scripts, hooks, and CLI tools can identify which agent initiated the execution.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
