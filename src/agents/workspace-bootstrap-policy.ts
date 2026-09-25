@@ -37,6 +37,29 @@ export const WORKSPACE_BOOTSTRAP_FILENAMES = [
 
 export type WorkspaceBootstrapFileName = (typeof WORKSPACE_BOOTSTRAP_FILENAMES)[number];
 
+/**
+ * Matches synthetic bootstrap path identifiers such as `db:AGENT/SOUL.md`,
+ * `fallback:UNIVERSAL_SEED.md`, or `emergency:RECOVERY.md`.
+ *
+ * A path is synthetic when it begins with an alphabetic character, followed by
+ * one or more alphanumeric/underscore/dash characters, followed immediately by
+ * a colon — with no preceding slash. Examples: `db:`, `fallback:`, `emergency:`.
+ *
+ * The check is intentionally namespace-agnostic (no whitelist of `db|fallback|…`)
+ * because bootstrap context records are mutable at runtime: agents add and remove
+ * their own AGENT records, and newhart adds/removes UNIVERSAL/GLOBAL/DOMAIN records.
+ * A new namespace must work without any code changes here.
+ *
+ * The prefix must be at least two characters so that Windows drive letters such as
+ * `C:\…` or `C:/…` are not treated as synthetic identifiers. `db:\foo` still matches
+ * because `db` is two characters.
+ *
+ * Non-synthetic colon-containing paths — e.g. `foo/db:bar.md` (slash before
+ * colon), `:leading.md` (starts with colon), `1db:thing.md` (leading digit) —
+ * do not match and flow through normal `path.resolve()` handling.
+ */
+export const SYNTHETIC_PATH_PREFIX = /^[A-Za-z][A-Za-z0-9_-]+:/;
+
 export type WorkspaceBootstrapFile = {
   name: WorkspaceBootstrapFileName;
   path: string;
@@ -47,6 +70,13 @@ export type WorkspaceBootstrapFile = {
 };
 
 export function resolveWorkspaceBootstrapPath(workspaceRoot: string, filePath: string): string {
+  // Synthetic namespace bypass: opaque identifiers like db:AGENT/SOUL.md,
+  // fallback:UNIVERSAL_SEED.md, emergency:RECOVERY.md must be preserved verbatim.
+  // They must never reach path.isAbsolute() or path.resolve() — on any platform,
+  // those calls would corrupt the identifier into a filesystem path.
+  if (SYNTHETIC_PATH_PREFIX.test(filePath)) {
+    return filePath;
+  }
   return path.isAbsolute(filePath)
     ? path.resolve(filePath)
     : filePath.startsWith("~")
