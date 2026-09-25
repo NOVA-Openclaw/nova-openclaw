@@ -14,6 +14,7 @@ export {
   isProviderCompletedErrorFinishReasonMessage,
   isProviderRequestSizeCeilingError,
   isRateLimitErrorMessage,
+  isRefusalErrorMessage,
   isServerErrorMessage,
   isTimeoutErrorMessage,
 } from "./message-patterns.js";

@@ -352,3 +352,14 @@ export function isServerErrorMessage(raw: string): boolean {
   }
   return matchesErrorPatterns(scrubbed, ERROR_PATTERNS.serverError);
 }
+
+// Anthropic's transport emits a fixed refusal message shape via
+// `formatAnthropicRefusalMessage`. Anchor the match to that exact prefix so
+// arbitrary prose that happens to contain "refused" does not classify.
+const ANTHROPIC_REFUSAL_MESSAGE_RE = /^anthropic refusal\b/i;
+export function isRefusalErrorMessage(raw: string | undefined): boolean {
+  if (!raw) {
+    return false;
+  }
+  return ANTHROPIC_REFUSAL_MESSAGE_RE.test(raw.trim());
+}

@@ -142,6 +142,18 @@ describe("resolveAuthProfileFailureReason", () => {
     ).toBeNull();
   });
 
+  it("does not persist provider content refusals as auth-profile health", () => {
+    // A refusal is a model-policy decision about the specific content, not a
+    // shared credential reliability signal (TC-212-2-U-12).
+    expect(
+      resolveAuthProfileFailureReason({
+        failoverReason: "refusal",
+        providerStarted: true,
+        policy: "shared",
+      }),
+    ).toBeNull();
+  });
+
   it("still records genuine session_expired failures as auth-profile health", () => {
     expect(
       resolveAuthProfileFailureReason({

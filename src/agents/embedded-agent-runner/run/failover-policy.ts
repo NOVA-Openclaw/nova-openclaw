@@ -70,6 +70,7 @@ function shouldRotatePrompt(params: PromptDecisionParams): boolean {
     params.failoverFailure &&
     params.failoverReason !== "timeout" &&
     params.failoverReason !== "tls_certificate" &&
+    params.failoverReason !== "refusal" &&
     !isTerminalFormatFailure(params)
   );
 }
@@ -214,6 +215,20 @@ export function resolveRunFailoverDecision(params: RunFailoverDecisionParams): R
       : {
           action: "surface_error",
           reason: "tls_certificate",
+        };
+  }
+  // Provider content refusals are replay-safe against a different model but must
+  // never rotate a shared auth profile — the refusal is about the content, not
+  // the credential. Mirror the tls_certificate direct-fallback path.
+  if (params.failoverFailure && params.failoverReason === "refusal") {
+    return params.fallbackConfigured
+      ? {
+          action: "fallback_model",
+          reason: "refusal",
+        }
+      : {
+          action: "surface_error",
+          reason: "refusal",
         };
   }
   const assistantShouldRotate = shouldRotateAssistant(params);

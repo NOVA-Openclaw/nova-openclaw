@@ -44,6 +44,7 @@ import {
   isPeriodicUsageLimitErrorMessage,
   isProviderCompletedErrorFinishReasonMessage,
   isRateLimitErrorMessage,
+  isRefusalErrorMessage,
   isServerErrorMessage,
   isSessionTranscriptValidationErrorMessage,
   isTimeoutErrorMessage,
@@ -102,6 +103,11 @@ function classifyFailoverClassificationFromMessage(
   }
   if (isSessionTranscriptValidationErrorMessage(raw)) {
     return toReasonClassification("format");
+  }
+  // Provider content refusals have a distinct, provider-shaped message prefix.
+  // Check early so broad server-error/timeout/auth patterns do not swallow them.
+  if (isRefusalErrorMessage(raw)) {
+    return toReasonClassification("refusal");
   }
   if (isCliSessionExpiredErrorMessage(raw)) {
     return toReasonClassification("session_expired");

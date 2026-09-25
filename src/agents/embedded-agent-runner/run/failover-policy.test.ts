@@ -264,6 +264,42 @@ describe("resolveRunFailoverDecision", () => {
     });
   });
 
+  it("sends assistant provider refusal failures directly to model fallback (TC-212-2-U-10)", () => {
+    // A content refusal must not rotate the shared auth profile; it should
+    // escalate straight to the configured model fallback chain.
+    expect(
+      resolveRunFailoverDecision({
+        stage: "assistant",
+        terminal: { kind: "ok" },
+        fallbackConfigured: true,
+        failoverFailure: true,
+        failoverReason: "refusal",
+        profileRotated: false,
+      }),
+    ).toEqual({
+      action: "fallback_model",
+      reason: "refusal",
+    });
+  });
+
+  it("keeps a refusal terminal when model fallback is not configured (TC-212-2-U-17)", () => {
+    // Strict or locked model selection (fallbacksOverride: []) means a refusal
+    // must surface instead of forcing a fallback the operator disabled.
+    expect(
+      resolveRunFailoverDecision({
+        stage: "assistant",
+        terminal: { kind: "ok" },
+        fallbackConfigured: false,
+        failoverFailure: true,
+        failoverReason: "refusal",
+        profileRotated: false,
+      }),
+    ).toEqual({
+      action: "surface_error",
+      reason: "refusal",
+    });
+  });
+
   it("sends assistant TLS certificate failures directly to model fallback", () => {
     expect(
       resolveRunFailoverDecision({
