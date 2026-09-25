@@ -99,12 +99,9 @@ describe("OpenAI Responses provider refusals", () => {
         },
       ]);
       // The failover classifier reads errorCode="provider_refusal" together with
-      // the provider_refusal diagnostic, so it routes stream-emitted failures
-      // to the refusal bucket for model fallback. The http 403 wrapper is
-      // classified as auth upstream; that path is outside this finding.
-      if (failureShape !== "http") {
-        expect(classifyAssistantFailoverReason(output)).toBe("refusal");
-      }
+      // the provider_refusal diagnostic, so it routes the failure to the refusal
+      // bucket for model fallback even when the provider wrapped it in a 403.
+      expect(classifyAssistantFailoverReason(output)).toBe("refusal");
     },
   );
 });

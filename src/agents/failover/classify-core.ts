@@ -340,7 +340,10 @@ export function classifyFailoverSignalCore(
           messageOrDetailClassification ?? errorTypeClassification,
           codeReason ? toReasonClassification(codeReason) : null,
         );
-  if (codeReason === "auth_permanent") {
+  // Provider-attributed refusal and permanent-auth codes are semantically
+  // stronger than the HTTP status that carried them; keep them ahead of the
+  // generic status mapping so 401/403/429 wrappers do not mask the result.
+  if (codeReason === "auth_permanent" || codeReason === "refusal") {
     return toReasonClassification(codeReason);
   }
   const statusClassification = classifyFailoverClassificationFromHttpStatus(
