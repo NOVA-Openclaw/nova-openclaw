@@ -377,6 +377,7 @@ OpenClaw builds the candidate list from the currently requested `provider/model`
     - `model_not_found`, including eligible HTTP 404 responses
     - `LiveSessionModelSwitchError` for a stale current or earlier candidate. Later configured targets redirect directly, while targets outside the chain return to the bounded session-model retry owner
     - a provider request-size ceiling reaching the fallback boundary, which happens when a transport-owning plugin harness bypasses embedded recovery. The ceiling belongs to the refusing provider's quota rather than to any model's context window, so a differently provisioned candidate may still admit the request
+    - a classified provider content refusal (`refusal`) that reaches the failover controller — see the note below
     - other unrecognized errors when there are still remaining candidates
 
   </Tab>
@@ -385,12 +386,44 @@ OpenClaw builds the candidate list from the currently requested `provider/model`
     - context overflow errors that should stay inside compaction/retry logic (for example `request_too_large`, `input token count exceeds the maximum number of input tokens`, `input exceeds the maximum number of tokens`, `input too long for the model`, or `ollama error: context length exceeded`)
     - context overflow inside an embedded run that has already been declared terminal, including a provider request-size ceiling (for example Groq's `413 ... on tokens per minute (TPM): Limit 8000, Requested 8098`), which the runner stops on rather than compacting
     - a final unknown error when there are no candidates left
-    - final provider refusals. Eligible Anthropic direct API-key requests handle refusal fallback within the provider request instead (see [Anthropic](/providers/anthropic#safety-refusal-fallback-claude-opus-5-and-fable-5))
 
   </Tab>
 </Tabs>
 
-A final provider refusal ends the current turn. OpenClaw surfaces it without automatic recovery turns, compaction retries, or switching to an unrelated model. Except for a misalignment precaution, a queued or later user message still starts its own turn.
+<Note>
+This fork classifies a provider content refusal as its own failover reason,
+`refusal`, distinct from the built-in Anthropic per-call fallback described
+under [Safety refusal fallback](/providers/anthropic#safety-refusal-fallback-claude-opus-5-and-fable-5).
+The two mechanisms are independent and can both apply to the same request in
+sequence:
+
+1. For the eligible Anthropic direct API-key models and refusal categories
+   listed in that section, Anthropic's own `server-side-fallback` routes the
+   refusal to a recommended model **inside the same API call**, before
+   OpenClaw's failover controller ever sees an error.
+2. If that built-in routing does not apply (a different provider, an
+   ineligible Anthropic auth/transport, or the recommended model also
+   declines) and the resulting error message or structured code matches a
+   known refusal shape, OpenClaw's classifier assigns the `refusal` failover
+   reason. A `refusal` never rotates the shared auth profile (mirroring
+   `tls_certificate`) — the decision is about the request content, not the
+   credential — but it does advance to the next candidate in the configured
+   model fallback chain, exactly like other classified failover reasons.
+
+A refusal that exhausts every configured fallback candidate ends the turn as
+a final provider refusal: OpenClaw surfaces it without further automatic
+recovery turns, compaction retries, or additional model switches. Except for
+a misalignment precaution, a queued or later user message still starts its
+own turn.
+
+Coverage is not uniform across providers and transports. As of this fork's
+upstream v2026.9.6 rebuild, a classifiable `provider_refusal` diagnostic is
+emitted from exactly three call sites: the direct Anthropic transport and two
+OpenAI Responses-family transports. An OpenRouter-proxied Anthropic refusal —
+the default routing for most fork-managed agents — does not currently emit a
+classifiable diagnostic and falls through to whatever generic reason the raw
+error text matches, or `unclassified`/`unknown` if none does.
+</Note>
 
 ### Misalignment precautions
 
