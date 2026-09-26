@@ -10,6 +10,9 @@ authoring dates (2026), not package publication dates.
 
 - **Breaking:** retire A2UI widgets and the generic registered-renderer API. Stored A2UI widgets are backed up and deleted by Doctor; recreate them as HTML widgets. The v4 registered-content wire declarations remain for parsing older messages and reporting the retired operation, not for rendering or persistence.
 - Keep wire protocol v4 after widget retirement. The retired `registered` widget-put shape remains wire-valid but returns an actionable HTML replacement error without mutating the board; surviving widget responses retain v4-compatible shapes. General clients remain on v4, and authenticated nodes and lightweight probes retain the v3 compatibility window.
+- NOVA fork: additively extend the closed `FAILOVER_REASONS` vocabulary / `FailoverReasonSchema` union with `"refusal"`, so provider content-refusal failures (Anthropic safety refusals, OpenAI Responses `provider_refusal`) can be reported through the same wire shape consumed by cron, sessions, and worker events. No `PROTOCOL_VERSION` bump; this follows the existing additive-literal precedent in the schema surface history below. See `docs/concepts/model-failover.md` for the classification behavior. (#212)
+
+No other changes outside the dated history below.
 
 ## Deferred to a later wire version
 
