@@ -3,6 +3,7 @@
 # Worker bundle installation no longer injects OPENCLAW_STATE_DIR into a remote npm process.
 # The internal Node-version check no longer contributes a false OPENCLAW_* name.
 # The next-turn runtime-context preface constant no longer exists as an OPENCLAW_* name.
+<<<<<<< HEAD
 # OPENCLAW_PACKAGE_BUN_LAUNCHER (#159431) is the updater-to-preinstall handoff for Bun-only installs.
 # fs-safe 0.23 moves five existing native/Python environment names into OpenClaw's compatibility owner.
 # OPENCLAW_PROMPT_CACHE_ASSERT (#163379) is the owner-approved prompt-cache assertion switch; the operator system-update
@@ -11,4 +12,6 @@
 # OPENCLAW_NODE_EXEC_FALLBACK was removed by the core subsystem cleanup (#164153).
 # Codex computer-use derives the same environment keys from option names instead of repeating literals.
 # OPENCLAW_UPDATE_PARENT_RUNS_POST_ACTIVATION_INSPECTIONS (#168350) is the owner-approved updater-to-Doctor post-activation handoff.
-454
+# +2 (#212): extensions/agent-identity-env adds OPENCLAW_AGENT_ID and
+# OPENCLAW_SESSION_KEY, contributed via the resolve_exec_env hook.
+456

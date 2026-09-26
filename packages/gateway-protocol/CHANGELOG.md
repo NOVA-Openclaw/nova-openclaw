@@ -8,7 +8,9 @@ authoring dates (2026), not package publication dates.
 
 ## Unreleased
 
-No changes outside the dated history below.
+- NOVA fork: additively extend the closed `FAILOVER_REASONS` vocabulary / `FailoverReasonSchema` union with `"refusal"`, so provider content-refusal failures (Anthropic safety refusals, OpenAI Responses `provider_refusal`) can be reported through the same wire shape consumed by cron, sessions, and worker events. No `PROTOCOL_VERSION` bump; this follows the existing additive-literal precedent in the schema surface history below. See `docs/concepts/model-failover.md` for the classification behavior. (#212)
+
+No other changes outside the dated history below.
 
 ## Deferred to the next wire version
 
