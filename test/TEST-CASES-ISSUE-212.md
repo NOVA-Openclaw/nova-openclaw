@@ -1,5 +1,24 @@
 # Test Cases — Issue #212 (upstream v2026.9.6 rebuild)
 
+**[PROMOTION STATUS — SE #1009 Step 8, 2026-09-26]** All executable test cases
+designed below (77 of 78 IDs; `TC-212-5-U-08` was explicitly dropped per Step 4
+review) were already promoted into the project's permanent co-located test
+suite during steps 5-6, carrying their TC IDs into `it()`/`describe()` titles
+per this file's own convention (see `test/TEST-CASES-ISSUE-212.md`'s
+"Conventions" note below). Permanent homes: `extensions/agent-identity-env/index.test.ts`,
+`packages/ai/src/providers/{anthropic-refusal,openai-chatgpt-responses-streaming,openai-responses-provider-refusal,openai-responses-shared}.test.ts`,
+`src/agents/bootstrap-files.test.ts`, `src/agents/failover/{refusal-classification,signal}.test.ts`,
+`src/agents/embedded-agent-runner/{result-fallback-classifier,run.refusal-fallback}.test.ts`,
+`src/agents/embedded-agent-runner/run/{auth-profile-failure-policy,failover-policy}.test.ts`,
+`src/agents/cli-session.test.ts`, `test/scripts/package-changelog.test.ts`.
+Full PASS/FAIL/UNTESTED mapping and staging validation:
+`se-runs/1009/step8-qa-validation.md`. This design document is retained
+in-place (not deleted/relocated) for historical decision traceability
+(ambiguities, Step 4 review resolutions, I)ruid rulings) — it is a planning
+artifact, not an active test-execution surface; no CI process reads it.
+
+---
+
 Test design owner: Gem (QA Lead). SE run #1009, Step 3.
 
 Scope: the five re-applied fork items and the staging gate defined in issue
@@ -802,14 +821,41 @@ suite delivered by this step.
   (including the new item-1 exec-env plugin), no crash-loop, `/status` or
   equivalent reports version `2026.9.6-nova` (confirms item 5's version string
   actually reaches the running gateway, not just package.json on disk).
-- **TC-212-STAGE-03**: a direct `anthropic/claude-opus-5-5` request with
-  `thinking=adaptive` completes successfully with **no schema rejection and
-  no fallback notice**. Per `UNIVERSAL/MODEL_PARAM_VALIDATION`, this must be
-  verified against the **running gateway**, not inferred from config — absence
-  of an error is not sufficient; explicitly check for a fallback-notice log
-  line / `/status` model-mismatch indicator, since a degraded success that
-  silently falls back can look identical to a clean success without that
-  explicit check.
+- **TC-212-STAGE-03 [REVISED 2026-09-26, I)ruid ruling]**: original wording
+  ("a direct request with an explicit `--thinking adaptive` directive
+  completes with no schema rejection") is **not the correct expectation**.
+  Upstream v2026.9.6 (`05a084b25de`) deliberately **rejects** an explicit
+  `--thinking adaptive` CLI/API directive for `anthropic/claude-opus-5-5` —
+  confirmed on staging (`stage03-04-run.json`): exit 1, `errorCode=UNAVAILABLE`,
+  `Thinking level "adaptive" is not supported for anthropic/claude-opus-5-5.
+  Use one of: low, medium, high, xhigh, max.` This explicit-directive rejection
+  is expected upstream behavior, not a bug — it is out of scope for this test
+  case.
+
+  The production-relevant shape is a **stored** `thinking=adaptive` default
+  (`agents.defaults.thinkingDefault` / per-agent `thinkingDefault`, e.g.
+  production NOVA's actual config), not an explicit per-call directive. Per
+  `docs/tools/thinking.md`, a stored unsupported level is silently remapped by
+  provider-profile rank rather than rejected. **Revised test**: with
+  `agents.defaults.thinkingDefault: "adaptive"` stored in config (no
+  `--thinking` flag passed on the call), a real agent turn against
+  `anthropic/claude-opus-5-5` must complete with **stored adaptive accepted:
+  no rejection, no fallback, opus-5-5 served** — i.e.
+  `executionTrace.fallbackUsed === false` and
+  `executionTrace.winnerModel === "claude-opus-5-5"` in the run JSON, with zero
+  `not supported`/`reject`/`UNAVAILABLE` hits in the gateway journal for the
+  run window. Do **not** assert a specific `requestShaping.thinking` value (the
+  remap target varies with the prompt/adaptive routing — one observed run
+  showed `requestShaping.thinking: "medium"`, but asserting "adaptive ==
+  medium" as a fixed equivalence would be wrong); assert only that the stored
+  value was accepted and the turn completed on the requested model without a
+  hard rejection or a fallback to a different model. Confirmed on staging
+  2026-09-25 (`stage03b-run.json`, `stage03b-journal-grep.txt`): PASS.
+
+  The OpenRouter `openrouter/anthropic/claude-opus-5.5` route (production's
+  actual primary) is out of scope for this test case — confirmed working by
+  I)ruid; do not mark it as a gap. This build's catalog also has no OpenRouter
+  entry to test against regardless (direct-Anthropic only).
 - **TC-212-STAGE-04**: item-1 exec-env plugin observably sets the three vars
   in a real exec call on the staged gateway (e.g. `exec env | grep OPENCLAW_AGENT_ID`
   from within an agent session) — the true end-to-end version of
