@@ -418,7 +418,7 @@ Docs: https://docs.openclaw.ai
   );
 });
 
-describe("TC-212-5: -nova fork version suffix", () => {
+describe("TC-212-5: -nova fork version suffix removed", () => {
   const diagnosticsSource = readFileSync(
     new URL("../../scripts/e2e/lib/upgrade-survivor/diagnostics.mjs", import.meta.url),
     "utf8",
@@ -428,27 +428,24 @@ describe("TC-212-5: -nova fork version suffix", () => {
     "utf8",
   );
 
-  it("TC-212-5-U-07: package.json version is exactly 2026.9.6-nova", () => {
+  it("TC-212-5-U-07: package.json version carries no fork suffix", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
     );
-    expect(packageJson.version).toBe("2026.9.6-nova");
+    expect(packageJson.version).toBe("2026.9.6");
+    expect(packageJson.version).not.toMatch(/-nova/i);
   });
 
-  it.each(["2026.9.6", "2026.9.6-1", "2026.9.6-alpha.2", "2026.9.6-beta.1", "2026.9.6-nova"])(
+  it.each(["2026.9.6", "2026.9.6-1", "2026.9.6-alpha.2", "2026.9.6-beta.1"])(
     "TC-212-5-U-01/02: RELEASE_VERSION_PATTERN accepts %s",
     (version) => {
       expect(RELEASE_VERSION_PATTERN.test(version)).toBe(true);
     },
   );
 
-  it("TC-212-5-U-02: resolvePackageChangelogVersions maps -nova to [version, baseVersion]", () => {
-    expect(resolvePackageChangelogVersions("2026.9.6-nova")).toEqual(["2026.9.6-nova", "2026.9.6"]);
-    expect(resolvePackageChangelogVersions("2026.9.6-nova", { allowUnreleased: true })).toEqual([
-      "2026.9.6-nova",
-      "2026.9.6",
-      "Unreleased",
-    ]);
+  it("TC-212-5-U-02: -nova fork suffix is no longer a supported version form", () => {
+    expect(() => resolvePackageChangelogVersions("2026.9.6-nova")).toThrow();
+    expect(resolvePackageChangelogVersions("2026.9.6")).toEqual(["2026.9.6"]);
   });
 
   it.each([
@@ -456,6 +453,7 @@ describe("TC-212-5: -nova fork version suffix", () => {
     "2026.9.6.1",
     "v2026.9.6",
     "2026.9.6-",
+    "2026.9.6-nova",
     "2026.9.6-nova-evil",
     "2026.9.6-NOVA",
     "2026.9.6-Nova",
@@ -473,55 +471,34 @@ describe("TC-212-5: -nova fork version suffix", () => {
     },
   );
 
-  it.each(["2026.1.1-nova", "2026.12.999-nova"])(
-    "TC-212-5-U-05: boundary version %s accepted",
-    (version) => {
-      expect(RELEASE_VERSION_PATTERN.test(version)).toBe(true);
-    },
-  );
+  it.each(["2026.1.1", "2026.12.999"])("TC-212-5-U-05: boundary version %s accepted", (version) => {
+    expect(RELEASE_VERSION_PATTERN.test(version)).toBe(true);
+  });
 
-  it("TC-212-5-U-06: all four regex sites accept 2026.9.6-nova consistently", () => {
+  it("TC-212-5-U-06: all four regex sites reject the -nova suffix consistently", () => {
     // Package-changelog pattern (one source of truth for changelog packaging).
-    expect(RELEASE_VERSION_PATTERN.test("2026.9.6-nova")).toBe(true);
+    expect(RELEASE_VERSION_PATTERN.test("2026.9.6-nova")).toBe(false);
     // release-changelog.mjs also validates heading versions before lookup.
-    const releaseChangelogPattern = String.raw`^(?:Unreleased|\d{4}\.[1-9]\d*\.[1-9]\d*(?:-(?:(?:alpha|beta)\.[1-9]\d*|[1-9]\d*|nova))?)$`;
+    const releaseChangelogPattern = String.raw`^(?:Unreleased|\d{4}\.[1-9]\d*\.[1-9]\d*(?:-(?:(?:alpha|beta)\.[1-9]\d*|[1-9]\d*))?)$`;
     expect(releaseChangelogSource.includes(`/${releaseChangelogPattern}/u`)).toBe(true);
     const releaseChangelogRegex = new RegExp(releaseChangelogPattern, "u");
-    expect(releaseChangelogRegex.test("2026.9.6-nova")).toBe(true);
+    expect(releaseChangelogRegex.test("2026.9.6-nova")).toBe(false);
     expect(releaseChangelogRegex.test("2026.9.6-NOVA")).toBe(false);
     // Diagnostics script carries three independently-maintained copies of the same pattern;
     // this test fails if any of the three drifts.
-    const diagnosticsPattern = String.raw`^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+|nova))?$`;
+    const diagnosticsPattern = String.raw`^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$`;
     expect(releaseChangelogSource.split(`/${diagnosticsPattern}/`).length - 1).toBe(0); // sanity: not the same file
     expect(diagnosticsSource.split(`/${diagnosticsPattern}/`).length - 1).toBe(3);
     const diagnosticsRegex = new RegExp(diagnosticsPattern);
-    expect(diagnosticsRegex.test("2026.9.6-nova")).toBe(true);
+    expect(diagnosticsRegex.test("2026.9.6-nova")).toBe(false);
     // Regression guard: the diagnostics pattern must still reject uppercase -NOVA.
     expect(diagnosticsRegex.test("2026.9.6-NOVA")).toBe(false);
   });
 
-  it("TC-212-5-INT-01: readCurrentPackageChangelog resolves 2026.9.6-nova against real CHANGELOG/2026.9.6.md", () => {
+  it("TC-212-5-INT-01: readCurrentPackageChangelog resolves plain 2026.9.6 against real CHANGELOG/2026.9.6.md", () => {
     const root = new URL("../..", import.meta.url).pathname;
-    const packaged = readCurrentPackageChangelog(root, "2026.9.6-nova");
+    const packaged = readCurrentPackageChangelog(root, "2026.9.6");
     expect(packaged).toContain("## 2026.9.6");
-    // The real 2026.9.6 changelog files are well under the 500 KiB compaction threshold,
-    // so the dormant compaction path (which would emit a v2026.9.6-nova tag link) is not reached.
-    expect(packaged).not.toContain("v2026.9.6-nova");
-  });
-
-  it("TC-212-5-U-16: -nova oversized compaction path documents its tag-link behavior", () => {
-    // Force the >500KB compaction path with a -nova package version.
-    // Keep editorial notes small; only the contribution record is oversized, matching the
-    // existing compaction fixture pattern so the compacted output stays under the limit.
-    const version = "2026.9.6-nova";
-    const editorial = `## ${version}\n\n### Fixes\n\n- Preserve this complete user-facing note and credit. Thanks @contributor.`;
-    const source = `# Changelog\n\n${editorial}\n\n${oversizedContributionRecord}\n`;
-    // The compaction implementation pins the source link to v${packageVersion}, which for a
-    // -nova build produces v2026.9.6-nova. The tag validator currently rejects that tag,
-    // so the compaction path throws rather than shipping a dead link. This is a known
-    // follow-up defect; the test keeps it visible rather than silent.
-    expect(() => extractCurrentPackageChangelog(source, version)).toThrow(
-      "invalid release tag: v2026.9.6-nova",
-    );
+    expect(packaged).not.toContain("-nova");
   });
 });
