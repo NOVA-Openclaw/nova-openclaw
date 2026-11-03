@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSignalDaemonLifecycle } from "./daemon-lifecycle.js";
 
-function makeMockDaemonHandle(exitValue?: {
+function makeMockDaemonHandle(_exitValue?: {
   source: "process" | "spawn-error";
   code: number | null;
   signal: NodeJS.Signals | null;

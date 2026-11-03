@@ -315,9 +315,15 @@ export function spawnSignalDaemon(opts: SignalDaemonOpts): SignalDaemonHandle {
             // and force-resolve so stop() cannot hang indefinitely.
             sigkillTimer = setTimeout(() => {
               const pending: string[] = [];
-              if (!exited) pending.push("exit");
-              if (child.stdout && !child.stdout.readableEnded) pending.push("stdout");
-              if (child.stderr && !child.stderr.readableEnded) pending.push("stderr");
+              if (!exited) {
+                pending.push("exit");
+              }
+              if (child.stdout && !child.stdout.readableEnded) {
+                pending.push("stdout");
+              }
+              if (child.stderr && !child.stderr.readableEnded) {
+                pending.push("stderr");
+              }
               error(
                 `signal-cli stop warning: force-resolving after ${POST_SIGKILL_MAX_WAIT_MS}ms; still pending: ${pending.join(", ") || "none"}`,
               );
@@ -337,8 +343,8 @@ export function spawnSignalDaemon(opts: SignalDaemonOpts): SignalDaemonHandle {
         const maybeResolve = () => {
           if (
             exited &&
-            child.stdout?.readableEnded !== false &&
-            child.stderr?.readableEnded !== false
+            (child.stdout?.readableEnded ?? true) &&
+            (child.stderr?.readableEnded ?? true)
           ) {
             clearTimeout(timeout);
             clearTimeout(sigkillTimer);
