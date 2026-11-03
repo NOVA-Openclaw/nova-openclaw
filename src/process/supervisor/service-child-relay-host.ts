@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import type { Duplex, Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { extractErrorCode, toErrorObject } from "../../infra/errors.js";
+import type { PluginRuntimeCloseChildDiagnostics } from "../../plugins/runtime-close-error.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { joinProcessCompletionAndOutput } from "../decoded-output.js";
 import { pipeProcessOutput } from "../pipe-output.js";
@@ -21,6 +22,7 @@ import {
   type ServiceChildRelayMessage,
   type ServiceChildStart,
 } from "./service-child-protocol.js";
+import { createServiceChildRelayHostCleanupHost } from "./service-child-relay-host-cleanup.js";
 import {
   prepareServiceChildRelay,
   type ServiceChildRelayAdapter,
@@ -196,45 +198,31 @@ export async function createServiceChildRelayAdapter(
     }
   };
 
-  const expireCleanup = () => {
-    if (completionSettled) {
-      return;
-    }
-    const pending = {
-      closingReceipt: !closingReceipt,
-      controlClose: !control?.closed,
-      relayExit: !childExited,
-      lineageEof: !lineage?.readableEnded,
-      extinctionUnconfirmed: state !== "closed",
-      stdoutEnd: !stdoutRelay.ended,
-      stderrEnd: !stderrRelay.ended,
-    };
-    const message =
-      "service child cleanup did not complete before its hard deadline; pending: " +
-      JSON.stringify(pending);
-    const error = new Error(message, {
-      cause: retirement.diagnostics(),
-    });
-    // Extinction may already be confirmed while an output pipe remains open.
-    // Reject pending results before destroy can turn that missing tail into success.
-    resultError ??= error;
-    startup.reject(error);
-    resultCompletion.reject(error);
-    cleanup.completion.reject(error);
-    try {
-      loseIdentity(message);
-    } finally {
-      control?.destroy();
-      if (!params.ownedWorker) {
-        lineage?.destroy();
-      }
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-    }
-  };
+  const cleanupHost = createServiceChildRelayHostCleanupHost(
+    () => completionSettled,
+    () => closingReceipt,
+    () => control ?? undefined,
+    () => childExited,
+    () => stdoutRelay,
+    () => stderrRelay,
+    () => lineage ?? undefined,
+    () => state === "closed",
+    () => anchorPid,
+    () => commandPid,
+    params,
+    startup,
+    resultCompletion,
+    cleanup,
+    (error) => {
+      resultError ??= error;
+    },
+    loseIdentity,
+    child,
+    () => retirement,
+  );
   const cleanupDeadline = createServiceChildCleanupDeadline({
     enabled: () => !useWindowsJobAnchor && !completionSettled,
-    expire: expireCleanup,
+    expire: cleanupHost.expire,
     force: () => kill("SIGKILL"),
   });
 
@@ -392,7 +380,7 @@ export async function createServiceChildRelayAdapter(
       }
       const remainingMs = cleanupDeadline.at! - performance.now();
       if (remainingMs <= 0 && childExited) {
-        expireCleanup();
+        cleanupHost.expire();
         return;
       }
       // After the budget expires, the deadline owner's I/O poll can still deliver queued exit.
@@ -726,6 +714,9 @@ export async function createServiceChildRelayAdapter(
       ),
     get cleanupResult() {
       return state === "closed" ? retirement.result : undefined;
+    },
+    get diagnostics(): PluginRuntimeCloseChildDiagnostics {
+      return cleanupHost.diagnostics();
     },
     kill,
     openStartGate,

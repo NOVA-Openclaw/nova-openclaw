@@ -83,6 +83,7 @@ import {
   runChannelAccountMonitor,
   waitForChannelStartupHandoff,
 } from "./server-channel-startup.js";
+import { getChannelShutdownSignal } from "./server-channels-shutdown-signal.js";
 
 const RESTART_POLICY: BackoffPolicy = {
   initialMs: 5_000,
@@ -91,12 +92,10 @@ const RESTART_POLICY: BackoffPolicy = {
   jitter: 0.1,
 };
 const MAX_RESTARTS = 10;
-const CHANNEL_STABLE_RUN_MS = RESTART_POLICY.maxMs;
 const CHANNEL_STOP_ABORT_TIMEOUT_MS = 5_000;
 const CHANNEL_STARTUP_CONCURRENCY = 4;
 // Private context key carried through the generic Plugin SDK registry. This is
 // not a new public capability surface; only the host installs its authority.
-const CHANNEL_APPROVAL_GATEWAY_RUNTIME_CONTEXT_CAPABILITY = "approval.gateway";
 
 type ChannelAccountLifetime = {
   plugin: ChannelPlugin;
@@ -499,6 +498,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     accountId,
     account,
     abortSignal,
+    shutdownSignal: getChannelShutdownSignal(),
     runtime: ensureChannelRuntime(channelId),
     log: ensureChannelLog(channelId),
     getStatus: () => getRuntime(channelId, accountId),
@@ -942,7 +942,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
                 channelRuntime: channelRuntimeForTask,
                 channelId,
                 accountId: id,
-                capability: CHANNEL_APPROVAL_GATEWAY_RUNTIME_CONTEXT_CAPABILITY,
+                capability: "approval.gateway",
                 context: approvalRuntime,
                 abortSignal: abort.signal,
               });
@@ -1079,7 +1079,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
               // make a short crash look stable and erase crash-loop attempts.
               if (
                 channelRunDurationMs !== undefined &&
-                channelRunDurationMs >= CHANNEL_STABLE_RUN_MS
+                channelRunDurationMs >= RESTART_POLICY.maxMs
               ) {
                 restarts.delete(rKey);
               }

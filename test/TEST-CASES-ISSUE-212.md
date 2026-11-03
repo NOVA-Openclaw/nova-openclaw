@@ -828,7 +828,7 @@ suite delivered by this step.
   `--thinking adaptive` CLI/API directive for `anthropic/claude-opus-5-5` —
   confirmed on staging (`stage03-04-run.json`): exit 1, `errorCode=UNAVAILABLE`,
   `Thinking level "adaptive" is not supported for anthropic/claude-opus-5-5.
-  Use one of: low, medium, high, xhigh, max.` This explicit-directive rejection
+Use one of: low, medium, high, xhigh, max.` This explicit-directive rejection
   is expected upstream behavior, not a bug — it is out of scope for this test
   case.
 
@@ -856,6 +856,7 @@ suite delivered by this step.
   actual primary) is out of scope for this test case — confirmed working by
   I)ruid; do not mark it as a gap. This build's catalog also has no OpenRouter
   entry to test against regardless (direct-Anthropic only).
+
 - **TC-212-STAGE-04**: item-1 exec-env plugin observably sets the three vars
   in a real exec call on the staged gateway (e.g. `exec env | grep OPENCLAW_AGENT_ID`
   from within an agent session) — the true end-to-end version of

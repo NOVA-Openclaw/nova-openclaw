@@ -583,6 +583,9 @@ export const signalPlugin: ChannelPlugin<ResolvedSignalAccount, SignalProbe> =
             runtime: ctx.runtime,
             channelRuntime: ctx.channelRuntime as PluginRuntime["channel"],
             abortSignal: ctx.abortSignal,
+            // shutdownSignal fires as soon as the gateway begins draining for
+            // shutdown or restart, before the per-account abortSignal aborts.
+            shutdownSignal: ctx.shutdownSignal,
             mediaMaxMb: account.config.mediaMaxMb,
             statusSink,
           });

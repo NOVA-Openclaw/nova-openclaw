@@ -24,6 +24,8 @@ type SignalDaemonOpts = {
   ignoreAttachments?: boolean;
   ignoreStories?: boolean;
   sendReadReceipts?: boolean;
+  /** Grace period between SIGTERM and SIGKILL, in milliseconds. Default: 10_000. */
+  stopTimeoutMs?: number;
   runtime?: RuntimeEnv;
 };
 
@@ -34,7 +36,8 @@ export type SignalDaemonHandle = {
   isExited: () => boolean;
 };
 
-const SIGNAL_DAEMON_STOP_KILL_TIMEOUT_MS = 1_500;
+const DEFAULT_SIGNAL_DAEMON_STOP_TIMEOUT_MS = 10_000;
+const MIN_SIGNAL_DAEMON_STOP_TIMEOUT_MS = 0;
 
 type SignalDaemonExitEvent = {
   source: "process" | "spawn-error";
@@ -289,23 +292,71 @@ export function spawnSignalDaemon(opts: SignalDaemonOpts): SignalDaemonHandle {
           error(`signal-cli stop error: ${String(err)}`);
         }
       }
+      const stopTimeoutMs = Math.max(
+        MIN_SIGNAL_DAEMON_STOP_TIMEOUT_MS,
+        typeof opts.stopTimeoutMs === "number" && Number.isFinite(opts.stopTimeoutMs)
+          ? opts.stopTimeoutMs
+          : DEFAULT_SIGNAL_DAEMON_STOP_TIMEOUT_MS,
+      );
+      const POST_SIGKILL_MAX_WAIT_MS = 2_000;
       stopPromise = new Promise<void>((resolve) => {
+        let sigkillSent = false;
+        let sigkillTimer: NodeJS.Timeout | undefined;
         const timeout = setTimeout(() => {
-          if (!exited) {
+          if (!exited && !sigkillSent) {
+            sigkillSent = true;
             try {
               child.kill("SIGKILL");
             } catch (err) {
               error(`signal-cli force-stop error: ${String(err)}`);
             }
+            // If a grandchild holds the stdio fds open, the process may have
+            // exited but the streams never end. Bound the post-SIGKILL wait
+            // and force-resolve so stop() cannot hang indefinitely.
+            sigkillTimer = setTimeout(() => {
+              const pending: string[] = [];
+              if (!exited) {
+                pending.push("exit");
+              }
+              if (child.stdout && !child.stdout.readableEnded) {
+                pending.push("stdout");
+              }
+              if (child.stderr && !child.stderr.readableEnded) {
+                pending.push("stderr");
+              }
+              error(
+                `signal-cli stop warning: force-resolving after ${POST_SIGKILL_MAX_WAIT_MS}ms; still pending: ${pending.join(", ") || "none"}`,
+              );
+              child.stdout?.destroy();
+              child.stderr?.destroy();
+              clearTimeout(timeout);
+              resolve();
+            }, POST_SIGKILL_MAX_WAIT_MS);
+            sigkillTimer.unref?.();
           }
-        }, SIGNAL_DAEMON_STOP_KILL_TIMEOUT_MS);
+        }, stopTimeoutMs);
         timeout.unref?.();
-        // Do not resolve merely because SIGKILL was sent: monitor lifetime prevents the gateway
-        // from starting a replacement before the old daemon releases its port and config lock.
-        void exitedPromise.then(() => {
-          clearTimeout(timeout);
-          resolve();
-        });
+        // Do not resolve merely because SIGKILL was sent: wait for the process
+        // to actually exit *and* for its stdio streams to reach EOF so the
+        // monitor can reliably distinguish an unexpected respawn from the
+        // intended shutdown.
+        const maybeResolve = () => {
+          if (
+            exited &&
+            (child.stdout?.readableEnded ?? true) &&
+            (child.stderr?.readableEnded ?? true)
+          ) {
+            clearTimeout(timeout);
+            clearTimeout(sigkillTimer);
+            resolve();
+          }
+        };
+        child.once("exit", maybeResolve);
+        child.once("close", maybeResolve);
+        child.stdout?.once("end", maybeResolve);
+        child.stderr?.once("end", maybeResolve);
+        // Guard against a stream that was never created.
+        maybeResolve();
       });
       return stopPromise;
     },

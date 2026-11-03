@@ -16,6 +16,8 @@ import {
 } from "../infra/errors.js";
 import { registerFatalErrorHook } from "../infra/fatal-error-hooks.js";
 import { replaceFileAtomicSync } from "../infra/replace-file.js";
+import { readErrorDiagnostics } from "./diagnostic-stability-bundle-child-diagnostics.js";
+import type { DiagnosticStabilityBundleError } from "./diagnostic-stability-bundle-error.js";
 import {
   getDiagnosticStabilitySnapshot,
   MAX_DIAGNOSTIC_STABILITY_LIMIT,
@@ -109,12 +111,7 @@ export type DiagnosticStabilityBundle = {
   host: {
     hostname: string;
   };
-  error?: {
-    name?: string;
-    code?: string;
-    message?: string;
-    stack?: string;
-  };
+  error?: DiagnosticStabilityBundleError;
   evidence?: DiagnosticStabilityBundleEvidence;
   snapshot: DiagnosticStabilitySnapshot;
 };
@@ -218,7 +215,7 @@ function readSafeErrorMetadata(error: unknown): DiagnosticStabilityBundle["error
           MAX_SAFE_ERROR_STACK_LENGTH,
         )
       : undefined;
-  if (!name && !code && !message && !stack) {
+  if (!name && !code && !message && !stack && !readErrorDiagnostics(error)) {
     return undefined;
   }
   return {
@@ -226,6 +223,7 @@ function readSafeErrorMetadata(error: unknown): DiagnosticStabilityBundle["error
     ...(code ? { code } : {}),
     ...(message ? { message } : {}),
     ...(stack ? { stack } : {}),
+    ...((d) => (d ? { diagnostics: d } : {}))(readErrorDiagnostics(error)),
   };
 }
 
