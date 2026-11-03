@@ -354,8 +354,8 @@ describe("spawnSignalDaemon", () => {
       stopTimeoutMs: 1_000,
       runtime: {
         log: vi.fn(),
-        error: (message: string) => {
-          errors.push(message);
+        error: (...args: unknown[]) => {
+          errors.push(String(args[0]));
         },
         exit: vi.fn(),
       },
