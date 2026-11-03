@@ -352,7 +352,13 @@ describe("spawnSignalDaemon", () => {
       httpHost: "127.0.0.1",
       httpPort: 8080,
       stopTimeoutMs: 1_000,
-      runtime: { log: vi.fn(), error: (message: string) => errors.push(message), exit: vi.fn() },
+      runtime: {
+        log: vi.fn(),
+        error: (message: string) => {
+          errors.push(message);
+        },
+        exit: vi.fn(),
+      },
     });
 
     const stopPromise = handle.stop();
