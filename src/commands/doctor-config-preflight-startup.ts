@@ -232,10 +232,20 @@ function assertStartupConfigUnchanged(before: ConfigFileSnapshot, after: ConfigF
   }
 }
 
+/** Agent count that scales the startup-migration lease TTL, from the pinned snapshot. */
+export function resolveStartupMigrationAgentCount(
+  snapshot: ConfigFileSnapshot | undefined,
+): number | undefined {
+  const cfg = snapshot?.valid ? (snapshot.runtimeConfig ?? snapshot.config) : undefined;
+  return cfg ? listAgentIds(cfg).length : undefined;
+}
+
 /** Runtime readiness is checked after the leased Doctor migration has completed. */
 async function assertStartupStateMigrationReady(params: {
   cfg: OpenClawConfig;
   env: NodeJS.ProcessEnv;
+  // Renewed once per agent so the serial readiness walk cannot outlive the lease TTL.
+  lease?: StartupMigrationLease;
 }): Promise<void> {
   const { assertOpenClawDatabasesReady } = await measureDoctorConfigPreflightStep(
     "admission.database-runtime-import",
@@ -253,6 +263,8 @@ async function assertStartupStateMigrationReady(params: {
         onAgentInspection: (stats) => {
           Object.assign(admissionMetrics, stats);
         },
+        // Keep the startup-migration lease alive as each agent database is inspected.
+        onAgentProgress: () => params.lease?.heartbeat(),
       }),
     undefined,
     () => admissionMetrics,
@@ -393,6 +405,7 @@ export async function completeStartupMigrationPreflight(params: {
     await assertStartupStateMigrationReady({
       cfg: snapshot.runtimeConfig ?? snapshot.config,
       env: params.startupMigrationEnv,
+      lease: params.startupMigrationLease,
     });
   }
   if (

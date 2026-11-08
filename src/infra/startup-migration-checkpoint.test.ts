@@ -30,6 +30,7 @@ import {
   recordSuccessfulStateMigrations,
   recordSuccessfulStartupMigrations,
   STARTUP_MIGRATION_LEASE_TTL_MS,
+  STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS,
 } from "./startup-migration-checkpoint.js";
 
 afterEach(() => {
@@ -51,6 +52,26 @@ const migrationIdentity = {
 };
 
 /** Rewrites only the recorded owner start time so the live owner PID looks recycled. */
+function readStartupMigrationLeaseExpiresAt(env: NodeJS.ProcessEnv): number | null {
+  return (
+    withOpenClawStateStartupMigrationCheckpointDatabase(
+      (db) => {
+        const kysely = getNodeSqliteKysely<StartupMigrationLeaseTestDatabase>(db);
+        const row = executeSqliteQueryTakeFirstSync(
+          db,
+          kysely
+            .selectFrom("state_leases")
+            .select("expires_at as expiresAt")
+            .where("scope", "=", "startup-migrations")
+            .where("lease_key", "=", "global"),
+        );
+        return row?.expiresAt ?? null;
+      },
+      { env },
+    ) ?? null
+  );
+}
+
 function overwriteStartupMigrationLeaseOwnerStartedAt(
   env: NodeJS.ProcessEnv,
   startedAt: number,
@@ -648,6 +669,40 @@ describe("startup migration checkpoint", () => {
     lease.release();
     expect(hasActiveStartupMigrationLease({ env, nowMs: 301_002, onActivity })).toBe(false);
     expect(onActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the 5 minute floor TTL when no agent count is supplied", () => {
+    const env = {
+      OPENCLAW_STATE_DIR: startupMigrationTempDirs.make("openclaw-startup-migration-"),
+    };
+    const lease = acquireStartupMigrationLease({ env, nowMs: 1000, owner: "first" });
+
+    expect(readStartupMigrationLeaseExpiresAt(env)).toBe(1000 + STARTUP_MIGRATION_LEASE_TTL_MS);
+
+    lease.release();
+  });
+
+  it("scales the lease TTL by agent count at acquire time and across heartbeats", () => {
+    const env = {
+      OPENCLAW_STATE_DIR: startupMigrationTempDirs.make("openclaw-startup-migration-"),
+    };
+    const agentCount = 20;
+    const scaledTtlMs = agentCount * STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS;
+    // A large fleet must outlive the 5 minute floor so the walk cannot expire it.
+    expect(scaledTtlMs).toBeGreaterThan(STARTUP_MIGRATION_LEASE_TTL_MS);
+
+    const lease = acquireStartupMigrationLease({ env, nowMs: 1000, owner: "first", agentCount });
+    expect(readStartupMigrationLeaseExpiresAt(env)).toBe(1000 + scaledTtlMs);
+    // The scaled lease is still active well past the unscaled 5 minute floor.
+    expect(
+      hasActiveStartupMigrationLease({ env, nowMs: 1000 + STARTUP_MIGRATION_LEASE_TTL_MS + 1 }),
+    ).toBe(true);
+
+    // Heartbeat renewals reuse the same scaled TTL, not the raw constant.
+    lease.heartbeat({ nowMs: 50_000 });
+    expect(readStartupMigrationLeaseExpiresAt(env)).toBe(50_000 + scaledTtlMs);
+
+    lease.release();
   });
 
   it("does not checkpoint startup migrations after the lease is lost", () => {

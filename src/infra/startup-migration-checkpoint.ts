@@ -39,6 +39,22 @@ const STARTUP_MIGRATION_LEASE_KEY = "global";
 const STARTUP_MIGRATION_LEASE_POLL_INTERVAL_MS = 250;
 export const STARTUP_MIGRATION_LEASE_TTL_MS = 5 * 60_000;
 export const STARTUP_MIGRATION_HEARTBEAT_INTERVAL_MS = 60_000;
+// The serial startup agent-DB integrity walk grows with the agent inventory, so a
+// fixed TTL can expire mid-walk on large fleets before the next heartbeat renews it.
+// Budget this much per agent and take whichever is larger as the effective TTL,
+// keeping STARTUP_MIGRATION_LEASE_TTL_MS as the small-fleet floor/default.
+export const STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS = 30_000;
+
+/** Scale the lease TTL by agent count, never dropping below the 5 minute floor. */
+function resolveStartupMigrationLeaseTtlMs(agentCount: number | undefined): number {
+  if (agentCount === undefined || !Number.isFinite(agentCount) || agentCount <= 0) {
+    return STARTUP_MIGRATION_LEASE_TTL_MS;
+  }
+  return Math.max(
+    STARTUP_MIGRATION_LEASE_TTL_MS,
+    Math.ceil(agentCount) * STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS,
+  );
+}
 
 export type StartupMigrationLease = {
   assertOwnedInTransaction: (database: DatabaseSync, params?: { nowMs?: number }) => void;
@@ -53,6 +69,11 @@ type StartupMigrationLeaseParams = {
   owner?: string;
   /** Process id that owns the startup migration work. */
   ownerPid?: number;
+  /**
+   * Number of agents whose databases the startup walk must inspect. Scales the
+   * lease TTL (see resolveStartupMigrationLeaseTtlMs); omit for the 5 minute floor.
+   */
+  agentCount?: number;
 };
 
 type StartupMigrationLeaseWaitParams = Omit<StartupMigrationLeaseParams, "nowMs"> & {
@@ -332,7 +353,9 @@ function acquireStartupMigrationLeaseFromDatabase(
     host: hostname(),
     startedAt: getFileLockProcessStartTime(ownerPid),
   };
-  const expiresAt = nowMs + STARTUP_MIGRATION_LEASE_TTL_MS;
+  // Resolve the scaled TTL once so acquire and every heartbeat renewal agree.
+  const leaseTtlMs = resolveStartupMigrationLeaseTtlMs(params.agentCount);
+  const expiresAt = nowMs + leaseTtlMs;
 
   runSqliteImmediateTransactionSync(connection, () => {
     const db = connection;
@@ -388,7 +411,7 @@ function acquireStartupMigrationLeaseFromDatabase(
     },
     heartbeat: (heartbeatParams = {}) => {
       const heartbeatNowMs = heartbeatParams.nowMs ?? Date.now();
-      const heartbeatExpiresAt = heartbeatNowMs + STARTUP_MIGRATION_LEASE_TTL_MS;
+      const heartbeatExpiresAt = heartbeatNowMs + leaseTtlMs;
       writeStartupMigrationCheckpointDatabase(env, (db) => {
         const stateDb = getNodeSqliteKysely<StartupMigrationCheckpointDatabase>(db);
         const result = executeSqliteQuerySync(
@@ -455,6 +478,7 @@ function waitForStartupMigrationLease<T>(
         nowMs: now(),
         owner,
         ownerPid: params.ownerPid,
+        agentCount: params.agentCount,
       }),
     shouldRetry: (error) =>
       (error instanceof StartupMigrationLeaseConflictError && error.canWaitForSameHostOwner) ||

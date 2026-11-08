@@ -201,4 +201,63 @@ describe("bounded agent database preflight scheduling", () => {
       "agent-2",
     ]);
   });
+
+  it("pumps the per-agent progress callback once for each completed inspection", async () => {
+    const releases = {
+      0: createDeferred(),
+      1: createDeferred(),
+      2: createDeferred(),
+    };
+    const result = createResult();
+    const onProgress = vi.fn();
+
+    const run = preflightAgentDatabasesBounded(
+      [0, 1, 2] as const,
+      async (target) => {
+        await releases[target].promise;
+      },
+      result,
+      undefined,
+      undefined,
+      onProgress,
+    );
+
+    // Nothing has finished yet, so the lease is not renewed prematurely.
+    await Promise.resolve();
+    expect(onProgress).not.toHaveBeenCalled();
+
+    // Each completed agent pumps exactly one heartbeat, even out of order.
+    releases[1].resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onProgress).toHaveBeenCalledTimes(1);
+
+    releases[0].resolve();
+    releases[2].resolve();
+    await run;
+
+    // One heartbeat per agent across the whole walk, no more and no fewer.
+    expect(onProgress).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let a per-agent progress failure fail the walk", async () => {
+    const result = createResult();
+    const onProgress = vi.fn(() => {
+      throw new Error("lease heartbeat failed");
+    });
+
+    // A throwing pump (e.g. a transient lease write error) is swallowed here; the
+    // owning background heartbeat remains responsible for surfacing a lost lease.
+    await expect(
+      preflightAgentDatabasesBounded(
+        [0, 1] as const,
+        async () => {},
+        result,
+        undefined,
+        undefined,
+        onProgress,
+      ),
+    ).resolves.toBeDefined();
+    expect(onProgress).toHaveBeenCalledTimes(2);
+  });
 });

@@ -36,6 +36,8 @@ export async function preflightAgentDatabasesBounded<T>(
       reason: string,
     ) => AgentDatabaseAdmissionRefusal[];
   },
+  // Fired once per agent that finishes inspection; lets a long walk renew its lease.
+  onProgress?: () => void,
 ): Promise<AgentDatabasePreflightStats> {
   const inspectedAgentPaths = new Set<string>();
   const inspectedAgentTargets = new Set<string>();
@@ -146,6 +148,15 @@ export async function preflightAgentDatabasesBounded<T>(
         );
         inspections[index] = inspection;
         completions[index]!.resolve(inspection);
+        // One agent finished: renew the startup-migration lease so the remaining
+        // walk cannot outlive the TTL. This pump is additive insurance on top of
+        // the background heartbeat, which already captures and surfaces a lost
+        // lease through its own error path; a failing pump must not abort the walk.
+        try {
+          onProgress?.();
+        } catch {
+          // Intentionally ignored: lease-loss is surfaced by the owning heartbeat.
+        }
       } catch (error) {
         failures.set(index, error);
         completions[index]!.reject(error);

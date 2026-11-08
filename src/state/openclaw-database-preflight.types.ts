@@ -78,6 +78,13 @@ export type OpenClawDatabasePreflightOptions = {
   env: NodeJS.ProcessEnv;
   onAgentDatabaseDiscovery?: (prepared: PreparedAgentDatabaseMigrationDiscovery) => void;
   onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
+  /**
+   * Invoked once after each agent database completes inspection during the serial
+   * startup readiness walk, so a long walk can renew the startup-migration lease
+   * before its TTL elapses. Safe to call under bounded concurrency: each call maps
+   * to one finished agent, and callers keep the handler idempotent (a lease write).
+   */
+  onAgentProgress?: () => void;
   scope?: "state";
   signal?: AbortSignal;
   /** Omit for current-runtime checks; updates pass their complete target pair. */
