@@ -97,6 +97,8 @@ export async function assertOpenClawDatabasesReady(
   options: {
     env: NodeJS.ProcessEnv;
     onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
+    // Per-agent progress callback so the startup lease is renewed across the walk.
+    onAgentProgress?: () => void;
   } & (
     | {
         operation: "doctor";
@@ -111,6 +113,7 @@ export async function assertOpenClawDatabasesReady(
   const schemas = await preflightOpenClawDatabaseSchemas({
     env: options.env,
     onAgentInspection: options.onAgentInspection,
+    onAgentProgress: options.onAgentProgress,
     verifyCurrentSchemaShape: true,
     ...(options.config
       ? {
@@ -703,6 +706,7 @@ export async function preflightOpenClawDatabaseSchemas(
     result,
     options.signal,
     startup?.scheduling(options.env),
+    options.onAgentProgress,
   );
   options.onAgentInspection?.(stats);
   return result;

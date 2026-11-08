@@ -46,6 +46,7 @@ import {
   backupStartupMigrationDatabases,
   readStartupMigrationSnapshot,
   completeStartupMigrationPreflight,
+  resolveStartupMigrationAgentCount,
   noteStateMigrationResult,
   prepareDoctorMigrationPlugins,
 } from "./doctor-config-preflight-startup.js";
@@ -182,6 +183,7 @@ async function runDoctorConfigPreflightOperation(
     }
     startupMigrationLease ??= await migrationCheckpoint.acquireStartupMigrationLeaseWithWait({
       env: startupMigrationEnv,
+      agentCount: resolveStartupMigrationAgentCount(configSnapshotRead?.snapshot),
     });
     // Database admission can outlast the lease TTL; renew throughout the awaited reread.
     startupMigrationHeartbeat = keepStartupMigrationLeaseAlive(
@@ -305,6 +307,7 @@ async function runDoctorConfigPreflightOperation(
       const inspected = await migrationCheckpoint.inspectStartupMigrationCheckpointWithLease({
         env: startupMigrationEnv,
         identity: checkpointIdentityForSnapshot(configSnapshotRead),
+        agentCount: resolveStartupMigrationAgentCount(configSnapshotRead?.snapshot),
         stateMigrations: stateMigrationsRequested,
         startupMigrations: gatewayStartupCheckpointRequired,
         forceLease:

@@ -88,7 +88,14 @@ export function inspectAgentDatabaseSchema(
             hasPendingCurrentVersionAgentDatabaseMigration(database),
         )
       ) {
-        assertSqliteIntegrity(database, input.pathname);
+        // Startup prefers the lighter quick_check: it still detects structural and
+        // page corruption but skips integrity_check's index-content cross-checks,
+        // which on a multi-GB database cost minutes and can exhaust the startup lease
+        // TTL. Full integrity_check stays reserved for doctor / doctor --fix (via
+        // preflightOpenClawAgentDatabasePath), and a cached clean-close receipt still
+        // skips this gate entirely while queueing a background check. This keeps boot
+        // bounded without weakening the on-demand repair path.
+        assertSqliteIntegrity(database, input.pathname, "quick_check");
         inspection.integrityGateOutcome = "healthy";
       } else {
         inspection.integrityGateOutcome = "cached";
