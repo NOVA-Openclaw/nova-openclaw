@@ -1,3 +1,4 @@
+import { getPendingReplyDetails } from "../../auto-reply/reply/dispatcher-registry.js";
 import {
   markGatewayRestartTrace,
   measureGatewayRestartTrace,
@@ -7,12 +8,13 @@ import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.
 import type { SubsystemLogger } from "../../logging/subsystem.js";
 import type { GatewayDrainReason } from "../../process/gateway-work-admission.js";
 import type { GatewayRunSignalAction, GatewayRunSignalRequest } from "./run-loop-request.js";
-import { getPendingReplyDetails } from "../../auto-reply/reply/dispatcher-registry.js";
 import { formatDrainCounts, formatShutdownReason } from "./run-loop-shutdown-format.js";
 
 const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
 
-function formatDrainCountsWithDetails(snapshot: GatewayActiveWorkSnapshot): string {
+const MAX_PENDING_REPLY_DETAILS = 5;
+
+export function formatDrainCountsWithDetails(snapshot: GatewayActiveWorkSnapshot): string {
   const base = formatDrainCounts(snapshot);
   if (snapshot.counts.pendingReplies <= 0) {
     return base;
@@ -21,13 +23,16 @@ function formatDrainCountsWithDetails(snapshot: GatewayActiveWorkSnapshot): stri
   if (details.length === 0) {
     return base;
   }
-  const formatted = details
+  const visible = details.slice(0, MAX_PENDING_REPLY_DETAILS);
+  const formatted = visible
     .map(
       (detail) =>
         `sessionKey=${detail.sessionKey ?? "?"} runId=${detail.runId ?? "?"} pending=${detail.pending}`,
     )
     .join("; ");
-  return `${base} [pendingReplies: ${formatted}]`;
+  const more = details.length - visible.length;
+  const suffix = more > 0 ? `; and ${more} more` : "";
+  return `${base} [pendingReplies: ${formatted}${suffix}]`;
 }
 
 export async function drainGatewayActiveWork({
