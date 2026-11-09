@@ -7,9 +7,28 @@ import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.
 import type { SubsystemLogger } from "../../logging/subsystem.js";
 import type { GatewayDrainReason } from "../../process/gateway-work-admission.js";
 import type { GatewayRunSignalAction, GatewayRunSignalRequest } from "./run-loop-request.js";
+import { getPendingReplyDetails } from "../../auto-reply/reply/dispatcher-registry.js";
 import { formatDrainCounts, formatShutdownReason } from "./run-loop-shutdown-format.js";
 
 const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
+
+function formatDrainCountsWithDetails(snapshot: GatewayActiveWorkSnapshot): string {
+  const base = formatDrainCounts(snapshot);
+  if (snapshot.counts.pendingReplies <= 0) {
+    return base;
+  }
+  const details = getPendingReplyDetails();
+  if (details.length === 0) {
+    return base;
+  }
+  const formatted = details
+    .map(
+      (detail) =>
+        `sessionKey=${detail.sessionKey ?? "?"} runId=${detail.runId ?? "?"} pending=${detail.pending}`,
+    )
+    .join("; ");
+  return `${base} [pendingReplies: ${formatted}]`;
+}
 
 export async function drainGatewayActiveWork({
   request,
@@ -133,7 +152,7 @@ function createGatewayDrainReporter(
       lastPendingWarningAt = now;
       if (!snapshot.idle) {
         logger.info(
-          `draining active work before ${action} ${drainBudget}: ${formatDrainCounts(snapshot)}`,
+          `draining active work before ${action} ${drainBudget}: ${formatDrainCountsWithDetails(snapshot)}`,
         );
         const requestTimeoutMs = Math.max(
           0,
@@ -156,7 +175,9 @@ function createGatewayDrainReporter(
       now - lastPendingWarningAt >= RESTART_DRAIN_STILL_PENDING_WARN_MS
     ) {
       lastPendingWarningAt = now;
-      logger.warn(`still draining active work before ${action}: ${formatDrainCounts(snapshot)}`);
+      logger.warn(
+        `still draining active work before ${action}: ${formatDrainCountsWithDetails(snapshot)}`,
+      );
     }
   };
 }

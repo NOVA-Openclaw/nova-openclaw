@@ -234,38 +234,45 @@ export async function dispatchInboundMessage(params: {
   outboundHooks?: "enabled" | "disabled";
   onSettled?: () => void | Promise<void>;
 }): Promise<DispatchInboundResult> {
-  const replyOptions = applyRuntimeToolsAllow(params.replyOptions, params.toolsAllow);
-  const replyPayloadRunState = params.replyPayloadRunState ?? {
-    runId: replyOptions?.runId,
-  };
-  const replyOptionsWithRunState = bindReplyPayloadRunState(replyOptions, replyPayloadRunState);
-  const finalized = measureDiagnosticsTimelineSpanSync(
-    "auto_reply.finalize_context",
-    () => finalizeInboundContext(params.ctx),
-    {
-      phase: "agent-turn",
-      config: params.cfg,
-      attributes: buildDispatchTimelineAttributes(params.ctx),
-    },
-  );
-  if (isDiagnosticsEnabled(params.cfg)) {
-    logMessageReceived({
-      sessionKey: finalized.SessionKey,
-      channel: finalized.Surface ?? finalized.Provider,
-      chatId: finalized.To ?? finalized.From,
-      messageId: finalized.MessageSid ?? finalized.MessageSidFirst ?? finalized.MessageSidLast,
-      source: "dispatchInboundMessage",
-    });
-  }
-  if (params.outboundHooks !== "disabled") {
-    installReplyPayloadSendingBeforeDeliver(params.dispatcher, finalized, replyPayloadRunState);
-  }
   let settledReceipt: DispatchFromConfigResult["settledReceipt"];
   const result = await withReplyDispatcher({
     dispatcher: params.dispatcher,
     onSettled: params.onSettled,
-    run: () =>
-      measureDiagnosticsTimelineSpan(
+    run: async () => {
+      const replyOptions = applyRuntimeToolsAllow(params.replyOptions, params.toolsAllow);
+      const replyPayloadRunState = params.replyPayloadRunState ?? {
+        runId: replyOptions?.runId,
+      };
+      const replyOptionsWithRunState = bindReplyPayloadRunState(
+        replyOptions,
+        replyPayloadRunState,
+      );
+      const finalized = measureDiagnosticsTimelineSpanSync(
+        "auto_reply.finalize_context",
+        () => finalizeInboundContext(params.ctx),
+        {
+          phase: "agent-turn",
+          config: params.cfg,
+          attributes: buildDispatchTimelineAttributes(params.ctx),
+        },
+      );
+      if (isDiagnosticsEnabled(params.cfg)) {
+        logMessageReceived({
+          sessionKey: finalized.SessionKey,
+          channel: finalized.Surface ?? finalized.Provider,
+          chatId: finalized.To ?? finalized.From,
+          messageId: finalized.MessageSid ?? finalized.MessageSidFirst ?? finalized.MessageSidLast,
+          source: "dispatchInboundMessage",
+        });
+      }
+      if (params.outboundHooks !== "disabled") {
+        installReplyPayloadSendingBeforeDeliver(
+          params.dispatcher,
+          finalized,
+          replyPayloadRunState,
+        );
+      }
+      return await measureDiagnosticsTimelineSpan(
         "auto_reply.dispatch_reply_from_config",
         async () => {
           const dispatch = params.dispatchReplyFromConfig ?? dispatchReplyFromConfig;
@@ -284,7 +291,8 @@ export async function dispatchInboundMessage(params: {
           config: params.cfg,
           attributes: buildDispatchTimelineAttributes(finalized),
         },
-      ),
+      );
+    },
     onSettledReceipt: (receipt) => {
       settledReceipt = receipt;
     },
@@ -369,6 +377,10 @@ async function dispatchInboundMessageWithBufferedDispatcherCore(
       onSettled: settleDeliveries,
       onFreshSettledDelivery: undefined,
       silentReplyContext: params.dispatcherOptions.silentReplyContext ?? silentReplyContext,
+      metadata: {
+        sessionKey: finalized.SessionKey,
+        runId: params.replyOptions?.runId,
+      },
     });
   const onTypingController = params.replyOptions?.onTypingController
     ? (typing: Parameters<NonNullable<typeof params.replyOptions.onTypingController>>[0]) => {
@@ -396,6 +408,7 @@ async function dispatchInboundMessageWithBufferedDispatcherCore(
       onSessionMetadataChanges: params.onSessionMetadataChanges,
     });
   } finally {
+    dispatcher.markComplete();
     try {
       await settledDeliveries;
     } finally {
@@ -472,18 +485,29 @@ async function dispatchInboundMessageWithPlainDispatcherCore(
     ...params.dispatcherOptions,
     beforeDeliver: composedBeforeDeliver,
     silentReplyContext: params.dispatcherOptions.silentReplyContext ?? silentReplyContext,
+    metadata: {
+      sessionKey:
+        typeof params.ctx.SessionKey === "string"
+          ? params.ctx.SessionKey
+          : finalizeInboundContext(params.ctx).SessionKey,
+      runId: params.replyOptions?.runId,
+    },
   });
-  markReplyPayloadSendingBeforeDeliverInstalled(dispatcher, replyPayloadBeforeDeliver);
-  return await dispatchInboundMessage({
-    ctx: params.ctx,
-    cfg: params.cfg,
-    dispatcher,
-    toolsAllow: params.toolsAllow,
-    replyResolver: params.replyResolver,
-    replyOptions: params.replyOptions,
-    replyPayloadRunState,
-    onSessionMetadataChanges: params.onSessionMetadataChanges,
-  });
+  try {
+    markReplyPayloadSendingBeforeDeliverInstalled(dispatcher, replyPayloadBeforeDeliver);
+    return await dispatchInboundMessage({
+      ctx: params.ctx,
+      cfg: params.cfg,
+      dispatcher,
+      toolsAllow: params.toolsAllow,
+      replyResolver: params.replyResolver,
+      replyOptions: params.replyOptions,
+      replyPayloadRunState,
+      onSessionMetadataChanges: params.onSessionMetadataChanges,
+    });
+  } finally {
+    dispatcher.markComplete();
+  }
 }
 
 /** Creates a plain dispatcher, installs global send hooks, and dispatches the inbound message. */

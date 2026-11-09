@@ -24,7 +24,10 @@ import {
 } from "../reply-payload.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import { registerDispatcher } from "./dispatcher-registry.js";
+import {
+  registerDispatcher,
+  type ReplyDispatcherRegistration,
+} from "./dispatcher-registry.js";
 import {
   normalizeReplyPayloadOutcome,
   type NormalizeReplyOutcome,
@@ -180,6 +183,8 @@ export type ReplyDispatcherOptions = {
    * sends fall back to deliver(payload, info), retaining that adapter's raw contract.
    */
   deliverPrepared?: (plan: OutboundPayloadPlan, info: ReplyDispatchRuntimeInfo) => Promise<unknown>;
+  /** Registry metadata so a leaked dispatcher can name its owning session/run. */
+  metadata?: ReplyDispatcherRegistration;
   silentReplyContext?: {
     cfg?: OpenClawConfig;
     sessionKey?: string;
@@ -217,6 +222,7 @@ export type ReplyDispatcherOptions = {
 
 export type ReplyDispatcherWithTypingOptions = Omit<ReplyDispatcherOptions, "onIdle"> & {
   typingCallbacks?: TypingCallbacks;
+  metadata?: ReplyDispatcherRegistration;
   onReplyStart?: () => Promise<void> | void;
   onIdle?: () => Promise<void> | void;
   onSettled?: () => unknown;
@@ -316,7 +322,7 @@ export function createReplyDispatcher(
     ...(hasPendingDelivery ? { hasPendingDelivery: true } : {}),
   });
 
-  const unregister = registerDispatcher(() => pending);
+  const unregister = registerDispatcher(() => pending, options.metadata);
 
   const reportObserverError = (err: unknown, info: ReplyDispatchRuntimeInfo) => {
     invokeReplyDispatcherObserver(() => options.onError?.(err, info));
@@ -741,6 +747,7 @@ export function createReplyDispatcherWithTyping(
   let typingController: TypingController | undefined;
   const dispatcher = createReplyDispatcher({
     ...dispatcherOptions,
+    metadata: options.metadata,
     onIdle: async () => {
       typingController?.markDispatchIdle();
       const idle = resolvedOnIdle?.();
