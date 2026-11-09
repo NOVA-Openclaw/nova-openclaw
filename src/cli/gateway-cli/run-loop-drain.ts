@@ -1,3 +1,4 @@
+import { getPendingReplyDetails } from "../../auto-reply/reply/dispatcher-registry.js";
 import {
   markGatewayRestartTrace,
   measureGatewayRestartTrace,
@@ -8,10 +9,40 @@ import { formatGatewayDrainCounts } from "../../infra/gateway-drain.js";
 import type { SubsystemLogger } from "../../logging/subsystem.js";
 import { beginGatewayShutdownCleanup } from "../../process/gateway-work-admission.js";
 import type { GatewayRunSignalAction, GatewayRunSignalRequest } from "./run-loop-request.js";
+<<<<<<< HEAD
 import { formatShutdownReason } from "./run-loop-shutdown-format.js";
 
 const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
 
+=======
+import { formatDrainCounts, formatShutdownReason } from "./run-loop-shutdown-format.js";
+
+const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
+
+const MAX_PENDING_REPLY_DETAILS = 5;
+
+export function formatDrainCountsWithDetails(snapshot: GatewayActiveWorkSnapshot): string {
+  const base = formatDrainCounts(snapshot);
+  if (snapshot.counts.pendingReplies <= 0) {
+    return base;
+  }
+  const details = getPendingReplyDetails();
+  if (details.length === 0) {
+    return base;
+  }
+  const visible = details.slice(0, MAX_PENDING_REPLY_DETAILS);
+  const formatted = visible
+    .map(
+      (detail) =>
+        `sessionKey=${detail.sessionKey ?? "?"} runId=${detail.runId ?? "?"} pending=${detail.pending}`,
+    )
+    .join("; ");
+  const more = details.length - visible.length;
+  const suffix = more > 0 ? `; and ${more} more` : "";
+  return `${base} [pendingReplies: ${formatted}${suffix}]`;
+}
+
+>>>>>>> 6789af72822 (fix(239): cap drain log detail and pin dispatcher markComplete defence-in-depth)
 export async function drainGatewayActiveWork({
   request,
   runtime,
@@ -79,7 +110,7 @@ export async function drainGatewayActiveWork({
           return;
         }
         drainTimedOut = true;
-        const warning = `restart drain budget ${drainTimeoutMs}ms exhausted; cutting short ${formatGatewayDrainCounts(drain.snapshot)}`;
+        const warning = `restart drain budget ${drainTimeoutMs}ms exhausted; cutting short ${formatGatewayDrainCountsWithDetails(drain.snapshot)}`;
         recordWarning(warning);
         logger.warn(warning);
         // Connection work can retain cron cleanup; cancel before close joins it.
@@ -105,7 +136,7 @@ export async function drainGatewayActiveWork({
       if (!activeWorkDrain.drained) {
         drainTimedOut = true;
         logger.warn(
-          `gateway active-work drain timeout reached; proceeding with shutdown: ${formatGatewayDrainCounts(activeWorkDrain.snapshot)}`,
+          `gateway active-work drain timeout reached; proceeding with shutdown: ${formatGatewayDrainCountsWithDetails(activeWorkDrain.snapshot)}`,
         );
         runtime.abortEmbeddedAgentRun(undefined, { mode: "all" });
         runtime.abortActiveCronTaskRuns("Gateway stopping.");
