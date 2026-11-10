@@ -1079,3 +1079,86 @@ describe("withReplyDispatcher", () => {
     expect(dispatcherOptions.silentReplyContext?.conversationType).not.toBe("group");
   });
 });
+
+describe("dispatcher markComplete defence in depth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    hoisted.finalizeInboundContextMock.mockImplementation((ctx: unknown) => ctx);
+    hoisted.deriveInboundMessageHookContextMock.mockReturnValue({
+      channelId: "threads",
+      accountId: "acct-1",
+      conversationId: "conv-1",
+      isGroup: false,
+      to: "thread:1",
+    });
+    hoisted.getGlobalHookRunnerMock.mockReturnValue({
+      hasHooks: vi.fn(() => false),
+      runMessageSending: vi.fn(async () => undefined),
+      runReplyPayloadSending: vi.fn(async () => undefined),
+    });
+  });
+
+  async function loadDispatchWithThrowingWithReplyDispatcher(): Promise<
+    typeof import("./dispatch.js")
+  > {
+    const throwError = new Error("early throw before withReplyDispatcher");
+    vi.doMock("./dispatch-dispatcher.js", async () => {
+      const actual = await vi.importActual<typeof import("./dispatch-dispatcher.js")>(
+        "./dispatch-dispatcher.js",
+      );
+      return {
+        ...actual,
+        withReplyDispatcher: () => {
+          throw throwError;
+        },
+      };
+    });
+    return import("./dispatch.js");
+  }
+
+  it("plain wrapper calls dispatcher.markComplete when dispatchInboundMessage throws before withReplyDispatcher", async () => {
+    const dispatch = await loadDispatchWithThrowingWithReplyDispatcher();
+    const order: string[] = [];
+    const dispatcher = createDispatcher(order);
+    const markCompleteSpy = vi.spyOn(dispatcher, "markComplete");
+    hoisted.createReplyDispatcherMock.mockReturnValueOnce(dispatcher);
+
+    await expect(
+      dispatch.dispatchInboundMessageWithDispatcher({
+        ctx: buildTestCtx({ Surface: "webchat", SessionKey: "agent:test:main" }),
+        cfg: {} as OpenClawConfig,
+        dispatcherOptions: { deliver: async () => undefined },
+      }),
+    ).rejects.toThrow("early throw before withReplyDispatcher");
+
+    expect(markCompleteSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("buffered wrapper calls dispatcher.markComplete when dispatchInboundMessage throws before withReplyDispatcher", async () => {
+    const dispatch = await loadDispatchWithThrowingWithReplyDispatcher();
+    const order: string[] = [];
+    const dispatcher = createDispatcher(order);
+    const markCompleteSpy = vi.spyOn(dispatcher, "markComplete");
+    const markDispatchIdle = vi.fn();
+    const markRunComplete = vi.fn();
+    hoisted.createReplyDispatcherWithTypingMock.mockReturnValueOnce({
+      dispatcher,
+      replyOptions: {},
+      markDispatchIdle,
+      markRunComplete,
+    });
+
+    await expect(
+      dispatch.dispatchInboundMessageWithBufferedDispatcher({
+        ctx: buildTestCtx({ Surface: "webchat", SessionKey: "agent:test:main" }),
+        cfg: {} as OpenClawConfig,
+        dispatcherOptions: { deliver: async () => undefined },
+      }),
+    ).rejects.toThrow("early throw before withReplyDispatcher");
+
+    expect(markCompleteSpy).toHaveBeenCalledTimes(1);
+    expect(markRunComplete).toHaveBeenCalledTimes(1);
+    expect(markDispatchIdle).toHaveBeenCalledTimes(1);
+  });
+});
