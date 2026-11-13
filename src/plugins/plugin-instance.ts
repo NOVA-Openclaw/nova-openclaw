@@ -33,6 +33,9 @@ const log = createSubsystemLogger("plugins/cleanup");
 
 /** Whether to capture a short creation stack for every plugin call lease. */
 const CAPTURE_LEASE_STACKS = process.env.OPENCLAW_DEBUG_PLUGIN_LEASES === "1";
+if (CAPTURE_LEASE_STACKS) {
+  Error.stackTraceLimit = Math.max(Error.stackTraceLimit, 50);
+}
 
 /** Per-call metadata attached to every PluginInstance lease token. */
 type CallMetadata = {
@@ -64,7 +67,8 @@ function captureCreationStack(): string | undefined {
     return undefined;
   }
   // Skip: Error message, captureCreationStack, lease, plus the public wrapper frame.
-  const lines = stack.split("\n").slice(4, 9);
+  // Keep a longer tail so async disposal frames are not truncated by the default limit.
+  const lines = stack.split("\n").slice(4, 19);
   return lines.map((line) => line.trim()).join("\n");
 }
 
@@ -372,7 +376,13 @@ export class PluginInstance {
 
   private invoke<T>(
     run: () => T,
-    { token, release }: PluginInstanceCallLease = this.lease(),
+    { token, release }: PluginInstanceCallLease = this.lease(
+      true,
+      undefined,
+      false,
+      "value-view:callback",
+      "",
+    ),
     cleanupFailures?: Set<unknown>,
   ): T {
     const cleanup = this.calls.get(token)?.cleanup === true;
@@ -495,7 +505,7 @@ export class PluginInstance {
         instance: this,
         originalValues: this.originalValues,
         invoke: (run, lease) => this.invoke(run, lease),
-        lease: () => this.lease(),
+        lease: () => this.lease(true, undefined, false, "value-view:iterator", ""),
         hasToken: (token) => this.hasToken(token),
       },
       admit,
@@ -721,7 +731,11 @@ export class PluginInstance {
     let hostFailure: { error: unknown } | undefined;
     const runCleanup = (cleanup: () => void | Promise<void>, hostCleanup = false) =>
       cleanupWork.track(() =>
-        this.invoke(cleanup, this.lease(false, undefined, hostCleanup), terminalFailures),
+        this.invoke(
+          cleanup,
+          this.lease(false, undefined, hostCleanup, "disposal:cleanup", cleanup.name || ""),
+          terminalFailures,
+        ),
       );
     try {
       await this.waitForCalls();
@@ -792,7 +806,10 @@ export class PluginInstance {
     await this.timedOutCalls?.settled.promise;
     for (const cleanup of moduleCleanups) {
       try {
-        await this.invoke(cleanup, this.lease(false));
+        await this.invoke(
+          cleanup,
+          this.lease(false, undefined, false, "disposal:module", cleanup.name || ""),
+        );
       } catch (error) {
         failures.push(error);
         terminalFailures.add(error);
