@@ -305,7 +305,9 @@ export function createHostRegistrars(state: PluginRegistryState) {
       inspection.register(record.id, {
         id,
         dispose: () =>
-          instance ? instance.runCleanup(() => dispose.call(lifecycle)) : dispose.call(lifecycle),
+          instance
+            ? instance.runCleanup(() => dispose.call(lifecycle), "lifecycle:onDispose", id)
+            : dispose.call(lifecycle),
       });
     }
     registry.runtimeLifecycles.push(

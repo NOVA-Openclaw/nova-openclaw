@@ -22,7 +22,9 @@ export async function runChannelAccountMonitor<T>(
   // Host-owned monitor custody drains after stop and cannot block replacement admission.
   const consumer = instance?.retainConsumer(undefined, undefined, "custody");
   try {
-    return await (consumer ? consumer.run(start) : start());
+    return await (consumer
+      ? consumer.run(start, "channel:startAccount", pluginId ?? "unknown")
+      : start());
   } finally {
     consumer?.release();
   }

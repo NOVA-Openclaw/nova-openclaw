@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { runInNewContext } from "node:vm";
 import { EventStream } from "@openclaw/llm-core/event-stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { createPluginRuntimeStore } from "../plugin-sdk/runtime-store.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { attachPluginApiFacades, instrumentPluginInstanceApi } from "./api-facades.js";
@@ -18,6 +19,16 @@ import {
   PluginInstanceUnavailableError,
 } from "./plugin-instance-error.js";
 import { runPluginCleanup } from "./plugin-instance-scope.js";
+const { mockWarn } = vi.hoisted(() => ({ mockWarn: vi.fn() }));
+vi.mock("../logging/subsystem.js", () => ({
+  createSubsystemLogger: vi.fn(() => ({
+    warn: mockWarn,
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
 import { PluginInstance } from "./plugin-instance.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import { adoptPluginRegistryRecords } from "./registry-lifecycle.js";
@@ -69,6 +80,28 @@ describe("managed plugin instances", () => {
       expect(releaseModules).not.toHaveBeenCalled();
     },
   );
+
+  it("logs held lease kind, label, and age during forced retirement", async () => {
+    vi.useFakeTimers();
+    mockWarn.mockClear();
+    const instance = new PluginInstance("held-call");
+    const never = new Promise<void>(() => {});
+    void instance.run(() => never, "hook:message_received", "message-123");
+    let result: Awaited<ReturnType<PluginInstance["dispose"]>> | undefined;
+    void instance.dispose().then((value) => {
+      result = value;
+    });
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(result).toBeDefined();
+    const heldLines = mockWarn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.includes("held lease at forced retirement"));
+    expect(heldLines.length).toBeGreaterThanOrEqual(1);
+    const held = heldLines[0]!;
+    expect(held).toContain("Plugin held-call instance");
+    expect(held).toContain("kind=hook:message_received/message-123");
+    expect(held).toMatch(/age=\d+ms/);
+  });
 
   it("drains admitted calls and rejects new calls", async () => {
     const instance = new PluginInstance("clock");

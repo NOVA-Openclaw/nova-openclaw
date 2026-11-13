@@ -6,13 +6,13 @@ export type PluginInstanceLifecycle = {
 
 /** Execution and host cleanup retain the same instance admission. */
 export type PluginInstanceExecution = {
-  run<T>(run: () => T): T;
-  runCleanup<T>(run: () => T): T;
+  run<T>(run: () => T, kind?: string, label?: string): T;
+  runCleanup<T>(run: () => T, kind?: string, label?: string): T;
 };
 
 export type PluginInstanceAdmission = {
   readonly lifecycle: PluginInstanceLifecycle;
-  run<T>(run: () => T): T;
+  run<T>(run: () => T, kind?: string, label?: string): T;
 };
 
 /** Known disposal faults are reported outcomes, never new-call admission failures. */
@@ -25,7 +25,7 @@ export type PluginInstanceDisposalResult = {
 /** A host-owned logical consumer retains only its exact instance's admitted operations. */
 export type PluginInstanceConsumer = {
   wrap<T>(value: T): T;
-  run<T>(run: () => T): T;
+  run<T>(run: () => T, kind?: string, label?: string): T;
   close(cleanup: () => void | Promise<void>): Promise<void>;
   release(): void;
 };
