@@ -31,6 +31,47 @@ const { values: valueInstances } = pluginInstanceState;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 const log = createSubsystemLogger("plugins/cleanup");
 
+/** Whether to capture a short creation stack for every plugin call lease. */
+const CAPTURE_LEASE_STACKS = process.env.OPENCLAW_DEBUG_PLUGIN_LEASES === "1";
+if (CAPTURE_LEASE_STACKS) {
+  Error.stackTraceLimit = Math.max(Error.stackTraceLimit, 50);
+}
+
+/** Per-call metadata attached to every PluginInstance lease token. */
+type CallMetadata = {
+  registry?: PluginRegistry;
+  cleanup: boolean;
+  kind: string;
+  label: string;
+  startedAt: number;
+  stack?: string;
+};
+
+/** Format a held lease for the forced-retirement log line. */
+function formatHeldLease(meta: CallMetadata, now: number): string {
+  const age = now - meta.startedAt;
+  let line = `kind=${meta.kind}${meta.label ? `/${meta.label}` : ""}, age=${age}ms`;
+  if (meta.stack) {
+    line += `, stack=${meta.stack.replace(/\n/g, " | ")}`;
+  }
+  return line;
+}
+
+/** Capture a short creation stack, skipping internal frames. */
+function captureCreationStack(): string | undefined {
+  if (!CAPTURE_LEASE_STACKS) {
+    return undefined;
+  }
+  const stack = new Error("plugin lease created").stack;
+  if (!stack) {
+    return undefined;
+  }
+  // Skip: Error message, captureCreationStack, lease, plus the public wrapper frame.
+  // Keep a longer tail so async disposal frames are not truncated by the default limit.
+  const lines = stack.split("\n").slice(4, 19);
+  return lines.map((line) => line.trim()).join("\n");
+}
+
 type DisposalCleanup = {
   failures: unknown[];
   hostFailure?: { error: unknown };
@@ -71,7 +112,9 @@ export class PluginInstance {
   private accepting = true;
   private replacementReserved = false;
   private readonly retainedWork = new Set<object>();
-  private readonly calls = new Map<object, { registry?: PluginRegistry; cleanup: boolean }>();
+  private readonly calls = new Map<object, CallMetadata>();
+  private static nextInstanceId = 1;
+  readonly instanceId: number;
   private forcedRetirement = false;
   private disposalFailures?: Set<unknown>;
   private readonly hostCleanupCalls = new WeakSet<object>();
@@ -102,6 +145,7 @@ export class PluginInstance {
     readonly pluginId: string,
     owner?: { record: PluginRecord; registry: PluginRegistry },
   ) {
+    this.instanceId = PluginInstance.nextInstanceId++;
     if (owner) {
       this.owner = resolvePluginInstanceOwner(owner.record, owner.registry);
       if (this.owner.instance) {
@@ -148,7 +192,7 @@ export class PluginInstance {
     return this.activeCall() !== undefined;
   }
 
-  run<T>(run: () => T): T {
+  run<T>(run: () => T, kind = "unknown", label = ""): T {
     const current = this.activeCall();
     if (current) {
       return this.enter(current.token, run);
@@ -160,10 +204,10 @@ export class PluginInstance {
     if (!this.accepting || this.owner?.revoked) {
       throw new PluginInstanceUnavailableError(this.pluginId);
     }
-    return this.invoke(run);
+    return this.invoke(run, this.lease(true, undefined, false, kind, label));
   }
 
-  runInRegistry<T>(registry: PluginRegistry, run: () => T): T {
+  runInRegistry<T>(registry: PluginRegistry, run: () => T, kind = "unknown", label = ""): T {
     const current = this.activeCall();
     if (current) {
       return this.enter(current.token, run);
@@ -172,7 +216,7 @@ export class PluginInstance {
     if (!this.accepting || this.owner?.revoked) {
       throw new PluginInstanceUnavailableError(this.pluginId);
     }
-    return this.invoke(run, this.lease(true, registry));
+    return this.invoke(run, this.lease(true, registry, false, kind, label));
   }
 
   /** Associates an identity-sensitive public value without replacing it with a view. */
@@ -205,8 +249,10 @@ export class PluginInstance {
   }
 
   /** Detached host consumption retains its completion independently of its admitting caller. */
-  runConsumer<T>(consume: () => T): T {
-    return this.activeCall() ? this.invoke(consume) : this.run(consume);
+  runConsumer<T>(consume: () => T, kind = "unknown", label = ""): T {
+    return this.activeCall()
+      ? this.invoke(consume, this.lease(true, undefined, false, kind, label))
+      : this.run(consume, kind, label);
   }
 
   get hasRetainedConsumers(): boolean {
@@ -292,7 +338,11 @@ export class PluginInstance {
           closing = completion.promise.finally(release);
           try {
             completion.resolve(
-              this.invoke(cleanup, this.lease(false, token.registry), this.disposalFailures),
+              this.invoke(
+                cleanup,
+                this.lease(false, token.registry, false, "consumer:close", String(token.kind)),
+                this.disposalFailures,
+              ),
             );
           } catch (error) {
             completion.reject(error);
@@ -309,7 +359,7 @@ export class PluginInstance {
   }
 
   /** Only lifecycle owners may admit teardown after ordinary calls have stopped. */
-  runCleanup<T>(run: () => T): T {
+  runCleanup<T>(run: () => T, kind = "cleanup", label = ""): T {
     const current = this.activeCall();
     if (!current) {
       this.controller.signal.throwIfAborted();
@@ -317,14 +367,22 @@ export class PluginInstance {
     // Cleanup must not join the disposal that is waiting for this invocation.
     return this.invoke(
       run,
-      current ? { token: current.token, release: () => undefined } : this.lease(false),
+      current
+        ? { token: current.token, release: () => undefined }
+        : this.lease(false, undefined, false, kind, label),
       this.disposalFailures,
     );
   }
 
   private invoke<T>(
     run: () => T,
-    { token, release }: PluginInstanceCallLease = this.lease(),
+    { token, release }: PluginInstanceCallLease = this.lease(
+      true,
+      undefined,
+      false,
+      "value-view:callback",
+      "",
+    ),
     cleanupFailures?: Set<unknown>,
   ): T {
     const cleanup = this.calls.get(token)?.cleanup === true;
@@ -398,6 +456,8 @@ export class PluginInstance {
     joinDisposal = true,
     registry?: PluginRegistry,
     hostCleanup = false,
+    kind = "unknown",
+    label = "",
   ): PluginInstanceCallLease {
     // Nested callbacks and streams keep the consumer's exact token; ordinary
     // tokens could expire early or remain usable after that consumer closes.
@@ -412,6 +472,10 @@ export class PluginInstance {
     this.calls.set(token, {
       registry,
       cleanup: !joinDisposal || (current && this.calls.get(current.token)?.cleanup) === true,
+      kind,
+      label,
+      startedAt: Date.now(),
+      stack: captureCreationStack(),
     });
     return {
       token,
@@ -441,7 +505,7 @@ export class PluginInstance {
         instance: this,
         originalValues: this.originalValues,
         invoke: (run, lease) => this.invoke(run, lease),
-        lease: () => this.lease(),
+        lease: () => this.lease(true, undefined, false, "value-view:iterator", ""),
         hasToken: (token) => this.hasToken(token),
       },
       admit,
@@ -522,6 +586,7 @@ export class PluginInstance {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(wake);
+        this.logHeldLeases("waitForCalls timeout");
         reject(
           new Error(
             `Plugin ${this.pluginId} still has active calls after ${SHUTDOWN_TIMEOUT_MS}ms`,
@@ -537,6 +602,29 @@ export class PluginInstance {
       };
       this.waiters.add(wake);
     });
+  }
+
+  /** Emit a single log line summarizing held calls, or one line per held lease on retirement. */
+  private logHeldLeases(reason: string, now = Date.now()): void {
+    if (this.calls.size === 0) {
+      return;
+    }
+    const counts = new Map<string, number>();
+    for (const meta of this.calls.values()) {
+      counts.set(meta.kind, (counts.get(meta.kind) ?? 0) + 1);
+    }
+    const summary = [...counts.entries()].map(([kind, count]) => `${kind}:${count}`).join(",");
+    if (reason === "forced retirement") {
+      for (const meta of this.calls.values()) {
+        log.warn(
+          `Plugin ${this.pluginId} instance ${this.instanceId} held lease at ${reason}: ${formatHeldLease(meta, now)}`,
+        );
+      }
+    } else {
+      log.warn(
+        `Plugin ${this.pluginId} instance ${this.instanceId} has ${this.calls.size} held lease(s) at ${reason}: ${summary}`,
+      );
+    }
   }
 
   get disposing(): boolean {
@@ -570,6 +658,7 @@ export class PluginInstance {
     }
     if (!this.disposal) {
       this.quiesce();
+      this.logHeldLeases("dispose start");
       const terminalFailures = (this.disposalFailures = new DisposalFailures(() => {
         const current = invocation.getStore();
         // Async failure observers retain their originating token after its call has returned.
@@ -589,6 +678,7 @@ export class PluginInstance {
       void settled.catch(() => {});
       this.disposal = new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
+          const now = Date.now();
           const fact = {
             activeCallCount: new Set([
               ...this.calls.keys(),
@@ -598,6 +688,7 @@ export class PluginInstance {
           };
           this.forcedRetirement = true;
           void this.trackTimedOutCalls();
+          this.logHeldLeases("forced retirement", now);
           for (const [token, call] of this.calls) {
             if (!call.cleanup) {
               this.calls.delete(token);
@@ -640,11 +731,16 @@ export class PluginInstance {
     let hostFailure: { error: unknown } | undefined;
     const runCleanup = (cleanup: () => void | Promise<void>, hostCleanup = false) =>
       cleanupWork.track(() =>
-        this.invoke(cleanup, this.lease(false, undefined, hostCleanup), terminalFailures),
+        this.invoke(
+          cleanup,
+          this.lease(false, undefined, hostCleanup, "disposal:cleanup", cleanup.name || ""),
+          terminalFailures,
+        ),
       );
     try {
       await this.waitForCalls();
     } catch (error) {
+      this.logHeldLeases("forced retirement");
       failures.push(
         new PluginInstanceDrainTimeoutError(formatErrorMessage(error), this.trackTimedOutCalls(), {
           cause: error,
@@ -710,7 +806,10 @@ export class PluginInstance {
     await this.timedOutCalls?.settled.promise;
     for (const cleanup of moduleCleanups) {
       try {
-        await this.invoke(cleanup, this.lease(false));
+        await this.invoke(
+          cleanup,
+          this.lease(false, undefined, false, "disposal:module", cleanup.name || ""),
+        );
       } catch (error) {
         failures.push(error);
         terminalFailures.add(error);

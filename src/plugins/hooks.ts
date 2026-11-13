@@ -720,7 +720,9 @@ export function createHookRunner(
         const invoke = () =>
           (hook.handler as (event: unknown, ctx: unknown) => Promise<void> | void)(event, ctx);
         const promise = Promise.resolve(
-          hookName === "gateway_stop" ? runPluginCleanup(hook.handler, invoke) : invoke(),
+          hookName === "gateway_stop"
+            ? runPluginCleanup(hook.handler, invoke, `hook:${hookName}`, hook.pluginId)
+            : invoke(),
         );
         const timeoutMs = getVoidHookTimeoutMs(hookName, hook);
         if (timeoutMs) {

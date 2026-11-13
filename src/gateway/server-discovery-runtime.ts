@@ -206,7 +206,9 @@ export async function startGatewayDiscovery(params: {
           const stop = handle.stop;
           const invokeStop = () => stop.call(handle);
           const stopOwned = () =>
-            instance ? instance.runCleanup(invokeStop) : runPluginCleanup(stop, invokeStop);
+            instance
+              ? instance.runCleanup(invokeStop, "discovery:stop", entry.id)
+              : runPluginCleanup(stop, invokeStop, "discovery:stop", entry.id);
           if (!closed && current?.services.get(entry) === advertisement) {
             advertisement.stop = stopOwned;
             if (!current.claim.isCurrent()) {
@@ -223,7 +225,8 @@ export async function startGatewayDiscovery(params: {
         }
       };
       // Admission spans handle adoption, including cleanup of a late acquisition.
-      const started = (async () => (instance ? instance.run(start) : start()))().catch(
+      const started = (async () =>
+        instance ? instance.run(start, "discovery:start", entry.id) : start())().catch(
         (err: unknown) => {
           params.logDiscovery.warn(
             `gateway discovery service failed${timedOut ? " after startup timeout" : ""} (${entry.id}, plugin=${entry.pluginId}): ${String(err)}`,

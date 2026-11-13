@@ -493,7 +493,9 @@ async function startPreparedPluginServices({
     const instance = record && getPluginInstance(record);
     // Native service receivers retain their brands; registration owns their invocation scope.
     const runServiceCleanup = <T>(run: () => T): T =>
-      instance ? instance.runCleanup(run) : runPluginCleanup(service, run);
+      instance
+        ? instance.runCleanup(run, "service:stop", id)
+        : runPluginCleanup(service, run, "service:stop", id);
     const traceName = `sidecars.plugin-services.${encodeStartupTraceSegment(entry.pluginId)}.${encodeStartupTraceSegment(entry.id)}`;
     const lease = createPluginRuntimeCapabilityLease("plugin service");
     const gatewayEvents = createPluginServiceGatewayEvents({
@@ -653,7 +655,9 @@ async function startPreparedPluginServices({
           await withPluginHttpRouteRegistry(
             registry,
             () =>
-              ownedService.startupConsumer ? ownedService.startupConsumer.run(start) : start(),
+              ownedService.startupConsumer
+                ? ownedService.startupConsumer.run(start, "service:start", id)
+                : start(),
             lease,
           );
         } finally {

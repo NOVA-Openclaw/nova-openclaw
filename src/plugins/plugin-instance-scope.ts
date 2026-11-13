@@ -18,7 +18,7 @@ export interface PluginInstanceHandle extends PluginInvocationInstance, PluginIn
   readonly hasRetainedConsumers: boolean;
   readonly owner?: PluginInstanceOwner;
   toolRegistrationComplete: boolean;
-  runConsumer<T>(consume: () => T): T;
+  runConsumer<T>(consume: () => T, kind?: string, label?: string): T;
   adopt<T>(value: T): T;
   retainWork(): () => void;
   reserveReplacement(): () => void;
@@ -27,7 +27,7 @@ export interface PluginInstanceHandle extends PluginInvocationInstance, PluginIn
     registry?: PluginRegistry,
     kind?: "work" | "custody",
   ): PluginInstanceConsumer;
-  runInRegistry<T>(registry: PluginRegistry, run: () => T): T;
+  runInRegistry<T>(registry: PluginRegistry, run: () => T, kind?: string, label?: string): T;
   createRegistryView(registry: PluginRegistry, invoke: <T>(run: () => T) => T): <T>(value: T) => T;
   drain(options?: { includeConsumers?: boolean }): Promise<PluginInstanceDisposalResult>;
   resume(): void;
@@ -85,9 +85,9 @@ export function wrapCurrentPluginInstance<T>(value: T, host?: (value: T) => T): 
 }
 
 /** Teardown admission comes from the host owner, never a plugin method name. */
-export function runPluginCleanup<T>(value: object, run: () => T): T {
+export function runPluginCleanup<T>(value: object, run: () => T, kind = "cleanup", label = ""): T {
   const instance = pluginInstanceState.values.get(value);
-  return instance ? instance.runCleanup(run) : run();
+  return instance ? instance.runCleanup(run, kind, label) : run();
 }
 
 /** Named SDK slots share only within the exact managed plugin instance. */
