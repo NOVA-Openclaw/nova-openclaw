@@ -216,4 +216,38 @@ it("preserves input result order when inspections finish out of order", async ()
     "agent-1",
     "agent-2",
   ]);
+
+  it("TC-A8: calls onAgentProgress once per completed agent and swallows throwers", async () => {
+    const result = createResult();
+    const progress: (string | undefined)[] = [];
+    await preflightAgentDatabasesBounded(
+      [
+        { agentId: "a1", path: "/a/1" },
+        { agentId: "a2", path: "/a/2" },
+        { agentId: "a3", path: "/a/3" },
+      ],
+      async (target, inspection) => {
+        inspection.indeterminate.push({
+          kind: "agent",
+          path: target.path,
+          reason: "fixture",
+        });
+      },
+      result,
+      undefined,
+      {
+        signal: new AbortController().signal,
+        canDefer: () => false,
+        track: () => {},
+        defer: () => [],
+        onAgentProgress: (agentId) => {
+          if (agentId === "a2") {
+            throw new Error("boom");
+          }
+          progress.push(agentId);
+        },
+      },
+    );
+    expect(progress).toEqual(["a1", "a3"]);
+  });
 });
