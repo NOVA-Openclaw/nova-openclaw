@@ -623,7 +623,8 @@ describe("TC-A8: startup lease TTL scales with agent count", () => {
 
       const expectedTtlMs = resolveStartupMigrationLeaseTtlMs(agentCount);
       expect(afterExpiry.expires_at).toBeGreaterThanOrEqual(nowMs + expectedTtlMs - 1);
-      expect(afterExpiry.expires_at - beforeExpiry.expires_at).toBeLessThanOrEqual(1);
+      expect(afterExpiry.expires_at).toBeLessThanOrEqual(nowMs + expectedTtlMs + 1000);
+      expect(afterExpiry.expires_at).toBeGreaterThan(beforeExpiry.expires_at);
     } finally {
       lease.release();
     }
