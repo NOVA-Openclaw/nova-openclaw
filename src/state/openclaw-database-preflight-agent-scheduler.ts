@@ -34,6 +34,7 @@ export async function preflightAgentDatabasesBounded<T>(
       inspections: { target: T; result: Promise<OpenClawDatabaseSchemaPreflight> }[],
       reason: string,
     ) => AgentDatabaseAdmissionRefusal[];
+    onAgentProgress?: (agentId: string | undefined) => void;
   },
 ): Promise<AgentDatabasePreflightStats> {
   const inspectedAgentPaths = new Set<string>();
@@ -127,6 +128,12 @@ export async function preflightAgentDatabasesBounded<T>(
         );
         inspections[index] = inspection;
         completions[index]!.resolve(inspection);
+        try {
+          startup?.onAgentProgress?.("agentId" in target ? (target.agentId as string | undefined) : undefined);
+        } catch {
+          // Progress pump is additive insurance; a throwing callback must not
+          // fail the inspection walk.
+        }
         if (disposition === "defer" && startup?.canDefer(target)) {
           deferred.add(index);
         }

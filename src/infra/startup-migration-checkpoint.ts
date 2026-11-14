@@ -48,6 +48,22 @@ const STARTUP_MIGRATION_LEASE = {
 const STARTUP_MIGRATION_LEASE_POLL_INTERVAL_MS = 250;
 export const STARTUP_MIGRATION_LEASE_TTL_MS = 5 * 60_000;
 export const STARTUP_MIGRATION_HEARTBEAT_INTERVAL_MS = 60_000;
+// The serial startup agent-DB integrity walk grows with the agent inventory, so a
+// fixed TTL can expire mid-walk on large fleets before the next heartbeat renews it.
+// Budget this much per agent and take whichever is larger as the effective TTL,
+// keeping STARTUP_MIGRATION_LEASE_TTL_MS as the small-fleet floor/default.
+export const STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS = 30_000;
+
+/** Scale the lease TTL by agent count, never dropping below the 5 minute floor. */
+export function resolveStartupMigrationLeaseTtlMs(agentCount: number | undefined): number {
+  if (agentCount === undefined || !Number.isFinite(agentCount) || agentCount <= 0) {
+    return STARTUP_MIGRATION_LEASE_TTL_MS;
+  }
+  return Math.max(
+    STARTUP_MIGRATION_LEASE_TTL_MS,
+    Math.ceil(agentCount) * STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS,
+  );
+}
 
 export type StartupMigrationLease = {
   /** Publication guards may already hold the SQLite writer, so this check must stay read-only. */
@@ -64,6 +80,11 @@ type StartupMigrationLeaseParams = {
   owner?: string;
   /** Process id that owns the startup migration work. */
   ownerPid?: number;
+  /**
+   * Number of agents whose databases the startup walk must inspect. Scales the
+   * lease TTL (see resolveStartupMigrationLeaseTtlMs); omit for the 5 minute floor.
+   */
+  agentCount?: number;
 };
 
 type StartupMigrationLeaseWaitParams = Omit<StartupMigrationLeaseParams, "nowMs"> & {
@@ -155,6 +176,7 @@ function acquireStartupMigrationLease(
 ): StartupMigrationLease {
   const env = params.env ?? process.env;
   const owner = params.owner ?? randomUUID();
+  const leaseTtlMs = resolveStartupMigrationLeaseTtlMs(params.agentCount);
   return withOpenClawStateStartupMigrationCheckpointDatabase(
     (connection) => {
       // Integrity verification may outlast a lease; start its lifetime at the actual claim.
@@ -166,7 +188,7 @@ function acquireStartupMigrationLease(
         host: hostname(),
         startedAt: getFileLockProcessStartTime(ownerPid),
       };
-      const expiresAt = nowMs + STARTUP_MIGRATION_LEASE_TTL_MS;
+      const expiresAt = nowMs + leaseTtlMs;
       const identity = { ...STARTUP_MIGRATION_LEASE, owner };
 
       runSqliteImmediateTransactionSync(
@@ -182,7 +204,7 @@ function acquireStartupMigrationLease(
             acquireOpenClawStateLeaseInTransaction(
               db,
               identity,
-              STARTUP_MIGRATION_LEASE_TTL_MS,
+              leaseTtlMs,
               JSON.stringify({ version: VERSION, owner: leaseOwner }),
               nowMs,
             );
@@ -224,7 +246,7 @@ function acquireStartupMigrationLease(
             const renewed = renewOpenClawStateLeaseInTransaction(
               db,
               identity,
-              STARTUP_MIGRATION_LEASE_TTL_MS,
+              leaseTtlMs,
               undefined,
               heartbeatNowMs,
             );

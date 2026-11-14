@@ -25,6 +25,7 @@ import {
   rethrowStartupConfigFailure,
   throwStartupMigrationGuardRejected,
 } from "./doctor-startup-migration-refusal.js";
+import { listAgentIds } from "../agents/agent-roster.js";
 import { cleanupStartupPluginSourceCaptures } from "./startup-plugin-source-captures.js";
 
 // Persistent lease loss must reach the operator instead of retrying startup forever.
@@ -146,8 +147,9 @@ async function prepareStartupConfig(
     if (read.recovery) {
       const { acquireStartupMigrationLeaseWithWait } =
         await import("../infra/startup-migration-checkpoint.js");
+      const agentCount = listAgentIds(read.snapshot.sourceConfig).length;
       lease = await measureDoctorConfigPreflightStep("migration-lease", () =>
-        acquireStartupMigrationLeaseWithWait({ env }),
+        acquireStartupMigrationLeaseWithWait({ env, agentCount }),
       );
       heartbeat = setInterval(() => {
         try {

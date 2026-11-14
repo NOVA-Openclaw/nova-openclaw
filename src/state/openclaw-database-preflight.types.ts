@@ -78,6 +78,8 @@ export type OpenClawDatabasePreflightOptions = {
   env: NodeJS.ProcessEnv;
   onAgentDatabaseDiscovery?: (prepared: PreparedAgentDatabaseMigrationDiscovery) => void;
   onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
+  /** Called once for each agent database whose inspection completes during startup. */
+  onAgentProgress?: (agentId: string | undefined) => void;
   scope?: "state";
   signal?: AbortSignal;
   /** False permits isolated online readers and SQLite read marks; true preserves source bytes. */
