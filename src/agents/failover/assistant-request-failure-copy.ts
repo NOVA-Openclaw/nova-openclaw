@@ -86,6 +86,7 @@ const ASSISTANT_REQUEST_FAILURE_COPY = {
     "Your AI session expired. Start a new conversation with /new. If it happens again, sign in under Models in the Control UI.",
   empty_response: "The AI service returned an empty reply. Please try again.",
   no_error_details: "",
+  refusal: "The AI service refused this request. Try a new conversation with /new, or choose another model in the Control UI.",
   unclassified: "",
   unknown: "",
 } satisfies Record<FailoverReason, string>;

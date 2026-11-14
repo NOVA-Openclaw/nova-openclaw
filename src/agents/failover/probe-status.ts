@@ -15,6 +15,7 @@ export const FAILOVER_PROBE_STATUS = {
   session_expired: "unknown",
   empty_response: "unknown",
   no_error_details: "unknown",
+  refusal: "unknown",
   unclassified: "unknown",
   unknown: "unknown",
 } as const satisfies Record<FailoverReason, string>;

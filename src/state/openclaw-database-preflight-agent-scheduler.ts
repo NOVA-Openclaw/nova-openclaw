@@ -129,7 +129,11 @@ export async function preflightAgentDatabasesBounded<T>(
         inspections[index] = inspection;
         completions[index]!.resolve(inspection);
         try {
-          startup?.onAgentProgress?.("agentId" in target ? (target.agentId as string | undefined) : undefined);
+          const agentId =
+            target && typeof target === "object" && "agentId" in target
+              ? (target as { agentId?: string }).agentId
+              : undefined;
+          startup?.onAgentProgress?.(agentId);
         } catch {
           // Progress pump is additive insurance; a throwing callback must not
           // fail the inspection walk.

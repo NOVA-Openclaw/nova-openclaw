@@ -30,6 +30,7 @@ const ERROR_TYPE_BY_REASON = {
   session_expired: "invalid_request_error",
   empty_response: undefined,
   no_error_details: undefined,
+  refusal: undefined,
   unclassified: undefined,
   unknown: undefined,
 } satisfies Record<FailoverReason, string | undefined>;
