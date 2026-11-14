@@ -30,6 +30,7 @@ export function resolveAuthProfileFailureReason(params: {
     params.failoverReason === "empty_response" ||
     params.failoverReason === "context_overflow" ||
     params.failoverReason === "format" ||
+    params.failoverReason === "refusal" ||
     (params.failoverReason === "timeout" && params.providerStarted !== true)
   ) {
     return null;

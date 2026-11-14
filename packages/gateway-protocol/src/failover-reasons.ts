@@ -13,6 +13,7 @@ export const FAILOVER_REASONS = [
   "session_expired",
   "empty_response",
   "no_error_details",
+  "refusal",
   "unclassified",
   "unknown",
 ] as const;

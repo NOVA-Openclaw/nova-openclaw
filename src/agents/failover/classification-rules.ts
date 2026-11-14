@@ -320,6 +320,7 @@ const FAILOVER_CODE_REASONS = new Map<string, FailoverReason>([
   ["THROTTLING_EXCEPTION", "rate_limit"],
   ["DEACTIVATED_WORKSPACE", "auth_permanent"],
   ["SELECTED_AUTH_PROFILE_UNAVAILABLE", "auth"],
+  ["PROVIDER_REFUSAL", "refusal"],
   ["OVERLOADED", "overloaded"],
   ["OVERLOADED_ERROR", "overloaded"],
   ["EHOSTDOWN", "timeout"],
