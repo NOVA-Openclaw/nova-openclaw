@@ -284,7 +284,10 @@ export function acquireStartupMigrationLeaseWithWait(
     now: monotonicNow,
     sleep: params.sleep,
     acquire: () =>
-      acquireStartupMigrationLease({ env: params.env, owner, ownerPid: params.ownerPid }, now),
+      acquireStartupMigrationLease(
+        { env: params.env, owner, ownerPid: params.ownerPid, agentCount: params.agentCount },
+        now,
+      ),
     // A replacement host cannot prove the old owner dead. Wait within the same
     // bound for release or expiry instead of adding supervisor restart backoff.
     shouldRetry: (error) =>
