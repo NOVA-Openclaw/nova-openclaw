@@ -22,7 +22,9 @@ import { OpenClawStateOwnershipError } from "./sqlite-lifecycle-errors.js";
 import {
   acquireStartupMigrationLeaseWithWait,
   hasActiveStartupMigrationLease,
+  resolveStartupMigrationLeaseTtlMs,
   STARTUP_MIGRATION_LEASE_TTL_MS,
+  STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS,
 } from "./startup-migration-checkpoint.js";
 
 afterEach(() => {
@@ -571,6 +573,59 @@ describe("startup migration lease", () => {
       ).toBeUndefined();
     } finally {
       verify.close();
+    }
+  });
+});
+
+describe("TC-A8: startup lease TTL scales with agent count", () => {
+  it("uses the 5-minute floor when agentCount is omitted", () => {
+    expect(resolveStartupMigrationLeaseTtlMs(undefined)).toBe(STARTUP_MIGRATION_LEASE_TTL_MS);
+    expect(resolveStartupMigrationLeaseTtlMs(0)).toBe(STARTUP_MIGRATION_LEASE_TTL_MS);
+  });
+
+  it.each([
+    { agents: 1, expected: STARTUP_MIGRATION_LEASE_TTL_MS },
+    { agents: 5, expected: STARTUP_MIGRATION_LEASE_TTL_MS },
+    { agents: 11, expected: 11 * STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS },
+    { agents: 19, expected: 19 * STARTUP_MIGRATION_LEASE_TTL_PER_AGENT_MS },
+  ])("scales TTL for $agents agents to $expected ms", ({ agents, expected }) => {
+    expect(resolveStartupMigrationLeaseTtlMs(agents)).toBe(expected);
+  });
+
+  it("heartbeat renews with the scaled TTL", async () => {
+    const env = {
+      OPENCLAW_STATE_DIR: startupMigrationTempDirs.make("openclaw-startup-scaled-ttl-"),
+    };
+    const agentCount = 11;
+    const lease = await acquireStartupMigrationLeaseWithWait({
+      env,
+      owner: "scaled-ttl",
+      agentCount,
+      timeoutMs: 0,
+    });
+    try {
+      const databasePath = resolveOpenClawStateSqlitePath(env);
+      const { DatabaseSync } = requireNodeSqlite();
+      const beforeHeartbeat = new DatabaseSync(databasePath, { readOnly: true });
+      const beforeExpiry = beforeHeartbeat
+        .prepare("SELECT expires_at FROM state_leases WHERE scope = 'startup-migrations'")
+        .get() as { expires_at: number };
+      beforeHeartbeat.close();
+
+      const nowMs = Date.now();
+      lease.heartbeat({ nowMs });
+
+      const afterHeartbeat = new DatabaseSync(databasePath, { readOnly: true });
+      const afterExpiry = afterHeartbeat
+        .prepare("SELECT expires_at FROM state_leases WHERE scope = 'startup-migrations'")
+        .get() as { expires_at: number };
+      afterHeartbeat.close();
+
+      const expectedTtlMs = resolveStartupMigrationLeaseTtlMs(agentCount);
+      expect(afterExpiry.expires_at).toBeGreaterThanOrEqual(nowMs + expectedTtlMs - 1);
+      expect(afterExpiry.expires_at - beforeExpiry.expires_at).toBeLessThanOrEqual(1);
+    } finally {
+      lease.release();
     }
   });
 });
