@@ -109,4 +109,33 @@ describe("classifyAssistantFailoverReason", () => {
       }),
     ).toBe("model_not_found");
   });
+
+  it("classifies provider refusals as 'refusal' even though they are terminal errors", () => {
+    const message = makeAssistantMessageFixture({
+      provider: "anthropic",
+      stopReason: "error",
+      errorMessage: "Anthropic refusal (category: violence): harmful content",
+      errorCode: "provider_refusal",
+      diagnostics: [
+        {
+          type: "provider_refusal",
+          timestamp: 1,
+          details: { provider: "anthropic", category: "violence" },
+        },
+      ],
+      content: [],
+    });
+    expect(classifyAssistantFailoverReason(message, { providerOwner: null })).toBe("refusal");
+  });
+
+  it("still treats other terminal errors as non-failover", () => {
+    const message = makeAssistantMessageFixture({
+      provider: "openai",
+      stopReason: "error",
+      errorMessage: "Repeated tool execution failures",
+      errorCode: "repeated_tool_error",
+      content: [],
+    });
+    expect(classifyAssistantFailoverReason(message, { providerOwner: null })).toBeNull();
+  });
 });
