@@ -158,7 +158,8 @@ export function resolveRunFailoverDecision(params: RunFailoverDecisionParams): R
     shouldRotate =
       shouldFallback &&
       params.failoverReason !== "timeout" &&
-      params.failoverReason !== "tls_certificate";
+      params.failoverReason !== "tls_certificate" &&
+      params.failoverReason !== "refusal";
   } else {
     if (
       params.signalOwnedInterruption ||
@@ -183,6 +184,12 @@ export function resolveRunFailoverDecision(params: RunFailoverDecisionParams): R
         : surfaceError;
     }
     shouldRotate = shouldRotateAssistant(params);
+    if (params.failoverReason === "refusal") {
+      // Provider content refusals are model/policy failures, not credential
+      // failures; rotate the model, not the auth profile.
+      shouldRotate = false;
+      shouldFallback = true;
+    }
     if (!shouldRotate) {
       return { action: "continue_normal" };
     }
