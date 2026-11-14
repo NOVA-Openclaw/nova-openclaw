@@ -80,6 +80,8 @@ export type OpenClawDatabasePreflightOptions = {
   env: NodeJS.ProcessEnv;
   onAgentDatabaseDiscovery?: (prepared: PreparedAgentDatabaseMigrationDiscovery) => void;
   onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
+  /** Called once for each agent database whose inspection completes during startup. */
+  onAgentProgress?: (agentId: string | undefined) => void;
   /** Reuse the registry targets captured by this admission for subsequent startup discovery. */
   onRegisteredAgentDatabases?: (targets: readonly { agentId: string; path: string }[]) => void;
   scope?: "state";
