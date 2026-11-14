@@ -13,6 +13,7 @@ const spawnProductionBoundaryFiles = [
 const coreIsolatedFiles = [
   "src/agents/cli-runner/bundle-mcp.user-config.test.ts",
   "src/agents/failover/classify.legacy-provider-predicates.test.ts",
+  "src/agents/failover/classify.refusal.test.ts",
   "src/agents/failover/failover-classification.corpus.test.ts",
   "src/agents/failover/provider-structured-signals.test.ts",
   "src/agents/media-generation-task-status-shared.test.ts",
