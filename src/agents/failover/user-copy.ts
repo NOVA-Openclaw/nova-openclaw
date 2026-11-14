@@ -629,6 +629,7 @@ const AUTH_PROFILE_COOLDOWN_COPY = {
     `Couldn't sign in to ${provider}. Your saved login looks expired or no longer works.`,
   empty_response: authProfileUnavailableCopy,
   no_error_details: authProfileUnavailableCopy,
+  refusal: authProfileUnavailableCopy,
   unclassified: authProfileUnavailableCopy,
   unknown: authProfileUnavailableCopy,
 } satisfies Record<FailoverReason, (provider: string) => string>;
