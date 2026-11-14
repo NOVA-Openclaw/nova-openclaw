@@ -4,6 +4,7 @@ import {
   GATEWAY_BOOT_REASON_MAX_UTF16_CODE_UNITS,
   type GatewayBootLifecycleCompletion,
 } from "../../infra/gateway-boot-lifecycle.js";
+import { formatGatewayDrainCounts } from "../../infra/gateway-drain.js";
 import { TailscaleBackendStoppedError } from "../../infra/tailscale-backend-stopped-error.js";
 import type { GatewayDrainReason } from "../../process/gateway-work-admission.js";
 import type { GatewayRunSignalRequest } from "./run-loop-request.js";
@@ -22,6 +23,10 @@ export function formatBootCompletionContext(
         ),
       }
     : completion;
+}
+
+export function formatDrainCounts(snapshot: { counts: Record<string, number> }): string {
+  return formatGatewayDrainCounts(snapshot);
 }
 
 export function formatShutdownReason(
