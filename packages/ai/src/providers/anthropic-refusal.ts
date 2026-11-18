@@ -10,11 +10,7 @@ type AnthropicRefusalOutput = {
 };
 
 export function applyAnthropicRefusal(
-  output: {
-    stopReason: string;
-    errorMessage?: string;
-    diagnostics?: AssistantMessageDiagnostic[];
-  },
+  output: AnthropicRefusalOutput,
   stopDetails: unknown,
   provider: string,
 ): void {

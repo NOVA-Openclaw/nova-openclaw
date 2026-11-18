@@ -313,7 +313,6 @@ export async function runResponsesStreamLifecycle<TApi extends Api>(params: {
       output,
       signal: options?.signal,
       error,
-      cleanup: () => cleanStreamingScratchBuffers(output),
       onProjected: () => {
         // assignTransportErrorDetails projects the raw provider code into
         // errorCode. Re-stamp the stable refusal marker afterwards so the
