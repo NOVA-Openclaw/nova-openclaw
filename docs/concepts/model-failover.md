@@ -558,7 +558,7 @@ a misalignment precaution, a queued or later user message still starts its
 own turn.
 
 Coverage is not uniform across providers and transports. As of this fork's
-upstream v2026.9.6 rebuild, a classifiable `provider_refusal` diagnostic is
+upstream v2026.11.5 reapply, a classifiable `provider_refusal` diagnostic is
 emitted from exactly three call sites: the direct Anthropic transport and two
 OpenAI Responses-family transports. An OpenRouter-proxied Anthropic refusal —
 the default routing for most fork-managed agents — does not currently emit a

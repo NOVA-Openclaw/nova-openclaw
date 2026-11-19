@@ -18,7 +18,8 @@ fork's older core-file patch (`861e4e63823`,
 a self-contained plugin so it survives future upstream restructuring of the
 exec-tool internals (the original patch's target file,
 `src/agents/bash-tools.exec.ts`, no longer exists as of upstream v2026.9.6 —
-it was split into 235 files under `src/agents/bash-tools.exec-*.ts`).
+it was split into 66 files under `src/agents/bash-tools.exec-*.ts`, confirmed
+still absent and still split as of the v2026.11.5 reapply).
 
 ## What it does
 
